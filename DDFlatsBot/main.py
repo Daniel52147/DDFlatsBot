@@ -59,7 +59,7 @@ async def main():
         print("🤖 DDFlatsBot started...")
         await dp.start_polling(
             bot,
-            allowed_updates=["message", "callback_query"],
+            allowed_updates=["message", "callback_query", "pre_checkout_query"],
             drop_pending_updates=True,
         )
     finally:
