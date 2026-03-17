@@ -15,13 +15,38 @@ from database.db import (
     rate_apartment, set_user_lang, get_user_lang,
     get_leaderboard, get_daily_digest, check_auto_vip_conditions,
     get_hot_apartments, get_price_drops_today, record_user_activity,
-    get_user_streak_days,
+    get_user_streak_days, get_all_user_ids, get_all_vip_user_ids,
+    set_user_role, get_user_role, is_moderator,
+    report_apartment, get_pending_reports, verify_apartment,
+    delete_apartment, get_mod_stats, get_reported_apartments,
+    get_price_stats, get_cheapest_apartments, get_apartment_by_id,
+    add_user_note, get_user_notes, get_similar_apartments, get_new_today_count,
 )
-from config import FREE_VIEWS, VIP_PRICE, DISTRICTS, ADMIN_IDS, CHANNEL_LINK
+from config import FREE_VIEWS, VIP_PRICE, DISTRICTS, ADMIN_IDS, CHANNEL_LINK, MODERATOR_IDS
 from config import REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS
 from bot.i18n import t
 
 router = Router()
+
+
+def get_lang(user_id: int) -> str:
+    """Get user language, default ru."""
+    try:
+        return get_user_lang(user_id) or "ru"
+    except Exception:
+        return "ru"
+
+
+def auto_detect_lang(tg_lang: str | None) -> str:
+    """Detect language from Telegram locale."""
+    if not tg_lang:
+        return "ru"
+    code = tg_lang.lower()[:2]
+    if code == "uk":
+        return "uk"
+    if code == "pl":
+        return "pl"
+    return "ru"
 
 
 # ── FSM States ───────────────────────────────────────────────
@@ -44,42 +69,71 @@ class AlertState(StatesGroup):
 class BroadcastState(StatesGroup):
     waiting_message = State()
 
+class ReportState(StatesGroup):
+    waiting_reason = State()
+
+class DisclaimerState(StatesGroup):
+    waiting_accept = State()
+
+class NoteState(StatesGroup):
+    waiting_note = State()
+
+class FeedbackState(StatesGroup):
+    waiting_text = State()
+
 
 # ── Helpers ──────────────────────────────────────────────────
 
-def apt_text(apt: dict) -> str:
-    rooms = f"{apt['rooms']} комн." if apt.get("rooms") else ""
-    area = f"{apt['area']} м²" if apt.get("area") else ""
-    floor = f"этаж {apt['floor']}" if apt.get("floor") else ""
-    details = " · ".join(filter(None, [rooms, area, floor]))
+def apt_text(apt: dict, lang: str = "ru") -> str:
+    rooms_str = f"{apt['rooms']} комн." if apt.get("rooms") else ""
+    area_str = f"{apt['area']} м²" if apt.get("area") else ""
+    floor_str = f"этаж {apt['floor']}" if apt.get("floor") else ""
+    details = " · ".join(filter(None, [rooms_str, area_str, floor_str]))
+
+    verified = "✅ <b>Проверено модератором</b>\n" if apt.get("verified") else ""
+
+    source_icons = {"OLX": "🟠", "Otodom": "🔵", "Gratka": "🟢", "Morizon": "🟣"}
+    source_icon = source_icons.get(apt.get("source", ""), "📡")
+
+    price = apt.get("price", 0)
+    if price:
+        # Price per m² if area known
+        price_per_m = f" · {int(price / apt['area'])} zł/м²" if apt.get("area") and apt["area"] > 0 else ""
+        price_line = f"💰 <b>{price} zł/мес</b>{price_per_m}"
+    else:
+        price_line = "💰 <i>Цена не указана</i>"
+
     lines = [
-        f"🏠 <b>{apt['title']}</b>",
-        f"💰 <b>{apt['price']} zł/мес</b>" if apt.get("price") else "💰 Цена не указана",
-        f"📍 {apt['district']}",
+        f"{verified}🏠 <b>{apt['title']}</b>",
+        price_line,
+        f"📍 {apt.get('district', 'Warszawa')}",
     ]
     if details:
         lines.append(f"📐 {details}")
+
     drop = get_price_drop(apt["id"]) if apt.get("id") else None
     if drop:
-        lines.append(f"📉 Цена снижена! {drop['old']} → {drop['new']} zł (-{drop['drop']} zł)")
-    lines += [f"🔗 {apt['link']}", f"📡 {apt['source']}"]
+        lines.append(f"📉 <b>Цена снижена!</b> {drop['old']} → {drop['new']} zł (−{drop['drop']} zł)")
+
+    lines.append(f"🔗 <a href=\"{apt['link']}\">Открыть объявление</a>  {source_icon} {apt.get('source','')}")
+    lines.append(f"\n<i>⚠️ {t(lang, 'warn_check')}</i>")
     return "\n".join(lines)
 
 
-def apt_keyboard(apt_id: int, lat=None, lon=None) -> InlineKeyboardMarkup:
+def apt_keyboard(apt_id: int, lat=None, lon=None, lang: str = "ru") -> InlineKeyboardMarkup:
     row1 = [
-        InlineKeyboardButton(text="❤️ Избранное", callback_data=f"fav_add:{apt_id}"),
-        InlineKeyboardButton(text="➡️ Следующая", callback_data="next"),
+        InlineKeyboardButton(text=t(lang, "btn_fav_add"), callback_data=f"fav_add:{apt_id}"),
+        InlineKeyboardButton(text=t(lang, "btn_next"), callback_data="next"),
     ]
     row2 = [
         InlineKeyboardButton(text="👍", callback_data=f"rate:1:{apt_id}"),
         InlineKeyboardButton(text="👎", callback_data=f"rate:-1:{apt_id}"),
-        InlineKeyboardButton(text="🗑 Пропустить", callback_data="skip"),
+        InlineKeyboardButton(text="🚩", callback_data=f"report:{apt_id}"),
     ]
     rows = [row1, row2]
     if lat and lon:
         rows.append([InlineKeyboardButton(
-            text="🗺 На карте",
+            text=t(lang, "btn_on_map"),
             url=f"https://www.google.com/maps?q={lat},{lon}"
         )])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -136,26 +190,56 @@ async def cmd_start(message: Message, state: FSMContext):
     user = get_or_create_user(message.from_user.id)
     name = message.from_user.first_name or "друг"
 
+    # Auto-detect language for new users
+    from datetime import datetime
+    created = user.get("created_at", "")
+    is_new = False
+    if created:
+        try:
+            is_new = (datetime.now() - datetime.fromisoformat(created)).seconds < 30
+        except Exception:
+            pass
+
+    if is_new:
+        detected_lang = auto_detect_lang(message.from_user.language_code)
+        set_user_lang(message.from_user.id, detected_lang)
+        lang = detected_lang
+    else:
+        lang = get_lang(message.from_user.id)
+
+    if is_new:
+        kb_disc = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text=t(lang, "btn_accept"), callback_data="accept_disclaimer"),
+        ]])
+        await message.answer(
+            t(lang, "disclaimer"),
+            parse_mode="HTML", reply_markup=kb_disc
+        )
+        # Store referral for after disclaimer
+        if len(args) > 1:
+            await state.update_data(pending_ref=args[1])
+        return
+
     early_adopter_msg = ""
     if user.get("vip") and user.get("vip_until"):
         from datetime import datetime
         created = user.get("created_at", "")
         if created and (datetime.now() - datetime.fromisoformat(created)).seconds < 10:
-            early_adopter_msg = "\n\n🎁 <b>Ты в числе первых 50!</b> Тебе активирован VIP на 7 дней бесплатно!"
+            early_adopter_msg = t(lang, "early_adopter")
 
     if len(args) > 1 and args[1].startswith("ref_"):
         ref_code = args[1][4:]
         rewarded = apply_referral(message.from_user.id, ref_code)
         if rewarded:
-            await message.answer("🎁 Реферальный бонус активирован! Пригласивший получил 7 дней VIP.")
+            await message.answer(t(lang, "ref_bonus"))
 
     # Auto VIP check on start
     reason = check_auto_vip_conditions(message.from_user.id)
     if reason == "fav10":
-        early_adopter_msg += "\n\n🎁 <b>+3 дня VIP</b> за 10 сохранённых квартир!"
+        early_adopter_msg += t(lang, "vip_fav10")
         user = get_or_create_user(message.from_user.id)
     elif reason == "loyal":
-        early_adopter_msg += "\n\n🎁 <b>+2 дня VIP</b> за активность!"
+        early_adopter_msg += t(lang, "vip_loyal")
         user = get_or_create_user(message.from_user.id)
 
     # Progress bar for free users
@@ -164,62 +248,43 @@ async def cmd_start(message: Message, state: FSMContext):
         total = FREE_VIEWS
         filled = min(used, total)
         bar = "🟩" * filled + "⬜" * (total - filled)
-        vip_badge = f"🆓 {bar} {used}/{total}"
+        vip_badge = t(lang, "free_badge", bar=bar, used=used, total=total)
     else:
         vip_until = user.get("vip_until", "")[:10] if user.get("vip_until") else "∞"
-        vip_badge = f"💎 VIP до {vip_until}"
+        vip_badge = t(lang, "vip_badge", until=vip_until)
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="🏠 Найти квартиру", callback_data="next"),
-            InlineKeyboardButton(text="🔍 Фильтры", callback_data="open_filter"),
+            InlineKeyboardButton(text=t(lang, "btn_find"), callback_data="next"),
+            InlineKeyboardButton(text=t(lang, "btn_filter"), callback_data="open_filter"),
         ],
         [
-            InlineKeyboardButton(text="❤️ Избранное", callback_data="open_favorites"),
-            InlineKeyboardButton(text="🔔 Алерты", callback_data="open_alerts"),
+            InlineKeyboardButton(text=t(lang, "btn_favorites"), callback_data="open_favorites"),
+            InlineKeyboardButton(text=t(lang, "btn_alerts"), callback_data="open_alerts"),
         ],
         [
-            InlineKeyboardButton(text="⭐ VIP доступ", callback_data="open_vip"),
-            InlineKeyboardButton(text="👥 Пригласить друга", callback_data="open_ref"),
+            InlineKeyboardButton(text=t(lang, "btn_vip"), callback_data="open_vip"),
+            InlineKeyboardButton(text=t(lang, "btn_ref"), callback_data="open_ref"),
         ],
         [
-            InlineKeyboardButton(text="📊 Цены по районам", callback_data="open_prices"),
-            InlineKeyboardButton(text="🆕 Сегодня", callback_data="open_today"),
+            InlineKeyboardButton(text=t(lang, "btn_cheap"), callback_data="open_cheap"),
+            InlineKeyboardButton(text=t(lang, "btn_hot"), callback_data="open_hot"),
         ],
         [
-            InlineKeyboardButton(text="🏆 Топ квартир", callback_data="open_top"),
-            InlineKeyboardButton(text="📈 Лидерборд", callback_data="open_leaderboard"),
+            InlineKeyboardButton(text=t(lang, "btn_drops"), callback_data="open_drops"),
+            InlineKeyboardButton(text=t(lang, "btn_map"), callback_data="open_map"),
         ],
         [
-            InlineKeyboardButton(text="🔥 Горячие", callback_data="open_hot"),
-            InlineKeyboardButton(text="📉 Снижение цен", callback_data="open_drops"),
+            InlineKeyboardButton(text=t(lang, "btn_notes"), callback_data="open_notes"),
+            InlineKeyboardButton(text=t(lang, "btn_mystats"), callback_data="open_stats"),
         ],
     ])
     await message.answer(
-        f"👋 Привет, {name}!\n"
-        f"{vip_badge}\n\n"
-        f"🏙 <b>DDFlatsBot</b> — квартиры Варшавы в одном месте.\n"
-        f"Парсю OLX · Otodom · Gratka · Morizon каждые 10 минут.\n\n"
-        f"<b>Команды:</b>\n"
-        f"/next — следующая квартира\n"
-        f"/filter — фильтры\n"
-        f"/today — добавлено сегодня\n"
-        f"/top — топ дешёвых\n"
-        f"/prices — цены по районам\n"
-        f"/favorites — избранное\n"
-        f"/alert — умный алерт (VIP)\n"
-        f"/ref — пригласить друга → VIP\n"
-        f"/vip — VIP подписка\n"
-        f"/mystats — моя статистика\n"
-        f"/leaderboard — топ рефералов\n"
-        f"/hot — горячие квартиры 🔥\n"
-        f"/drops — снижение цен 📉\n"
-        f"/lang — сменить язык 🌍"
-        f"{early_adopter_msg}",
+        t(lang, "start_greeting", name=name, badge=vip_badge) + early_adopter_msg +
+        "\n\n/menu — полное меню  |  /help — все команды",
         parse_mode="HTML",
         reply_markup=kb
     )
-
 
 # ── /next ────────────────────────────────────────────────────
 
@@ -227,6 +292,7 @@ async def show_next_apartment(user_id: int, bot, state: FSMContext, chat_id: int
     """Core logic for showing next apartment — used by both /next command and callbacks."""
     user = get_or_create_user(user_id)
     is_vip = bool(user["vip"])
+    lang = get_lang(user_id)
     data = await state.get_data()
 
     if user["views"] >= FREE_VIEWS and not is_vip:
@@ -235,8 +301,7 @@ async def show_next_apartment(user_id: int, bot, state: FSMContext, chat_id: int
         ]])
         await bot.send_message(
             chat_id,
-            f"⛔ Бесплатный лимит {FREE_VIEWS} квартир исчерпан.\n\n"
-            f"💎 VIP — безлимит + алерты + уведомления о снижении цены",
+            t(lang, "limit_reached", limit=FREE_VIEWS),
             reply_markup=kb
         )
         return
@@ -251,21 +316,12 @@ async def show_next_apartment(user_id: int, bot, state: FSMContext, chat_id: int
             await state.update_data(offset=0)
             apartments = get_apartments(filters=filters, offset=0, vip=is_vip)
             if apartments:
-                await bot.send_message(chat_id, "🔄 Показываю сначала — новых квартир пока нет.")
+                await bot.send_message(chat_id, t(lang, "wrap_around"))
             else:
-                await bot.send_message(
-                    chat_id,
-                    "😔 Квартир по твоим фильтрам не найдено.\n\n"
-                    "Попробуй изменить фильтры: /filter\n"
-                    "Или сбрось их: /start"
-                )
+                await bot.send_message(chat_id, t(lang, "no_apts"))
                 return
         else:
-            await bot.send_message(
-                chat_id,
-                "😔 Квартир пока нет. Парсер работает каждые 10 минут.\n\n"
-                "Попробуй позже или измени фильтры: /filter"
-            )
+            await bot.send_message(chat_id, t(lang, "no_apts_yet"))
             return
 
     apt = apartments[0]
@@ -277,13 +333,17 @@ async def show_next_apartment(user_id: int, bot, state: FSMContext, chat_id: int
     text = apt_text(apt)
     remaining = max(0, total - offset - 1)
     if remaining > 0:
-        text += f"\n\n📦 Ещё {remaining} квартир по фильтрам"
+        text += t(lang, "remaining", n=remaining)
 
-    kb = apt_keyboard(apt["id"])
+    kb = apt_keyboard(apt["id"], lang=lang)
     # Map button: build Google Maps link from district/title
     map_url = f"https://www.google.com/maps/search/{apt.get('district','')},+Warszawa"
     kb.inline_keyboard.append([
-        InlineKeyboardButton(text="🗺 На карте", url=map_url)
+        InlineKeyboardButton(text=t(lang, "btn_on_map"), url=map_url),
+        InlineKeyboardButton(text=t(lang, "btn_note"), callback_data=f"note:{apt['id']}"),
+    ])
+    kb.inline_keyboard.append([
+        InlineKeyboardButton(text=t(lang, "btn_similar"), callback_data=f"similar:{apt['id']}"),
     ])
     if apt.get("image"):
         try:
@@ -781,20 +841,141 @@ async def cmd_admin(message: Message):
     if message.from_user.id not in ADMIN_IDS:
         return
     stats = get_stats()
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast")],
-        [InlineKeyboardButton(text="🔄 Запустить парсер", callback_data="admin_parse")],
-    ])
     last = stats["last_parse"][:16] if stats["last_parse"] != "никогда" else "никогда"
+    from database.db import get_pending_reports
+    pending_reports = get_pending_reports(limit=50)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="📢 Рассылка всем", callback_data="admin_broadcast"),
+            InlineKeyboardButton(text="📢 Рассылка VIP", callback_data="admin_broadcast_vip"),
+        ],
+        [
+            InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users"),
+            InlineKeyboardButton(text="💎 VIP список", callback_data="admin_vip_list"),
+        ],
+        [
+            InlineKeyboardButton(text="📊 Статистика парсера", callback_data="admin_parse_stats"),
+            InlineKeyboardButton(text="🔄 Запустить парсер", callback_data="admin_parse"),
+        ],
+        [
+            InlineKeyboardButton(text=f"🚩 Жалобы ({len(pending_reports)})", callback_data="admin_reports"),
+            InlineKeyboardButton(text="🗑 Очистить старые", callback_data="admin_cleanup"),
+        ],
+        [
+            InlineKeyboardButton(text="📈 Топ рефералов", callback_data="admin_top_refs"),
+        ],
+    ])
     await message.answer(
-        f"🛠 <b>Админ-панель</b>\n\n"
-        f"🏠 Квартир: {stats['apartments']}\n"
-        f"👥 Пользователей: {stats['users']}\n"
-        f"💎 VIP: {stats['vip']}\n"
-        f"❤️ Избранных: {stats['favorites']}\n"
-        f"🕐 Последний парсинг: {last}",
+        f"🛠 <b>Админ-панель DDFlatsBot</b>\n\n"
+        f"🏠 Квартир в базе: <b>{stats['apartments']}</b>\n"
+        f"👥 Пользователей: <b>{stats['users']}</b>\n"
+        f"💎 VIP активных: <b>{stats['vip']}</b>\n"
+        f"❤️ Избранных: <b>{stats['favorites']}</b>\n"
+        f"🕐 Последний парсинг: <b>{last}</b>\n\n"
+        f"Команды:\n"
+        f"/setvip [id] — выдать VIP\n"
+        f"/removevip [id] — снять VIP\n"
+        f"/ban [id] — заблокировать\n"
+        f"/userinfo [id] — инфо о юзере",
         parse_mode="HTML", reply_markup=kb
     )
+
+
+@router.callback_query(F.data == "admin_users")
+async def cb_admin_users(call: CallbackQuery):
+    if call.from_user.id not in ADMIN_IDS:
+        await call.answer("⛔", show_alert=True)
+        return
+    await call.answer()
+    from database.db import get_conn
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT user_id, vip, views, ref_count, created_at FROM users ORDER BY created_at DESC LIMIT 20"
+    ).fetchall()
+    conn.close()
+    lines = ["👥 <b>Последние 20 пользователей:</b>\n"]
+    for r in rows:
+        vip_mark = "💎" if r["vip"] else "🆓"
+        date = r["created_at"][:10] if r["created_at"] else "?"
+        lines.append(f"{vip_mark} <code>{r['user_id']}</code> · 👁{r['views']} · 👥{r['ref_count']} · {date}")
+    await call.message.answer("\n".join(lines), parse_mode="HTML")
+
+
+@router.callback_query(F.data == "admin_vip_list")
+async def cb_admin_vip_list(call: CallbackQuery):
+    if call.from_user.id not in ADMIN_IDS:
+        await call.answer("⛔", show_alert=True)
+        return
+    await call.answer()
+    from database.db import get_conn
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT user_id, vip_until FROM users WHERE vip=1 ORDER BY vip_until DESC"
+    ).fetchall()
+    conn.close()
+    if not rows:
+        await call.message.answer("💎 VIP пользователей нет.")
+        return
+    lines = [f"💎 <b>VIP пользователи ({len(rows)}):</b>\n"]
+    for r in rows:
+        until = r["vip_until"][:10] if r["vip_until"] else "∞"
+        lines.append(f"<code>{r['user_id']}</code> — до {until}")
+    await call.message.answer("\n".join(lines), parse_mode="HTML")
+
+
+@router.callback_query(F.data == "admin_parse_stats")
+async def cb_admin_parse_stats(call: CallbackQuery):
+    if call.from_user.id not in ADMIN_IDS:
+        await call.answer("⛔", show_alert=True)
+        return
+    await call.answer()
+    from database.db import get_conn
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT source, SUM(count) as total, MAX(logged_at) as last
+        FROM parse_log GROUP BY source ORDER BY total DESC
+    """).fetchall()
+    src_counts = conn.execute(
+        "SELECT source, COUNT(*) as cnt FROM apartments GROUP BY source"
+    ).fetchall()
+    conn.close()
+    lines = ["📊 <b>Статистика парсера:</b>\n"]
+    for r in rows:
+        last = r["last"][:16] if r["last"] else "?"
+        lines.append(f"📡 <b>{r['source']}</b>: всего +{r['total']} · последний: {last}")
+    lines.append("\n<b>В базе сейчас:</b>")
+    for r in src_counts:
+        lines.append(f"  {r['source']}: {r['cnt']} объявл.")
+    await call.message.answer("\n".join(lines), parse_mode="HTML")
+
+
+@router.callback_query(F.data == "admin_cleanup")
+async def cb_admin_cleanup(call: CallbackQuery):
+    if call.from_user.id not in ADMIN_IDS:
+        await call.answer("⛔", show_alert=True)
+        return
+    await call.answer("🗑 Очистка запущена...")
+    from database.db import get_conn
+    from datetime import datetime, timedelta
+    cutoff = (datetime.now() - timedelta(days=30)).isoformat()
+    conn = get_conn()
+    deleted = conn.execute(
+        "DELETE FROM apartments WHERE created_at < ?", (cutoff,)
+    ).rowcount
+    conn.commit()
+    conn.close()
+    await call.message.answer(f"✅ Удалено {deleted} объявлений старше 30 дней.")
+
+
+@router.callback_query(F.data == "admin_broadcast_vip")
+async def cb_admin_broadcast_vip(call: CallbackQuery, state: FSMContext):
+    if call.from_user.id not in ADMIN_IDS:
+        await call.answer("⛔", show_alert=True)
+        return
+    await call.message.answer("✏️ Введи текст рассылки для VIP пользователей:")
+    await state.update_data(broadcast_target="vip")
+    await state.set_state(BroadcastState.waiting_message)
+    await call.answer()
 
 
 @router.callback_query(F.data == "admin_broadcast")
@@ -802,7 +983,8 @@ async def cb_admin_broadcast(call: CallbackQuery, state: FSMContext):
     if call.from_user.id not in ADMIN_IDS:
         await call.answer("⛔", show_alert=True)
         return
-    await call.message.answer("✏️ Введи текст рассылки:")
+    await call.message.answer("✏️ Введи текст рассылки (всем пользователям):")
+    await state.update_data(broadcast_target="all")
     await state.set_state(BroadcastState.waiting_message)
     await call.answer()
 
@@ -811,17 +993,22 @@ async def cb_admin_broadcast(call: CallbackQuery, state: FSMContext):
 async def broadcast_send(message: Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
         return
-    from database.db import get_all_user_ids
-    user_ids = get_all_user_ids()
+    data = await state.get_data()
+    target = data.get("broadcast_target", "all")
+    if target == "vip":
+        user_ids = get_all_vip_user_ids()
+    else:
+        user_ids = get_all_user_ids()
     sent = 0
     for uid in user_ids:
         try:
-            await message.bot.send_message(uid, f"📢 {message.text}")
+            await message.bot.send_message(uid, f"📢 {message.text}", parse_mode="HTML")
             sent += 1
         except Exception:
             pass
     await state.set_state(None)
-    await message.answer(f"✅ Отправлено {sent}/{len(user_ids)}")
+    label = "VIP" if target == "vip" else "всем"
+    await message.answer(f"✅ Отправлено {sent}/{len(user_ids)} ({label})")
 
 
 @router.callback_query(F.data == "admin_parse")
@@ -835,24 +1022,70 @@ async def cb_admin_parse(call: CallbackQuery):
     threading.Thread(target=parse_all, daemon=True).start()
 
 
+@router.callback_query(F.data == "admin_reports")
+async def cb_admin_reports(call: CallbackQuery):
+    if call.from_user.id not in ADMIN_IDS:
+        await call.answer("⛔", show_alert=True)
+        return
+    await call.answer()
+    reports = get_pending_reports(limit=10)
+    if not reports:
+        await call.message.answer("✅ Жалоб нет!")
+        return
+    await call.message.answer(f"🚩 <b>Жалобы ({len(reports)}):</b>", parse_mode="HTML")
+    for r in reports:
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Проверено", callback_data=f"mod_verify:{r['apartment_id']}"),
+            InlineKeyboardButton(text="🗑 Удалить", callback_data=f"mod_delete:{r['apartment_id']}"),
+        ]])
+        await call.message.answer(
+            f"🚩 <b>Жалоба #{r['id']}</b>\n"
+            f"🏠 {r.get('title','?')}\n"
+            f"💰 {r.get('price','?')} zł · 📍 {r.get('district','?')}\n"
+            f"📋 Причина: {r.get('reason','?')}\n"
+            f"👤 От: <code>{r.get('user_id','?')}</code>\n"
+            f"🔗 {r.get('link','?')}",
+            parse_mode="HTML",
+            reply_markup=kb
+        )
+
+
+@router.callback_query(F.data == "admin_top_refs")
+async def cb_admin_top_refs(call: CallbackQuery):
+    if call.from_user.id not in ADMIN_IDS:
+        await call.answer("⛔", show_alert=True)
+        return
+    await call.answer()
+    leaders = get_leaderboard()
+    if not leaders:
+        await call.message.answer("👥 Рефералов пока нет.")
+        return
+    lines = ["📈 <b>Топ рефералов:</b>\n"]
+    for i, l in enumerate(leaders, 1):
+        lines.append(f"{i}. <code>{l['user_id']}</code> — {l['ref_count']} чел.")
+    await call.message.answer("\n".join(lines), parse_mode="HTML")
+
+
 @router.message(Command("setvip"))
 async def cmd_setvip(message: Message):
     if message.from_user.id not in ADMIN_IDS:
         return
     args = message.text.split()
+    days = int(args[2]) if len(args) >= 3 and args[2].isdigit() else 30
     if len(args) < 2 or not args[1].isdigit():
-        await message.answer("Использование: /setvip [user_id]")
+        await message.answer("Использование: /setvip [user_id] [дней=30]")
         return
     target_id = int(args[1])
-    set_vip(target_id, 1, days=30)
-    await message.answer(f"✅ VIP активирован для {target_id}")
+    set_vip(target_id, 1, days=days)
+    await message.answer(f"✅ VIP на {days} дней активирован для {target_id}")
     try:
         await message.bot.send_message(
             target_id,
-            "🎉 Твой VIP активирован на 30 дней!\n\n"
+            f"🎉 <b>VIP активирован на {days} дней!</b>\n\n"
             "• Безлимитный просмотр\n"
             "• Умные алерты: /alert\n"
-            "• Подписка на районы: /subscribe\n\nСпасибо за поддержку! 🙏"
+            "• Подписка на районы: /subscribe\n\nСпасибо за поддержку! 🙏",
+            parse_mode="HTML"
         )
     except Exception:
         pass
@@ -870,6 +1103,58 @@ async def cmd_removevip(message: Message):
     await message.answer(f"✅ VIP снят с {args[1]}")
 
 
+@router.message(Command("userinfo"))
+async def cmd_userinfo(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    args = message.text.split()
+    if len(args) < 2 or not args[1].isdigit():
+        await message.answer("Использование: /userinfo [user_id]")
+        return
+    uid = int(args[1])
+    from database.db import get_conn
+    conn = get_conn()
+    user = conn.execute("SELECT * FROM users WHERE user_id=?", (uid,)).fetchone()
+    fav_count = conn.execute("SELECT COUNT(*) FROM favorites WHERE user_id=?", (uid,)).fetchone()[0]
+    alert_count = conn.execute("SELECT COUNT(*) FROM alerts WHERE user_id=? AND active=1", (uid,)).fetchone()[0]
+    conn.close()
+    if not user:
+        await message.answer(f"❌ Пользователь {uid} не найден.")
+        return
+    vip_until = user["vip_until"][:10] if user["vip_until"] else "нет"
+    await message.answer(
+        f"👤 <b>Пользователь {uid}</b>\n\n"
+        f"💎 VIP: {'да до ' + vip_until if user['vip'] else 'нет'}\n"
+        f"👁 Просмотров: {user['views']}\n"
+        f"❤️ Избранных: {fav_count}\n"
+        f"🎯 Алертов: {alert_count}\n"
+        f"👥 Рефералов: {user['ref_count']}\n"
+        f"🌍 Язык: {user['lang'] or 'ru'}\n"
+        f"📅 Регистрация: {(user['created_at'] or '')[:10]}\n\n"
+        f"Действия:\n"
+        f"/setvip {uid} 30\n"
+        f"/removevip {uid}",
+        parse_mode="HTML"
+    )
+
+
+@router.message(Command("ban"))
+async def cmd_ban(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    args = message.text.split()
+    if len(args) < 2 or not args[1].isdigit():
+        await message.answer("Использование: /ban [user_id]")
+        return
+    uid = int(args[1])
+    from database.db import get_conn
+    conn = get_conn()
+    conn.execute("UPDATE users SET vip=-1 WHERE user_id=?", (uid,))
+    conn.commit()
+    conn.close()
+    await message.answer(f"🚫 Пользователь {uid} заблокирован.")
+
+
 # ── Callbacks ────────────────────────────────────────────────
 
 @router.callback_query(F.data == "check_sub")
@@ -878,23 +1163,27 @@ async def cb_check_sub(call: CallbackQuery, state: FSMContext):
     if await is_subscribed(call.bot, call.from_user.id):
         await call.answer("✅ Подписка подтверждена!", show_alert=True)
         await call.message.delete()
-        # Send start message
         user = get_or_create_user(call.from_user.id)
+        lang = get_lang(call.from_user.id)
         name = call.from_user.first_name or "друг"
-        vip_badge = "💎 VIP" if user["vip"] else f"🆓 {user['views']}/{FREE_VIEWS} просмотров"
+        if not user["vip"]:
+            bar = "🟩" * min(user["views"], FREE_VIEWS) + "⬜" * max(0, FREE_VIEWS - user["views"])
+            vip_badge = t(lang, "free_badge", bar=bar, used=user["views"], total=FREE_VIEWS)
+        else:
+            vip_until = user.get("vip_until", "")[:10] if user.get("vip_until") else "∞"
+            vip_badge = t(lang, "vip_badge", until=vip_until)
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text="🏠 Найти квартиру", callback_data="next"),
-                InlineKeyboardButton(text="🔍 Фильтры", callback_data="open_filter"),
+                InlineKeyboardButton(text=t(lang, "btn_find"), callback_data="next"),
+                InlineKeyboardButton(text=t(lang, "btn_filter"), callback_data="open_filter"),
             ],
             [
-                InlineKeyboardButton(text="⭐ VIP доступ", callback_data="open_vip"),
-                InlineKeyboardButton(text="👥 Пригласить друга", callback_data="open_ref"),
+                InlineKeyboardButton(text=t(lang, "btn_vip"), callback_data="open_vip"),
+                InlineKeyboardButton(text=t(lang, "btn_ref"), callback_data="open_ref"),
             ],
         ])
         await call.message.answer(
-            f"✅ Добро пожаловать, {name}! {vip_badge}\n\n"
-            f"Нажми <b>Найти квартиру</b> чтобы начать!",
+            t(lang, "start_greeting", name=name, badge=vip_badge),
             parse_mode="HTML", reply_markup=kb
         )
     else:
@@ -943,25 +1232,104 @@ async def cb_open_filter(call: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "open_favorites")
 async def cb_open_favorites(call: CallbackQuery):
     await call.answer()
-    await cmd_favorites(call.message)
+    favs = get_favorites(call.from_user.id)
+    if not favs:
+        await call.message.answer("❤️ Избранное пусто.\nДобавляй кнопкой под объявлением.")
+        return
+    await call.message.answer(f"❤️ <b>Избранное ({len(favs)}):</b>", parse_mode="HTML")
+    for apt in favs[:10]:
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🗑 Удалить", callback_data=f"fav_remove:{apt['id']}"),
+            InlineKeyboardButton(text="🔗 Открыть", url=apt["link"]),
+        ]])
+        await call.message.answer(apt_text(apt), reply_markup=kb, parse_mode="HTML")
 
 
 @router.callback_query(F.data == "open_alerts")
 async def cb_open_alerts(call: CallbackQuery, state: FSMContext):
     await call.answer()
-    await cmd_alert(call.message, state)
+    user = get_or_create_user(call.from_user.id)
+    if not user["vip"]:
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text=f"⭐ VIP — {VIP_PRICE} zł/мес", callback_data="open_vip")
+        ]])
+        await call.message.answer(
+            "🔔 <b>Умный алерт</b> — VIP функция.\n\nЗадай параметры и я напишу тебе <b>мгновенно</b> когда появится подходящая квартира.",
+            parse_mode="HTML", reply_markup=kb
+        )
+        return
+    alerts = get_user_alerts(call.from_user.id)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ Создать алерт", callback_data="alert_create")],
+        *[[InlineKeyboardButton(
+            text=f"🗑 #{a['id']}: {a.get('district','любой')} до {a.get('price_max','∞')} zł",
+            callback_data=f"alert_del:{a['id']}"
+        )] for a in alerts],
+    ])
+    await call.message.answer(
+        f"🔔 <b>Твои алерты ({len(alerts)}/5):</b>\n\nКогда появится квартира по параметрам — напишу сразу.",
+        parse_mode="HTML", reply_markup=kb
+    )
 
 
 @router.callback_query(F.data == "open_vip")
 async def cb_open_vip(call: CallbackQuery):
     await call.answer()
-    await cmd_vip(call.message)
+    # Inline version — pass user_id correctly
+    user = get_or_create_user(call.from_user.id)
+    if user["vip"]:
+        subs = get_user_subscriptions(call.from_user.id)
+        vip_until = user.get("vip_until", "")[:10] if user.get("vip_until") else "∞"
+        await call.message.answer(
+            f"💎 <b>VIP активен до: {vip_until}</b>\n\n"
+            f"🔔 Подписки: {', '.join(subs) if subs else 'нет'}\n\n"
+            f"• Алерты: /alert\n• Статистика: /mystats",
+            parse_mode="HTML"
+        )
+        return
+    ref = get_ref_stats(call.from_user.id)
+    ref_count = ref.get("ref_count", 0)
+    ref_progress = min(ref_count, REFERRAL_REQUIRED)
+    ref_bar = "🟩" * ref_progress + "⬜" * (REFERRAL_REQUIRED - ref_progress)
+    favs = get_favorites(call.from_user.id)
+    fav_count = len(favs)
+    fav_bar = "🟩" * min(fav_count, 10) + "⬜" * (10 - min(fav_count, 10))
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"💳 Оплатить {VIP_PRICE} zł/мес", callback_data="vip_how_to_pay")],
+        [InlineKeyboardButton(text="👥 Получить бесплатно (рефералы)", callback_data="open_ref")],
+    ])
+    await call.message.answer(
+        f"⭐ <b>VIP — {VIP_PRICE} zł/мес</b>\n\n"
+        f"✅ Безлимитный просмотр\n✅ Умные алерты\n✅ Подписка на районы\n✅ Уведомления о снижении цены\n\n"
+        f"━━━━━━━━━━━━━━━━━━\n🆓 <b>Бесплатно:</b>\n\n"
+        f"👥 Рефералы: {ref_bar} {ref_count}/{REFERRAL_REQUIRED}\n"
+        f"❤️ Избранное: {fav_bar} {fav_count}/10",
+        parse_mode="HTML", reply_markup=kb
+    )
 
 
 @router.callback_query(F.data == "open_ref")
 async def cb_open_ref(call: CallbackQuery):
     await call.answer()
-    await cmd_ref(call.message)
+    stats = get_ref_stats(call.from_user.id)
+    if not stats:
+        return
+    ref_code = stats["ref_code"]
+    ref_count = stats["ref_count"]
+    bot_me = await call.bot.get_me()
+    ref_link = f"https://t.me/{bot_me.username}?start=ref_{ref_code}"
+    next_reward = REFERRAL_REQUIRED - (ref_count % REFERRAL_REQUIRED)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="📤 Поделиться ссылкой", switch_inline_query=ref_link)
+    ]])
+    await call.message.answer(
+        f"👥 <b>Пригласи друзей — получи VIP бесплатно!</b>\n\n"
+        f"Твоя ссылка:\n<code>{ref_link}</code>\n\n"
+        f"👤 Приглашено: {ref_count} чел.\n"
+        f"🎁 До следующего VIP: ещё {next_reward} чел.\n\n"
+        f"За каждые {REFERRAL_REQUIRED} приглашённых — {REFERRAL_REWARD_DAYS} дней VIP!",
+        parse_mode="HTML", reply_markup=kb
+    )
 
 
 @router.callback_query(F.data == "open_stats")
@@ -980,7 +1348,6 @@ async def cb_open_prices(call: CallbackQuery):
 async def cb_open_today(call: CallbackQuery, state: FSMContext):
     await call.answer()
     await cmd_today(call.message, state)
-
 
 @router.callback_query(F.data == "cancel")
 async def cb_cancel(call: CallbackQuery, state: FSMContext):
@@ -1169,22 +1536,29 @@ async def cb_open_hot(call: CallbackQuery):
 async def cmd_drops(message: Message):
     drops = get_price_drops_today(limit=5)
     if not drops:
-        await message.answer("📉 Снижений цен за последние 24ч не найдено.")
+        await message.answer(
+            "📉 <b>Снижений цен пока нет</b>\n\n"
+            "Бот отслеживает изменения цен при каждом парсинге.\n"
+            "Как только цена снизится — покажу здесь.\n\n"
+            "💡 Настрой алерт чтобы получать уведомления: /alert",
+            parse_mode="HTML"
+        )
         return
-    await message.answer("📉 <b>Снижение цен за 24ч:</b>", parse_mode="HTML")
+    await message.answer("📉 <b>Снижение цен за 48ч:</b>", parse_mode="HTML")
     for apt in drops:
-        old = apt.get("old_price") or apt.get("price", 0)
-        new = apt.get("new_price") or apt.get("price", 0)
-        diff = int(old) - int(new) if old and new else 0
+        old = apt.get("old_price") or 0
+        current = apt.get("price") or 0
+        diff = int(old) - int(current) if old and current else 0
+        pct = int(diff / old * 100) if old else 0
         kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="❤️ Избранное", callback_data=f"fav_add:{apt['id']}"),
+            InlineKeyboardButton(text="❤️ Сохранить", callback_data=f"fav_add:{apt['id']}"),
             InlineKeyboardButton(text="🔗 Открыть", url=apt["link"]),
         ]])
         text = (
-            f"🏠 <b>{apt['title']}</b>\n"
-            f"📉 <s>{old} zł</s> → <b>{new} zł</b> (-{diff} zł)\n"
-            f"📍 {apt['district']}\n"
-            f"🔗 {apt['link']}"
+            f"📉 <b>-{diff} zł ({pct}%)</b>\n"
+            f"🏠 {apt['title']}\n"
+            f"💰 <s>{old} zł</s> → <b>{current} zł/мес</b>\n"
+            f"📍 {apt.get('district', 'Warszawa')}"
         )
         await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
@@ -1193,3 +1567,715 @@ async def cmd_drops(message: Message):
 async def cb_open_drops(call: CallbackQuery):
     await call.answer()
     await cmd_drops(call.message)
+
+
+# ── /compare — сравнение квартир (уникальная фича) ────────────
+
+@router.message(Command("compare"))
+async def cmd_compare(message: Message):
+    favs = get_favorites(message.from_user.id)
+    if len(favs) < 2:
+        await message.answer(
+            "📊 <b>Сравнение квартир</b>\n\n"
+            "Добавь минимум 2 квартиры в избранное ❤️ и я сравню их рядом!\n\n"
+            "Нажми /next чтобы смотреть квартиры.",
+            parse_mode="HTML"
+        )
+        return
+
+    # Compare first 3 favorites
+    to_compare = favs[:3]
+    lines = ["📊 <b>Сравнение квартир:</b>\n"]
+    headers = ["🥇 Вариант 1", "🥈 Вариант 2", "🥉 Вариант 3"]
+
+    for i, apt in enumerate(to_compare):
+        price = apt.get("price") or "—"
+        rooms = f"{apt['rooms']} комн." if apt.get("rooms") else "—"
+        area = f"{apt['area']} м²" if apt.get("area") else "—"
+        district = apt.get("district") or "—"
+        source = apt.get("source") or "—"
+        lines.append(
+            f"{headers[i]}\n"
+            f"🏠 {apt['title'][:40]}...\n"
+            f"💰 {price} zł/мес\n"
+            f"📍 {district}\n"
+            f"🛏 {rooms} · 📐 {area}\n"
+            f"📡 {source}\n"
+            f"🔗 {apt['link']}\n"
+        )
+
+    # Highlight cheapest
+    prices = [apt.get("price") or 999999 for apt in to_compare]
+    min_idx = prices.index(min(prices))
+    lines.append(f"✅ <b>Лучшая цена: {headers[min_idx]}</b>")
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="❤️ Смотреть избранное", callback_data="open_favorites")
+    ]])
+    await message.answer("\n".join(lines), parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data == "open_compare")
+async def cb_open_compare(call: CallbackQuery):
+    await call.answer()
+    await cmd_compare(call.message)
+
+
+# ── Disclaimer accept ─────────────────────────────────────────
+
+@router.callback_query(F.data == "accept_disclaimer")
+async def cb_accept_disclaimer(call: CallbackQuery, state: FSMContext):
+    await call.answer("✅ Принято!")
+    data = await state.get_data()
+    pending_ref = data.get("pending_ref")
+    await state.clear()
+
+    user = get_or_create_user(call.from_user.id)
+
+    # Process referral if pending
+    if pending_ref and pending_ref.startswith("ref_"):
+        ref_code = pending_ref[4:]
+        rewarded = apply_referral(call.from_user.id, ref_code)
+        if rewarded:
+            await call.message.answer("🎁 Реферальный бонус активирован! Пригласивший получил 7 дней VIP.")
+
+    lang = get_lang(call.from_user.id)
+    name = call.from_user.first_name or "друг"
+    early_msg = ""
+    if user.get("vip") and user.get("vip_until"):
+        early_msg = t(lang, "early_adopter")
+
+    if not user["vip"]:
+        used = user["views"]
+        bar = "🟩" * min(used, FREE_VIEWS) + "⬜" * max(0, FREE_VIEWS - used)
+        vip_badge = t(lang, "free_badge", bar=bar, used=used, total=FREE_VIEWS)
+    else:
+        vip_until = user.get("vip_until", "")[:10] if user.get("vip_until") else "∞"
+        vip_badge = t(lang, "vip_badge", until=vip_until)
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=t(lang, "btn_find"), callback_data="next"),
+            InlineKeyboardButton(text=t(lang, "btn_filter"), callback_data="open_filter"),
+        ],
+        [
+            InlineKeyboardButton(text=t(lang, "btn_favorites"), callback_data="open_favorites"),
+            InlineKeyboardButton(text=t(lang, "btn_alerts"), callback_data="open_alerts"),
+        ],
+        [
+            InlineKeyboardButton(text=t(lang, "btn_vip"), callback_data="open_vip"),
+            InlineKeyboardButton(text=t(lang, "btn_ref"), callback_data="open_ref"),
+        ],
+        [
+            InlineKeyboardButton(text=t(lang, "btn_cheap"), callback_data="open_cheap"),
+            InlineKeyboardButton(text=t(lang, "btn_hot"), callback_data="open_hot"),
+        ],
+        [
+            InlineKeyboardButton(text=t(lang, "btn_drops"), callback_data="open_drops"),
+            InlineKeyboardButton(text=t(lang, "btn_map"), callback_data="open_map"),
+        ],
+    ])
+    await call.message.answer(
+        t(lang, "start_greeting", name=name, badge=vip_badge) + early_msg,
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+
+
+# ── Report apartment ──────────────────────────────────────────
+
+@router.callback_query(F.data.startswith("report:"))
+async def cb_report_start(call: CallbackQuery, state: FSMContext):
+    apt_id = int(call.data.split(":")[1])
+    await state.update_data(report_apt_id=apt_id)
+    await state.set_state(ReportState.waiting_reason)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🤖 Фейк/мошенник", callback_data="report_reason:fake"),
+            InlineKeyboardButton(text="💸 Цена не та", callback_data="report_reason:price"),
+        ],
+        [
+            InlineKeyboardButton(text="📷 Фото не совпадает", callback_data="report_reason:photo"),
+            InlineKeyboardButton(text="🔁 Дубликат", callback_data="report_reason:duplicate"),
+        ],
+        [
+            InlineKeyboardButton(text="🚫 Уже сдана", callback_data="report_reason:rented"),
+            InlineKeyboardButton(text="❓ Другое", callback_data="report_reason:other"),
+        ],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel")],
+    ])
+    await call.answer()
+    await call.message.answer("🚩 <b>Причина жалобы:</b>", parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("report_reason:"))
+async def cb_report_reason(call: CallbackQuery, state: FSMContext):
+    reason_map = {
+        "fake": "Фейк/мошенник",
+        "price": "Цена не соответствует",
+        "photo": "Фото не совпадает",
+        "duplicate": "Дубликат",
+        "rented": "Уже сдана",
+        "other": "Другое",
+    }
+    reason_key = call.data.split(":")[1]
+    reason = reason_map.get(reason_key, reason_key)
+    data = await state.get_data()
+    apt_id = data.get("report_apt_id")
+    await state.clear()
+
+    if not apt_id:
+        await call.answer("Ошибка", show_alert=True)
+        return
+
+    report_apartment(call.from_user.id, apt_id, reason)
+    await call.answer("✅ Жалоба отправлена!", show_alert=True)
+    await call.message.delete()
+
+    # Notify moderators and admins
+    from database.db import get_conn
+    conn = get_conn()
+    apt = conn.execute("SELECT * FROM apartments WHERE id=?", (apt_id,)).fetchone()
+    conn.close()
+
+    notify_ids = list(ADMIN_IDS) + list(MODERATOR_IDS)
+    for mod_id in notify_ids:
+        try:
+            kb_mod = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="✅ Проверено", callback_data=f"mod_verify:{apt_id}"),
+                InlineKeyboardButton(text="🗑 Удалить", callback_data=f"mod_delete:{apt_id}"),
+            ]])
+            apt_info = f"🏠 {apt['title']}\n💰 {apt['price']} zł\n📍 {apt['district']}\n🔗 {apt['link']}" if apt else f"ID: {apt_id}"
+            await call.bot.send_message(
+                mod_id,
+                f"🚩 <b>Новая жалоба!</b>\n\n"
+                f"{apt_info}\n\n"
+                f"📋 Причина: <b>{reason}</b>\n"
+                f"👤 От: <code>{call.from_user.id}</code>",
+                parse_mode="HTML",
+                reply_markup=kb_mod
+            )
+        except Exception:
+            pass
+
+
+# ── Moderator panel ───────────────────────────────────────────
+
+@router.message(Command("mod"))
+async def cmd_mod(message: Message):
+    if not is_moderator(message.from_user.id):
+        return
+    stats = get_mod_stats(message.from_user.id)
+    reports = get_pending_reports(limit=5)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=f"🚩 Жалобы ({len(reports)})", callback_data="mod_reports"),
+            InlineKeyboardButton(text="📋 Мои действия", callback_data="mod_my_stats"),
+        ],
+        [
+            InlineKeyboardButton(text="🔍 Проверить объявление", callback_data="mod_check"),
+        ],
+    ])
+    await message.answer(
+        f"🛡 <b>Панель модератора</b>\n\n"
+        f"✅ Проверено: {stats['verified']}\n"
+        f"🗑 Удалено: {stats['deleted']}\n"
+        f"🚩 Ожидают проверки: {len(reports)}\n\n"
+        f"Команды:\n"
+        f"/modstats — моя статистика\n"
+        f"/mod — эта панель",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+
+
+@router.callback_query(F.data == "mod_reports")
+async def cb_mod_reports(call: CallbackQuery):
+    if not is_moderator(call.from_user.id):
+        await call.answer("⛔", show_alert=True)
+        return
+    await call.answer()
+    reports = get_pending_reports(limit=10)
+    if not reports:
+        await call.message.answer("✅ Жалоб нет!")
+        return
+    await call.message.answer(f"🚩 <b>Последние жалобы ({len(reports)}):</b>", parse_mode="HTML")
+    for r in reports:
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Проверено", callback_data=f"mod_verify:{r['apartment_id']}"),
+            InlineKeyboardButton(text="🗑 Удалить", callback_data=f"mod_delete:{r['apartment_id']}"),
+        ]])
+        await call.message.answer(
+            f"🚩 <b>Жалоба #{r['id']}</b>\n"
+            f"🏠 {r.get('title','?')}\n"
+            f"💰 {r.get('price','?')} zł · 📍 {r.get('district','?')}\n"
+            f"📋 Причина: {r.get('reason','?')}\n"
+            f"🔗 {r.get('link','?')}",
+            parse_mode="HTML",
+            reply_markup=kb
+        )
+
+
+@router.callback_query(F.data == "mod_my_stats")
+async def cb_mod_my_stats(call: CallbackQuery):
+    if not is_moderator(call.from_user.id):
+        await call.answer("⛔", show_alert=True)
+        return
+    await call.answer()
+    stats = get_mod_stats(call.from_user.id)
+    await call.message.answer(
+        f"📋 <b>Твоя статистика модератора:</b>\n\n"
+        f"✅ Проверено объявлений: {stats['verified']}\n"
+        f"🗑 Удалено объявлений: {stats['deleted']}",
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("mod_verify:"))
+async def cb_mod_verify(call: CallbackQuery):
+    if not is_moderator(call.from_user.id):
+        await call.answer("⛔", show_alert=True)
+        return
+    apt_id = int(call.data.split(":")[1])
+    verify_apartment(apt_id, call.from_user.id)
+    await call.answer("✅ Объявление проверено!")
+    await call.message.edit_text(
+        call.message.text + "\n\n✅ <b>Проверено модератором</b>",
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("mod_delete:"))
+async def cb_mod_delete(call: CallbackQuery):
+    if not is_moderator(call.from_user.id):
+        await call.answer("⛔", show_alert=True)
+        return
+    apt_id = int(call.data.split(":")[1])
+    delete_apartment(apt_id, call.from_user.id, note="Удалено по жалобе")
+    await call.answer("🗑 Объявление удалено!")
+    await call.message.edit_text(
+        call.message.text + "\n\n🗑 <b>Удалено</b>",
+        parse_mode="HTML"
+    )
+
+
+# ── /setmod — admin assigns moderator ────────────────────────
+
+@router.message(Command("setmod"))
+async def cmd_setmod(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    args = message.text.split()
+    if len(args) < 2 or not args[1].isdigit():
+        await message.answer("Использование: /setmod [user_id]")
+        return
+    uid = int(args[1])
+    set_user_role(uid, "moderator")
+    await message.answer(f"✅ Пользователь {uid} назначен модератором.")
+    try:
+        await message.bot.send_message(
+            uid,
+            "🛡 <b>Тебе выданы права модератора!</b>\n\n"
+            "Теперь ты можешь:\n"
+            "• Проверять объявления (/mod)\n"
+            "• Удалять фейки\n"
+            "• Получать уведомления о жалобах\n\n"
+            "Используй /mod для открытия панели.",
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
+
+
+@router.message(Command("removemod"))
+async def cmd_removemod(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    args = message.text.split()
+    if len(args) < 2 or not args[1].isdigit():
+        await message.answer("Использование: /removemod [user_id]")
+        return
+    uid = int(args[1])
+    set_user_role(uid, "user")
+    await message.answer(f"✅ Права модератора сняты с {uid}.")
+
+
+@router.callback_query(F.data == "mod_check")
+async def cb_mod_check(call: CallbackQuery):
+    if not is_moderator(call.from_user.id):
+        await call.answer("⛔", show_alert=True)
+        return
+    await call.answer()
+    reported = get_reported_apartments(limit=5)
+    if not reported:
+        await call.message.answer("✅ Нет объявлений с жалобами.")
+        return
+    await call.message.answer("🔍 <b>Объявления с жалобами:</b>", parse_mode="HTML")
+    for apt in reported:
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Проверено", callback_data=f"mod_verify:{apt['id']}"),
+            InlineKeyboardButton(text="🗑 Удалить", callback_data=f"mod_delete:{apt['id']}"),
+        ]])
+        await call.message.answer(
+            f"🏠 {apt['title']}\n"
+            f"💰 {apt.get('price','?')} zł · 📍 {apt.get('district','?')}\n"
+            f"🚩 Жалоб: {apt.get('reported', 0)}\n"
+            f"🔗 {apt['link']}",
+            parse_mode="HTML",
+            reply_markup=kb
+        )
+
+
+# ── /modstats ─────────────────────────────────────────────────
+
+@router.message(Command("modstats"))
+async def cmd_modstats(message: Message):
+    if not is_moderator(message.from_user.id):
+        return
+    stats = get_mod_stats(message.from_user.id)
+    reports = get_pending_reports(limit=20)
+    await message.answer(
+        f"📊 <b>Статистика модератора</b>\n\n"
+        f"✅ Проверено: {stats['verified']}\n"
+        f"🗑 Удалено: {stats['deleted']}\n"
+        f"🚩 Всего жалоб в очереди: {len(reports)}\n\n"
+        f"💎 <b>Плюшки модератора:</b>\n"
+        f"• VIP бесплатно навсегда\n"
+        f"• Доступ к панели /mod\n"
+        f"• Уведомления о жалобах\n"
+        f"• Значок ✅ на проверенных объявлениях",
+        parse_mode="HTML"
+    )
+
+
+# ── /map — интерактивная карта районов с ценами ───────────────
+
+@router.message(Command("map"))
+async def cmd_map(message: Message):
+    stats = get_price_stats()
+    districts = stats["by_district"]
+
+    # Filter to Warsaw districts only (exclude suburbs/junk)
+    warsaw_districts = [
+        r for r in districts
+        if any(w in r["district"].lower() for w in [
+            "warszawa", "mokotów", "ursynów", "wilanów", "wola", "śródmieście",
+            "praga", "żoliborz", "bielany", "bemowo", "ochota", "targówek",
+            "białołęka", "ursus", "wesoła", "wawer", "rembertów", "włochy",
+            "międzylesie", "kabaty", "natolin", "służew", "sadyba",
+        ])
+    ]
+
+    if not warsaw_districts:
+        await message.answer(
+            "🗺 <b>Карта цен</b>\n\n"
+            "Пока мало данных. Запусти парсер и подожди немного.\n\n"
+            "Данные появятся после первого цикла парсинга.",
+            parse_mode="HTML"
+        )
+        return
+
+    lines = ["🗺 <b>Карта цен по районам Варшавы:</b>\n"]
+    for r in warsaw_districts[:12]:
+        avg = int(r["avg"])
+        cnt = r["cnt"]
+        mn = int(r["min"])
+        bar = "🟢" if avg < 2500 else ("🟡" if avg < 3500 else "🔴")
+        lines.append(f"{bar} <b>{r['district']}</b>\n   avg {avg} zł · от {mn} zł · {cnt} объявл.")
+
+    if stats["overall_avg"]:
+        lines.append(f"\n💰 Средняя по Варшаве: <b>{stats['overall_avg']} zł</b>")
+    lines.append(f"📦 Всего объявлений: {stats['total']}")
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔍 Фильтр по району", callback_data="open_filter")],
+        [InlineKeyboardButton(text="💚 Самые дешёвые", callback_data="open_cheap")],
+    ])
+    await message.answer("\n".join(lines), parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data == "open_map")
+async def cb_open_map(call: CallbackQuery):
+    await call.answer()
+    await cmd_map(call.message)
+
+
+# ── /cheap — самые дешёвые прямо сейчас ──────────────────────
+
+@router.message(Command("cheap"))
+async def cmd_cheap(message: Message):
+    user = get_or_create_user(message.from_user.id)
+    apts = get_cheapest_apartments(limit=5, price_max=2500)
+    if not apts:
+        await message.answer("😔 Квартир до 2500 zł сейчас нет.\n\nПопробуй /alert — напишу как только появятся!")
+        return
+    await message.answer("💚 <b>Самые дешёвые прямо сейчас (до 2500 zł):</b>", parse_mode="HTML")
+    for apt in apts:
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="❤️ Сохранить", callback_data=f"fav_add:{apt['id']}"),
+            InlineKeyboardButton(text="🔗 Открыть", url=apt["link"]),
+        ]])
+        await message.answer(apt_text(apt), reply_markup=kb, parse_mode="HTML")
+
+
+# ── /similar — похожие квартиры ───────────────────────────────
+
+@router.callback_query(F.data.startswith("similar:"))
+async def cb_similar(call: CallbackQuery):
+    apt_id = int(call.data.split(":")[1])
+    similar = get_similar_apartments(apt_id, limit=3)
+    if not similar:
+        await call.answer("😔 Похожих квартир не найдено", show_alert=True)
+        return
+    await call.answer()
+    await call.message.answer("🔍 <b>Похожие квартиры:</b>", parse_mode="HTML")
+    for apt in similar:
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="❤️ Сохранить", callback_data=f"fav_add:{apt['id']}"),
+            InlineKeyboardButton(text="🔗 Открыть", url=apt["link"]),
+        ]])
+        await call.message.answer(apt_text(apt), reply_markup=kb, parse_mode="HTML")
+
+
+# ── /note — личные заметки к квартирам ───────────────────────
+
+@router.callback_query(F.data.startswith("note:"))
+async def cb_note_start(call: CallbackQuery, state: FSMContext):
+    apt_id = int(call.data.split(":")[1])
+    await state.update_data(note_apt_id=apt_id)
+    await state.set_state(NoteState.waiting_note)
+    await call.answer()
+    await call.message.answer(
+        "📝 <b>Напиши заметку к этой квартире:</b>\n\n"
+        "Например: «Хозяин адекватный, торговался», «Шумная улица», «Хочу посмотреть»\n\n"
+        "Максимум 500 символов.",
+        parse_mode="HTML"
+    )
+
+
+@router.message(NoteState.waiting_note)
+async def note_save(message: Message, state: FSMContext):
+    data = await state.get_data()
+    apt_id = data.get("note_apt_id")
+    await state.clear()
+    if not apt_id:
+        return
+    add_user_note(message.from_user.id, apt_id, message.text.strip())
+    await message.answer("✅ Заметка сохранена! Смотри все заметки: /notes")
+
+
+@router.message(Command("notes"))
+async def cmd_notes(message: Message):
+    notes = get_user_notes(message.from_user.id)
+    if not notes:
+        await message.answer(
+            "📝 <b>Заметки</b>\n\n"
+            "У тебя пока нет заметок.\n"
+            "Добавляй заметки к квартирам кнопкой 📝 под объявлением.",
+            parse_mode="HTML"
+        )
+        return
+    await message.answer(f"📝 <b>Твои заметки ({len(notes)}):</b>", parse_mode="HTML")
+    for n in notes[:10]:
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🔗 Открыть квартиру", url=n["link"]),
+        ]])
+        await message.answer(
+            f"🏠 <b>{n['title'][:50]}</b>\n"
+            f"💰 {n['price']} zł\n"
+            f"📝 {n['note']}\n"
+            f"📅 {n['created_at'][:10]}",
+            parse_mode="HTML",
+            reply_markup=kb
+        )
+
+
+# ── /feedback — обратная связь ────────────────────────────────
+
+@router.message(Command("feedback"))
+async def cmd_feedback(message: Message, state: FSMContext):
+    await state.set_state(FeedbackState.waiting_text)
+    await message.answer(
+        "💬 <b>Обратная связь</b>\n\n"
+        "Напиши что думаешь о боте, что улучшить, что не работает.\n"
+        "Читаю каждое сообщение лично! 🙏",
+        parse_mode="HTML"
+    )
+
+
+@router.message(FeedbackState.waiting_text)
+async def feedback_send(message: Message, state: FSMContext):
+    await state.clear()
+    text = message.text.strip()
+    for admin_id in ADMIN_IDS:
+        try:
+            await message.bot.send_message(
+                admin_id,
+                f"💬 <b>Фидбек от пользователя</b>\n\n"
+                f"👤 {message.from_user.full_name} (<code>{message.from_user.id}</code>)\n"
+                f"📛 @{message.from_user.username or 'нет'}\n\n"
+                f"💬 {text}",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+    await message.answer(
+        "✅ Спасибо! Твой отзыв отправлен.\n\n"
+        "Стараемся делать бот лучше каждый день 🙏"
+    )
+
+
+# ── /stats — публичная статистика бота ───────────────────────
+
+@router.message(Command("stats"))
+async def cmd_stats(message: Message):
+    s = get_stats()
+    new_today = get_new_today_count()
+    await message.answer(
+        f"📊 <b>Статистика DDFlatsBot</b>\n\n"
+        f"🏠 Квартир в базе: <b>{s['apartments']}</b>\n"
+        f"🆕 Добавлено сегодня: <b>{new_today}</b>\n"
+        f"👥 Пользователей: <b>{s['users']}</b>\n"
+        f"💎 VIP подписчиков: <b>{s['vip']}</b>\n"
+        f"❤️ Сохранено в избранное: <b>{s['favorites']}</b>\n"
+        f"🕐 Последний парсинг: <b>{s['last_parse'][:16] if s['last_parse'] != 'никогда' else 'никогда'}</b>\n\n"
+        f"📡 Источники: OLX · Otodom · Gratka · Morizon\n"
+        f"⏱ Обновление каждые 10 минут",
+        parse_mode="HTML"
+    )
+
+
+# ── Улучшенная клавиатура квартиры с новыми кнопками ─────────
+
+def apt_keyboard_full(apt_id: int, lat=None, lon=None) -> InlineKeyboardMarkup:
+    """Extended keyboard with note, similar, share buttons."""
+    row1 = [
+        InlineKeyboardButton(text="❤️ Сохранить", callback_data=f"fav_add:{apt_id}"),
+        InlineKeyboardButton(text="➡️ Следующая", callback_data="next"),
+    ]
+    row2 = [
+        InlineKeyboardButton(text="👍", callback_data=f"rate:1:{apt_id}"),
+        InlineKeyboardButton(text="👎", callback_data=f"rate:-1:{apt_id}"),
+        InlineKeyboardButton(text="📝 Заметка", callback_data=f"note:{apt_id}"),
+        InlineKeyboardButton(text="🚩", callback_data=f"report:{apt_id}"),
+    ]
+    row3 = [
+        InlineKeyboardButton(text="🔍 Похожие", callback_data=f"similar:{apt_id}"),
+    ]
+    rows = [row1, row2, row3]
+    map_url = f"https://www.google.com/maps/search/Warszawa+mieszkanie"
+    rows.append([InlineKeyboardButton(text="🗺 На карте", url=map_url)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+# ── /menu — быстрое меню ──────────────────────────────────────
+
+@router.message(Command("menu"))
+async def cmd_menu(message: Message):
+    user = get_or_create_user(message.from_user.id)
+    vip = "💎 VIP" if user["vip"] else f"🆓 {user['views']}/{FREE_VIEWS}"
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🏠 Квартиры", callback_data="next"),
+            InlineKeyboardButton(text="🔍 Фильтры", callback_data="open_filter"),
+        ],
+        [
+            InlineKeyboardButton(text="❤️ Избранное", callback_data="open_favorites"),
+            InlineKeyboardButton(text="📝 Заметки", callback_data="open_notes"),
+        ],
+        [
+            InlineKeyboardButton(text="🔔 Алерты", callback_data="open_alerts"),
+            InlineKeyboardButton(text="🗺 Карта цен", callback_data="open_map"),
+        ],
+        [
+            InlineKeyboardButton(text="💚 Дешёвые", callback_data="open_cheap"),
+            InlineKeyboardButton(text="🔥 Горячие", callback_data="open_hot"),
+        ],
+        [
+            InlineKeyboardButton(text="📉 Снижения", callback_data="open_drops"),
+            InlineKeyboardButton(text="📊 Сравнить", callback_data="open_compare"),
+        ],
+        [
+            InlineKeyboardButton(text="⭐ VIP", callback_data="open_vip"),
+            InlineKeyboardButton(text="👥 Рефералы", callback_data="open_ref"),
+        ],
+        [
+            InlineKeyboardButton(text="📊 Статистика", callback_data="open_stats_pub"),
+            InlineKeyboardButton(text="💬 Фидбек", callback_data="open_feedback"),
+        ],
+    ])
+    await message.answer(
+        f"📋 <b>Меню DDFlatsBot</b>  {vip}\n\nВыбери раздел:",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+
+
+@router.callback_query(F.data == "open_notes")
+async def cb_open_notes(call: CallbackQuery):
+    await call.answer()
+    await cmd_notes(call.message)
+
+
+@router.callback_query(F.data == "open_cheap")
+async def cb_open_cheap(call: CallbackQuery):
+    await call.answer()
+    await cmd_cheap(call.message)
+
+
+@router.callback_query(F.data == "open_stats_pub")
+async def cb_open_stats_pub(call: CallbackQuery):
+    await call.answer()
+    await cmd_stats(call.message)
+
+
+@router.callback_query(F.data == "open_feedback")
+async def cb_open_feedback(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    await cmd_feedback(call.message, state)
+
+
+@router.callback_query(F.data == "open_help")
+async def cb_open_help(call: CallbackQuery):
+    await call.answer()
+    await cmd_help(call.message)
+
+
+# ── Улучшенный /start с новыми кнопками ──────────────────────
+
+@router.message(Command("help"))
+async def cmd_help(message: Message):
+    await message.answer(
+        "📖 <b>Все команды DDFlatsBot:</b>\n\n"
+        "<b>🏠 Квартиры:</b>\n"
+        "/next — следующая квартира\n"
+        "/filter — фильтры (район, цена, комнаты)\n"
+        "/search — поиск по ключевому слову\n"
+        "/today — добавлено сегодня\n"
+        "/top — топ дешёвых (до 2500 zł)\n"
+        "/cheap — самые дешёвые прямо сейчас\n"
+        "/hot — горячие (много лайков)\n"
+        "/drops — снижение цен за 24ч\n\n"
+        "<b>❤️ Личное:</b>\n"
+        "/favorites — избранное\n"
+        "/notes — мои заметки к квартирам\n"
+        "/compare — сравнить квартиры\n"
+        "/mystats — моя статистика\n\n"
+        "<b>🔔 Уведомления (VIP):</b>\n"
+        "/alert — умный алерт\n"
+        "/subscribe — подписка на район\n\n"
+        "<b>📊 Аналитика:</b>\n"
+        "/prices — цены по районам\n"
+        "/map — карта цен\n"
+        "/stats — статистика бота\n"
+        "/digest — дайджест дня\n\n"
+        "<b>👥 Социальное:</b>\n"
+        "/ref — пригласить друга → VIP\n"
+        "/leaderboard — топ рефералов\n"
+        "/feedback — написать нам\n\n"
+        "<b>⚙️ Настройки:</b>\n"
+        "/vip — VIP подписка\n"
+        "/lang — сменить язык\n"
+        "/menu — быстрое меню",
+        parse_mode="HTML"
+    )

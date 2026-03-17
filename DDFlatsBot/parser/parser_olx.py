@@ -52,6 +52,35 @@ def _fetch_json(url, params=None, headers=None, timeout=12) -> dict:
     return json.loads(content.decode("utf-8", errors="ignore"))
 
 
+# Keywords that indicate non-apartment listings to skip
+_JUNK_KEYWORDS = [
+    "osuszacz", "klimatyzator", "agregat", "laweta", "przyczepa",
+    "rower", "samochód", "auto ", "skuter", "motor", "kamera",
+    "telewizor", "lodówka", "pralka", "zmywarka", "meble",
+    "garaż", "parking", "miejsce postojowe", "komórka lokatorska",
+    "działka", "dom na sprzedaż", "lokal użytkowy", "biuro",
+    "magazyn", "hala", "grunt", "sprzedam", "na sprzedaż",
+    "na doby", "na godziny", "noclegi", "na tydzień",
+    "krótkoterminow", "dobowy", "/doby", "godz/", "osuszanie",
+]
+
+def _is_apartment(title: str, category: dict) -> bool:
+    """Return False if this looks like a non-apartment listing."""
+    title_lower = title.lower()
+    for kw in _JUNK_KEYWORDS:
+        if kw in title_lower:
+            return False
+    # Must contain at least one apartment-related word
+    apt_words = ["mieszkanie", "kawalerka", "pokój", "apartament", "wynajem mieszk", "do wynajęcia"]
+    if not any(w in title_lower for w in apt_words):
+        # Check OLX category — apartments are category id 15 (Mieszkania)
+        if category:
+            cat_id = category.get("id")
+            if cat_id and cat_id not in (15,):
+                return False
+    return True
+
+
 def _parse_offer(o: dict) -> dict | None:
     try:
         p = o.get("params", [])
@@ -59,6 +88,12 @@ def _parse_offer(o: dict) -> dict | None:
         link = o.get("url", "")
         if not title or not link:
             return None
+
+        # Filter out non-apartment listings
+        category = o.get("category", {})
+        if not _is_apartment(title, category):
+            return None
+
         price = _price(p)
         loc = o.get("location", {})
         district = (
@@ -95,15 +130,13 @@ def _parse_offer(o: dict) -> dict | None:
 def parse_olx() -> list:
     results = []
 
-    # Fetch multiple pages from API
+    # Fetch multiple pages from API using query search (most reliable for Warsaw)
     for offset in [0, 50, 100]:
         params = {
             "offset": offset,
             "limit": 50,
-            "category_id": 15,
-            "region_id": 7,
+            "query": "mieszkanie wynajem warszawa",
             "sort_by": "created_at:desc",
-            "filter_refiners": "spell_checker",
         }
         try:
             data = _fetch_json(API_URL, params=params, headers=_h(json_mode=True))
@@ -146,6 +179,35 @@ def parse_olx() -> list:
                             results.append(apt)
                 except Exception:
                     pass
+
+            # BeautifulSoup fallback
+            if not results:
+                try:
+                    from bs4 import BeautifulSoup
+                    soup = BeautifulSoup(text, "lxml")
+                    cards = soup.find_all("div", attrs={"data-cy": "l-card"})
+                    for card in cards[:50]:
+                        a = card.find("a", href=True)
+                        if not a:
+                            continue
+                        href = a["href"]
+                        if not href.startswith("http"):
+                            href = "https://www.olx.pl" + href
+                        title_el = card.find("h6") or card.find("h4") or card.find("h3")
+                        title = title_el.get_text(strip=True) if title_el else ""
+                        if not title:
+                            continue
+                        price_el = card.find(attrs={"data-testid": "ad-price"})
+                        price = _price([]) if not price_el else int(
+                            "".join(c for c in price_el.get_text() if c.isdigit()) or "0"
+                        )
+                        results.append({
+                            "title": title, "price": price, "district": "Warsaw",
+                            "rooms": None, "area": None, "floor": None,
+                            "furnished": 0, "link": href, "image": "", "source": "OLX",
+                        })
+                except Exception as e:
+                    print(f"[OLX] BS4 error: {e}")
 
             # Last resort: regex
             if not results:

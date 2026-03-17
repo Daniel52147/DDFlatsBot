@@ -1,56 +1,40 @@
-import requests
-import re
-import json
+"""
+Run from DDFlatsBot folder:
+  python test_parsers.py
+"""
+import sys
+import os
+sys.path.insert(0, os.path.dirname(__file__))
 
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
-H = {"User-Agent": UA, "Accept-Language": "pl-PL,pl;q=0.9", "Accept": "application/json"}
+from parser.parser_olx import parse_olx
+from parser.parser_otodom import parse_otodom
+from parser.parser_gratka import parse_gratka
+from parser.parser_morizon import parse_morizon
 
-print("=== OLX API test ===")
-# Try different API endpoints
-urls = [
-    "https://www.olx.pl/api/v1/offers/?offset=0&limit=10&category_id=15&region_id=7&city_id=39610&sort_by=created_at:desc",
-    "https://www.olx.pl/api/v1/offers/?offset=0&limit=10&category_id=15&city_id=39610",
-]
-for url in urls:
+
+def test(name, fn):
+    print(f"\n{'='*40}")
+    print(f"Testing {name}...")
     try:
-        r = requests.get(url, headers=H, timeout=10)
-        d = r.json()
-        items = d.get("data", [])
-        print(f"URL: {url[-60:]}")
-        print(f"  Status: {r.status_code}, Items: {len(items)}, Total: {d.get('metadata',{}).get('total_elements')}")
-        if items:
-            print(f"  First: {items[0].get('title','?')} | {items[0].get('url','?')[:60]}")
-            break
+        results = fn()
+        print(f"✅ {name}: {len(results)} listings")
+        if results:
+            r = results[0]
+            print(f"   Title:    {r.get('title','?')[:60]}")
+            print(f"   Price:    {r.get('price','?')} zł")
+            print(f"   District: {r.get('district','?')}")
+            print(f"   Rooms:    {r.get('rooms','?')}")
+            print(f"   Link:     {r.get('link','?')[:70]}")
+        else:
+            print(f"   ⚠️  No results — site may be blocking")
     except Exception as e:
-        print(f"  Error: {e}")
+        print(f"❌ {name} FAILED: {e}")
 
-print("\n=== Otodom test ===")
-try:
-    r = requests.get(
-        "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa",
-        headers={**H, "Accept": "text/html"}, timeout=10
-    )
-    print(f"Status: {r.status_code}, Size: {len(r.text)}")
-    # Quick regex search for slugs
-    slugs = re.findall(r'"slug":"([a-z0-9\-]+ID\d+)"', r.text)
-    titles = re.findall(r'"title":"([^"]{10,60})"', r.text)
-    prices = re.findall(r'"value":(\d{3,6}),"currency":"PLN"', r.text)
-    print(f"  Slugs: {len(slugs)}, Titles: {len(titles)}, Prices: {len(prices)}")
-    if slugs:
-        print(f"  First slug: {slugs[0]}")
-    if titles:
-        print(f"  First title: {titles[0]}")
-except Exception as e:
-    print(f"Error: {e}")
 
-print("\n=== Gratka test ===")
-try:
-    r = requests.get(
-        "https://gratka.pl/nieruchomosci/mieszkania/warszawa/wynajem",
-        headers={**H, "Accept": "text/html"}, timeout=10
-    )
-    print(f"Status: {r.status_code}, Size: {len(r.text)}")
-    links = re.findall(r'href="(https://gratka\.pl/nieruchomosci/[^"]+)"', r.text)
-    print(f"  Links: {len(links)}, first: {links[0] if links else 'none'}")
-except Exception as e:
-    print(f"Error: {e}")
+test("OLX",    parse_olx)
+test("Otodom", parse_otodom)
+test("Gratka", parse_gratka)
+test("Morizon",parse_morizon)
+
+print("\n" + "="*40)
+print("Done.")

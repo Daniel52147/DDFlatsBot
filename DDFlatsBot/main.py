@@ -17,13 +17,15 @@ def check_lock():
         try:
             with open(LOCK_FILE) as f:
                 pid = int(f.read().strip())
-            # Check if process is still alive
-            import psutil
-            if psutil.pid_exists(pid):
-                print(f"⚠️  Bot already running (PID {pid}). Close it first.")
-                sys.exit(1)
+            try:
+                import psutil
+                if psutil.pid_exists(pid):
+                    print(f"⚠️  Bot already running (PID {pid}). Close it first.")
+                    sys.exit(1)
+            except ImportError:
+                pass  # psutil not installed — skip check
         except Exception:
-            pass  # psutil not installed or stale lock — continue
+            pass
         os.remove(LOCK_FILE)
     with open(LOCK_FILE, "w") as f:
         f.write(str(os.getpid()))

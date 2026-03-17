@@ -63,6 +63,21 @@ class SubscriptionMiddleware(BaseMiddleware):
         if user.id in ADMIN_IDS:
             return await handler(event, data)
 
+        # Check if user is banned (vip = -1)
+        try:
+            from database.db import get_conn
+            conn = get_conn()
+            row = conn.execute("SELECT vip FROM users WHERE user_id=?", (user.id,)).fetchone()
+            conn.close()
+            if row and row["vip"] == -1:
+                if isinstance(event, Message):
+                    await event.answer("🚫 Ты заблокирован.")
+                elif isinstance(event, CallbackQuery):
+                    await event.answer("🚫 Заблокирован", show_alert=True)
+                return
+        except Exception:
+            pass
+
         if not await is_subscribed(bot, user.id):
             kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(

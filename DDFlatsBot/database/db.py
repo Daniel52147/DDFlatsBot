@@ -30,17 +30,35 @@ def init_db():
         "ALTER TABLE users ADD COLUMN referred_by INTEGER",
         "ALTER TABLE users ADD COLUMN ref_count INTEGER DEFAULT 0",
         "ALTER TABLE users ADD COLUMN lang TEXT DEFAULT 'ru'",
+        "ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'",
         "ALTER TABLE apartments ADD COLUMN rooms INTEGER",
         "ALTER TABLE apartments ADD COLUMN area REAL",
         "ALTER TABLE apartments ADD COLUMN floor TEXT",
         "ALTER TABLE apartments ADD COLUMN furnished INTEGER DEFAULT 0",
         "ALTER TABLE apartments ADD COLUMN image TEXT",
         "ALTER TABLE apartments ADD COLUMN score REAL DEFAULT 0",
+        "ALTER TABLE apartments ADD COLUMN verified INTEGER DEFAULT 0",
+        "ALTER TABLE apartments ADD COLUMN reported INTEGER DEFAULT 0",
         """CREATE TABLE IF NOT EXISTS user_activity (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
             date TEXT NOT NULL,
             UNIQUE(user_id, date)
+        )""",
+        """CREATE TABLE IF NOT EXISTS reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            apartment_id INTEGER,
+            reason TEXT,
+            created_at TEXT
+        )""",
+        """CREATE TABLE IF NOT EXISTS mod_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            mod_id INTEGER,
+            action TEXT,
+            target_id INTEGER,
+            note TEXT,
+            created_at TEXT
         )""",
     ]
     for sql in migrations:
@@ -51,11 +69,40 @@ def init_db():
 
     conn.commit()
     conn.close()
+    cleanup_junk_listings()
 
 
 # ── Apartments ───────────────────────────────────────────────
 
+def _is_apartment_listing(title: str, price: int) -> bool:
+    """Filter out non-apartment listings before saving."""
+    if not title:
+        return False
+    t = title.lower()
+    junk = [
+        "osuszacz", "klimatyzator", "agregat", "laweta", "przyczepa",
+        "rower", "samochód", "skuter", "motor", "kamera", "telewizor",
+        "lodówka", "pralka", "zmywarka", "garaż", "parking",
+        "miejsce postojowe", "komórka", "działka", "lokal użytkowy",
+        "biuro na wynajem", "magazyn", "hala ", "sprzedam dom",
+        "na sprzedaż", "sprzedaż", "skup", "usługi",
+        "na doby", "na godziny", "na noclegi", "noclegi",
+        "na tydzień", "krótkoterminow", "dobowy", "na doby", "/doby", "godz/",
+        "osuszanie", "pochłaniacz",
+    ]
+    for kw in junk:
+        if kw in t:
+            return False
+    # Price sanity: rentals in Warsaw are 500–20000 zł
+    if price and (price < 300 or price > 30000):
+        return False
+    return True
+
+
 def save_apartment(data: dict) -> bool:
+    # Filter out non-apartment listings
+    if not _is_apartment_listing(data.get("title", ""), data.get("price", 0)):
+        return False
     conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT id, price FROM apartments WHERE link=?", (data["link"],))
@@ -617,19 +664,22 @@ def get_hot_apartments(limit: int = 5) -> list:
 
 
 def get_price_drops_today(limit: int = 5) -> list:
-    """Apartments where price dropped today."""
+    """Apartments where price dropped. Returns only apartments still in DB with valid links."""
     conn = get_conn()
     from datetime import timedelta
-    since = (datetime.now() - timedelta(hours=24)).isoformat()
+    since = (datetime.now() - timedelta(hours=48)).isoformat()
     rows = conn.execute("""
-        SELECT a.*, ph.price as new_price,
-               (SELECT price FROM price_history WHERE apartment_id=a.id ORDER BY id DESC LIMIT 1 OFFSET 1) as old_price
+        SELECT DISTINCT a.*,
+               ph.price as new_price,
+               (SELECT price FROM price_history
+                WHERE apartment_id=a.id ORDER BY id ASC LIMIT 1) as old_price
         FROM apartments a
         JOIN price_history ph ON a.id = ph.apartment_id
         WHERE ph.recorded_at >= ?
+          AND a.price >= 500 AND a.price <= 25000
         GROUP BY a.id
-        HAVING old_price IS NOT NULL AND new_price < old_price
-        ORDER BY (old_price - new_price) DESC
+        HAVING old_price IS NOT NULL AND old_price > a.price
+        ORDER BY (old_price - a.price) DESC
         LIMIT ?
     """, (since, limit)).fetchall()
     conn.close()
@@ -679,3 +729,260 @@ def get_user_streak_days(user_id: int) -> int:
         except Exception:
             break
     return streak
+
+
+# ── Roles & Moderation ────────────────────────────────────────
+
+def set_user_role(user_id: int, role: str):
+    """role: 'user', 'moderator', 'admin'"""
+    conn = get_conn()
+    conn.execute("UPDATE users SET role=? WHERE user_id=?", (role, user_id))
+    conn.commit()
+    conn.close()
+    # Moderators get free VIP
+    if role == "moderator":
+        set_vip(user_id, 1, days=36500)  # ~100 years = permanent
+
+
+def get_user_role(user_id: int) -> str:
+    from config import ADMIN_IDS, MODERATOR_IDS
+    if user_id in ADMIN_IDS:
+        return "admin"
+    if user_id in MODERATOR_IDS:
+        return "moderator"
+    conn = get_conn()
+    row = conn.execute("SELECT role FROM users WHERE user_id=?", (user_id,)).fetchone()
+    conn.close()
+    if row and row["role"] in ("moderator", "admin"):
+        return row["role"]
+    return "user"
+
+
+def is_moderator(user_id: int) -> bool:
+    return get_user_role(user_id) in ("moderator", "admin")
+
+
+def report_apartment(user_id: int, apartment_id: int, reason: str):
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO reports (user_id, apartment_id, reason, created_at) VALUES (?,?,?,?)",
+        (user_id, apartment_id, reason, datetime.now().isoformat())
+    )
+    conn.execute("UPDATE apartments SET reported=reported+1 WHERE id=?", (apartment_id,))
+    conn.commit()
+    conn.close()
+
+
+def get_pending_reports(limit: int = 20) -> list:
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT r.*, a.title, a.link, a.price, a.district
+        FROM reports r JOIN apartments a ON r.apartment_id = a.id
+        ORDER BY r.id DESC LIMIT ?
+    """, (limit,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def verify_apartment(apartment_id: int, mod_id: int):
+    conn = get_conn()
+    conn.execute("UPDATE apartments SET verified=1 WHERE id=?", (apartment_id,))
+    conn.execute(
+        "INSERT INTO mod_log (mod_id, action, target_id, created_at) VALUES (?,?,?,?)",
+        (mod_id, "verify", apartment_id, datetime.now().isoformat())
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_apartment(apartment_id: int, mod_id: int, note: str = ""):
+    conn = get_conn()
+    conn.execute("DELETE FROM apartments WHERE id=?", (apartment_id,))
+    conn.execute(
+        "INSERT INTO mod_log (mod_id, action, target_id, note, created_at) VALUES (?,?,?,?,?)",
+        (mod_id, "delete", apartment_id, note, datetime.now().isoformat())
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_mod_stats(mod_id: int) -> dict:
+    conn = get_conn()
+    verified = conn.execute(
+        "SELECT COUNT(*) FROM mod_log WHERE mod_id=? AND action='verify'", (mod_id,)
+    ).fetchone()[0]
+    deleted = conn.execute(
+        "SELECT COUNT(*) FROM mod_log WHERE mod_id=? AND action='delete'", (mod_id,)
+    ).fetchone()[0]
+    conn.close()
+    return {"verified": verified, "deleted": deleted}
+
+
+def get_reported_apartments(limit: int = 10) -> list:
+    """Apartments with most reports."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT * FROM apartments WHERE reported > 0
+        ORDER BY reported DESC LIMIT ?
+    """, (limit,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── New features ──────────────────────────────────────────────
+
+def get_price_stats() -> dict:
+    """Price analytics: avg, min, max by district. Filters junk prices."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT district,
+               COUNT(*) as cnt,
+               AVG(price) as avg,
+               MIN(price) as min,
+               MAX(price) as max
+        FROM apartments
+        WHERE price >= 500 AND price <= 25000 AND district != '' AND district IS NOT NULL
+        GROUP BY district
+        HAVING cnt >= 2
+        ORDER BY avg ASC
+    """).fetchall()
+    total = conn.execute(
+        "SELECT COUNT(*) FROM apartments WHERE price >= 500 AND price <= 25000"
+    ).fetchone()[0]
+    overall_avg = conn.execute(
+        "SELECT AVG(price) FROM apartments WHERE price >= 500 AND price <= 25000"
+    ).fetchone()[0]
+    conn.close()
+    return {
+        "by_district": [dict(r) for r in rows],
+        "total": total,
+        "overall_avg": int(overall_avg) if overall_avg else 0,
+    }
+
+
+def get_new_today_count() -> int:
+    from datetime import date
+    today = date.today().isoformat()
+    conn = get_conn()
+    count = conn.execute(
+        "SELECT COUNT(*) FROM apartments WHERE created_at >= ?", (today,)
+    ).fetchone()[0]
+    conn.close()
+    return count
+
+
+def cleanup_junk_listings():
+    """Remove non-apartment listings already in DB."""
+    conn = get_conn()
+    junk_keywords = [
+        "osuszacz", "osuszanie", "pochłaniacz", "klimatyzator", "agregat",
+        "na doby", "noclegi", "godz/", "/doby", "krótkoterminow",
+        "garaż", "parking", "działka", "lokal użytkowy", "magazyn",
+    ]
+    for kw in junk_keywords:
+        conn.execute(
+            "DELETE FROM apartments WHERE LOWER(title) LIKE ?",
+            (f"%{kw}%",)
+        )
+    # Also remove price outliers
+    conn.execute("DELETE FROM apartments WHERE price > 0 AND price < 500")
+    conn.execute("DELETE FROM apartments WHERE price > 25000")
+    conn.commit()
+    conn.close()
+
+
+def search_by_keyword(keyword: str, limit: int = 20) -> list:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM apartments WHERE title LIKE ? OR district LIKE ? ORDER BY created_at DESC LIMIT ?",
+        (f"%{keyword}%", f"%{keyword}%", limit)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_user_count() -> int:
+    conn = get_conn()
+    count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    conn.close()
+    return count
+
+
+def get_apartment_by_id(apt_id: int) -> dict | None:
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM apartments WHERE id=?", (apt_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def add_user_note(user_id: int, apt_id: int, note: str):
+    """User can add a personal note to an apartment."""
+    conn = get_conn()
+    try:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS user_notes (user_id INTEGER, apt_id INTEGER, note TEXT, created_at TEXT, PRIMARY KEY(user_id, apt_id))"
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO user_notes (user_id, apt_id, note, created_at) VALUES (?,?,?,?)",
+            (user_id, apt_id, note[:500], datetime.now().isoformat())
+        )
+        conn.commit()
+    except Exception:
+        pass
+    conn.close()
+
+
+def get_user_notes(user_id: int) -> list:
+    conn = get_conn()
+    try:
+        rows = conn.execute("""
+            SELECT n.note, n.apt_id, n.created_at, a.title, a.price, a.link
+            FROM user_notes n JOIN apartments a ON n.apt_id = a.id
+            WHERE n.user_id = ? ORDER BY n.created_at DESC
+        """, (user_id,)).fetchall()
+    except Exception:
+        rows = []
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_similar_apartments(apt_id: int, limit: int = 3) -> list:
+    """Find similar apartments by price range and district."""
+    conn = get_conn()
+    apt = conn.execute("SELECT * FROM apartments WHERE id=?", (apt_id,)).fetchone()
+    if not apt:
+        conn.close()
+        return []
+    price = apt["price"] or 0
+    district = apt["district"] or ""
+    rows = conn.execute("""
+        SELECT * FROM apartments
+        WHERE id != ? AND price BETWEEN ? AND ? AND district LIKE ?
+        ORDER BY created_at DESC LIMIT ?
+    """, (apt_id, price * 0.8, price * 1.2, f"%{district[:10]}%", limit)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_cheapest_apartments(limit: int = 5, price_max: int = 2500) -> list:
+    """Get cheapest real apartments, filtering junk."""
+    junk_sql = " AND ".join([
+        "LOWER(title) NOT LIKE '%osuszacz%'",
+        "LOWER(title) NOT LIKE '%garaż%'",
+        "LOWER(title) NOT LIKE '%parking%'",
+        "LOWER(title) NOT LIKE '%na doby%'",
+        "LOWER(title) NOT LIKE '%noclegi%'",
+        "LOWER(title) NOT LIKE '%osuszanie%'",
+        "LOWER(title) NOT LIKE '%pochłaniacz%'",
+        "LOWER(title) NOT LIKE '%klimatyzator%'",
+        "LOWER(title) NOT LIKE '%sprzedaż%'",
+        "LOWER(title) NOT LIKE '%na sprzedaż%'",
+    ])
+    conn = get_conn()
+    rows = conn.execute(f"""
+        SELECT * FROM apartments
+        WHERE price > 300 AND price <= ? AND {junk_sql}
+        ORDER BY price ASC LIMIT ?
+    """, (price_max, limit)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
