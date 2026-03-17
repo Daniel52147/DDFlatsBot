@@ -1,0 +1,5 @@
+BOT_TOKEN = "8655267832:AAHG9jPbmT3UmT4TeHA4xy3IuHSPjJiY4cI"
+
+FREE_VIEWS = 3
+
+PARTNER_LINK = "https://yourpartnerlink.com"
