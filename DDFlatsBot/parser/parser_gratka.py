@@ -257,7 +257,7 @@ def parse_gratka() -> list:
     results = []
     session = _session()
 
-    for page in range(1, 4):
+    for page in range(1, 6):
         url = BASE if page == 1 else f"{BASE}?page={page}"
         try:
             html = _fetch(url, session)

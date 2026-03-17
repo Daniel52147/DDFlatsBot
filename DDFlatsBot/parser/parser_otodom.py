@@ -201,6 +201,13 @@ def parse_otodom() -> list:
         "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa",
         "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa?page=2",
         "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa?page=3",
+        "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa?page=4",
+        "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa?page=5",
+        "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa?page=6",
+        "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa?page=7",
+        "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa?page=8",
+        "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa?page=9",
+        "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa?page=10",
     ]
 
     for url in urls:

@@ -131,7 +131,7 @@ def parse_olx() -> list:
     results = []
 
     # Fetch multiple pages from API using query search (most reliable for Warsaw)
-    for offset in [0, 50, 100]:
+    for offset in [0, 50, 100, 150, 200, 250, 300, 350, 400, 450]:
         params = {
             "offset": offset,
             "limit": 50,
@@ -151,6 +151,31 @@ def parse_olx() -> list:
             time.sleep(random.uniform(1, 2))
         except Exception as e:
             print(f"[OLX] API error at offset={offset}: {e}")
+            break
+
+    # Also fetch by category (mieszkania/wynajem) for more coverage
+    for offset in [0, 50, 100, 150, 200]:
+        params = {
+            "offset": offset,
+            "limit": 50,
+            "category_id": 15,
+            "region_id": 7,  # Mazowieckie
+            "city_id": 39610,  # Warszawa
+            "sort_by": "created_at:desc",
+        }
+        try:
+            data = _fetch_json(API_URL, params=params, headers=_h(json_mode=True))
+            offers = data.get("data", [])
+            if not offers:
+                break
+            for o in offers:
+                apt = _parse_offer(o)
+                if apt:
+                    results.append(apt)
+            print(f"[OLX] category offset={offset}: {len(offers)} offers")
+            time.sleep(random.uniform(1, 2))
+        except Exception as e:
+            print(f"[OLX] category API error at offset={offset}: {e}")
             break
 
     # HTML fallback if API returned nothing
