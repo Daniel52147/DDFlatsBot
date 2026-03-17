@@ -31,7 +31,8 @@ def _find_db_path() -> str:
         except Exception:
             pass
 
-    # Last resort: same directory as config.py
+    # Last resort: same directory as config.py (works on Render too)
+    # On Render: /opt/render/project/src/DDFlatsBot/config.py
     return os.path.join(_PROJECT_DIR, "Flats.db")
 
 DB_PATH = _find_db_path()
