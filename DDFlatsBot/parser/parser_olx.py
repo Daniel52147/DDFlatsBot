@@ -6,13 +6,19 @@ import requests
 from config import USER_AGENTS
 
 API_URL = "https://www.olx.pl/api/v1/offers/"
-MAX_BYTES = 512 * 1024  # 512KB
+MAX_BYTES = 1024 * 1024  # 1MB
+
+# Warsaw district IDs in OLX API
+WARSAW_DISTRICT_IDS = [
+    39611, 39612, 39613, 39614, 39615, 39616, 39617, 39618,
+    39619, 39620, 39621, 39622, 39623, 39624, 39625,
+]
 
 
 def _h(json_mode=True):
     h = {
         "User-Agent": random.choice(USER_AGENTS),
-        "Referer": "https://www.olx.pl/",
+        "Referer": "https://www.olx.pl/nieruchomosci/mieszkania/wynajem/warszawa/",
         "Accept-Language": "pl-PL,pl;q=0.9",
     }
     if json_mode:
@@ -40,19 +46,12 @@ def _param(params: list, key: str):
     return None
 
 
-def _fetch_json(url, params=None, headers=None, timeout=12) -> dict:
-    r = requests.get(url, params=params, headers=headers, timeout=timeout, stream=True)
+def _fetch_json(url, params=None, headers=None, timeout=15) -> dict:
+    r = requests.get(url, params=params, headers=headers, timeout=timeout)
     r.raise_for_status()
-    content = b""
-    for chunk in r.iter_content(chunk_size=65536):
-        content += chunk
-        if len(content) >= MAX_BYTES:
-            break
-    r.close()
-    return json.loads(content.decode("utf-8", errors="ignore"))
+    return r.json()
 
 
-# Keywords that indicate non-apartment listings to skip
 _JUNK_KEYWORDS = [
     "osuszacz", "klimatyzator", "agregat", "laweta", "przyczepa",
     "rower", "samochód", "auto ", "skuter", "motor", "kamera",
@@ -64,18 +63,18 @@ _JUNK_KEYWORDS = [
     "krótkoterminow", "dobowy", "/doby", "godz/", "osuszanie",
 ]
 
+_WARSAW_CITIES = {"warszawa", "warsaw"}
+
+
 def _is_apartment(title: str, category: dict) -> bool:
-    """Return False if this looks like a non-apartment listing."""
     title_lower = title.lower()
     for kw in _JUNK_KEYWORDS:
         if kw in title_lower:
             return False
-    # Check OLX category
     if category:
         cat_id = category.get("id")
-        # Block only if clearly wrong category AND no apartment words in title
         if cat_id and cat_id not in (15, 1, 3018, 3019, 3020):
-            apt_words = ["mieszkanie", "kawalerka", "pokój", "apartament", "wynajem", "do wynajęcia"]
+            apt_words = ["mieszkanie", "kawalerka", "pokój", "apartament", "wynajem"]
             if not any(w in title_lower for w in apt_words):
                 return False
     return True
@@ -89,18 +88,17 @@ def _parse_offer(o: dict) -> dict | None:
         if not title or not link:
             return None
 
-        # Filter out non-apartment listings
         category = o.get("category", {})
         if not _is_apartment(title, category):
             return None
 
         price = _price(p)
         loc = o.get("location", {})
-        city_name = (loc.get("city") or {}).get("name", "") or ""
-        district_name = (loc.get("district") or {}).get("name", "") or ""
+        city_name = ((loc.get("city") or {}).get("name") or "").strip()
+        district_name = ((loc.get("district") or {}).get("name") or "").strip()
 
-        # Only Warsaw listings
-        if city_name and city_name.lower() not in ("warszawa", "warsaw", ""):
+        # Strict Warsaw-only filter
+        if city_name and city_name.lower() not in _WARSAW_CITIES:
             return None
 
         district = district_name or city_name or "Warszawa"
@@ -109,10 +107,11 @@ def _parse_offer(o: dict) -> dict | None:
         image = ""
         if photos:
             image = photos[0].get("link", "").replace("{width}", "400").replace("{height}", "300")
-        rooms_raw = _param(p, "rooms")
-        area_raw = _param(p, "m")
+
         rooms = None
         area = None
+        rooms_raw = _param(p, "rooms")
+        area_raw = _param(p, "m")
         if rooms_raw:
             try:
                 rooms = int(str(rooms_raw).replace("+", "").strip())
@@ -132,131 +131,141 @@ def _parse_offer(o: dict) -> dict | None:
         return None
 
 
-def parse_olx() -> list:
+def _fetch_api_page(offset: int, extra_params: dict = None) -> list:
+    """Fetch one page from OLX API, return parsed offers."""
+    params = {
+        "offset": offset,
+        "limit": 50,
+        "category_id": 15,
+        "region_id": 7,
+        "city_id": 39610,
+        "sort_by": "created_at:desc",
+        "filter_refiners": "spell_checker",
+    }
+    if extra_params:
+        params.update(extra_params)
+    try:
+        data = _fetch_json(API_URL, params=params, headers=_h(json_mode=True))
+        offers = data.get("data", [])
+        results = []
+        for o in offers:
+            apt = _parse_offer(o)
+            if apt:
+                results.append(apt)
+        return results, len(offers)
+    except Exception as e:
+        print(f"[OLX] API error offset={offset}: {e}")
+        return [], 0
+
+
+def _parse_html_page(url: str) -> list:
+    """Parse OLX HTML listing page."""
     results = []
+    try:
+        r = requests.get(url, headers=_h(json_mode=False), timeout=20)
+        r.raise_for_status()
+        text = r.text
 
-    # Fetch multiple pages from API — Warsaw only (city_id=39610)
-    for offset in [0, 50, 100, 150, 200, 250, 300, 350, 400, 450]:
-        params = {
-            "offset": offset,
-            "limit": 50,
-            "category_id": 15,   # mieszkania
-            "city_id": 39610,    # Warszawa
-            "sort_by": "created_at:desc",
-        }
-        try:
-            data = _fetch_json(API_URL, params=params, headers=_h(json_mode=True))
-            offers = data.get("data", [])
-            if not offers:
-                break
-            for o in offers:
-                apt = _parse_offer(o)
-                if apt:
-                    results.append(apt)
-            print(f"[OLX] offset={offset}: {len(offers)} offers")
-            time.sleep(random.uniform(1, 2))
-        except Exception as e:
-            print(f"[OLX] API error at offset={offset}: {e}")
-            break
+        # Try __NEXT_DATA__ first
+        m = re.search(r'window\.__PRERENDERED_STATE__\s*=\s*"(.*?)";\s*</script>', text)
+        if not m:
+            m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', text, re.DOTALL)
+        if m:
+            try:
+                raw = m.group(1)
+                data = json.loads(raw)
+                # Try to find offers in the JSON
+                offers = (
+                    data.get("props", {}).get("pageProps", {}).get("offers", []) or
+                    data.get("offers", [])
+                )
+                for o in offers:
+                    apt = _parse_offer(o)
+                    if apt:
+                        results.append(apt)
+                if results:
+                    return results
+            except Exception:
+                pass
 
-    # Also fetch with district_id for broader Warsaw coverage
-    for offset in [0, 50, 100, 150, 200]:
-        params = {
-            "offset": offset,
-            "limit": 50,
-            "category_id": 15,
-            "region_id": 7,      # Mazowieckie
-            "city_id": 39610,    # Warszawa
-            "sort_by": "created_at:desc",
-        }
-        try:
-            data = _fetch_json(API_URL, params=params, headers=_h(json_mode=True))
-            offers = data.get("data", [])
-            if not offers:
-                break
-            for o in offers:
-                apt = _parse_offer(o)
-                if apt:
-                    results.append(apt)
-            print(f"[OLX] category offset={offset}: {len(offers)} offers")
-            time.sleep(random.uniform(1, 2))
-        except Exception as e:
-            print(f"[OLX] category API error at offset={offset}: {e}")
-            break
+        # Regex fallback: extract offer links + titles from HTML
+        # OLX listing cards have data-cy="l-card"
+        cards = re.findall(
+            r'data-cy="l-card"[^>]*>.*?href="(https://www\.olx\.pl/d/oferta/[^"]+)".*?'
+            r'(?:data-testid="ad-title"[^>]*>|<h[36][^>]*>)\s*([^<]{5,120})',
+            text, re.DOTALL
+        )
+        seen = set()
+        for link, title in cards:
+            if link in seen:
+                continue
+            seen.add(link)
+            # Check if Warsaw
+            if not _is_apartment(title, {}):
+                continue
+            results.append({
+                "title": title.strip(), "price": 0, "district": "Warszawa",
+                "rooms": None, "area": None, "floor": None,
+                "furnished": 0, "link": link, "image": "", "source": "OLX",
+            })
 
-    # HTML fallback if API returned nothing
-    if not results:
-        try:
-            r = requests.get(
-                "https://www.olx.pl/nieruchomosci/mieszkania/wynajem/warszawa/",
-                headers=_h(json_mode=False), timeout=15, stream=True
-            )
-            content = b""
-            for chunk in r.iter_content(65536):
-                content += chunk
-                if len(content) >= MAX_BYTES:
-                    break
-            r.close()
-            text = content.decode("utf-8", errors="ignore")
-
-            # Try embedded JSON
-            m = re.search(r'"offers"\s*:\s*(\[.*?\])\s*,\s*"[a-z]', text, re.DOTALL)
-            if m:
+        # Last resort: extract from embedded JSON blobs
+        if not results:
+            json_blobs = re.findall(r'\{[^{}]*"url"\s*:\s*"https://www\.olx\.pl/d/oferta/[^"]+?"[^{}]*\}', text)
+            seen = set()
+            for blob in json_blobs[:100]:
                 try:
-                    offers = json.loads(m.group(1))
-                    for o in offers[:50]:
-                        apt = _parse_offer(o)
-                        if apt:
-                            results.append(apt)
+                    o = json.loads(blob)
+                    apt = _parse_offer(o)
+                    if apt and apt["link"] not in seen:
+                        seen.add(apt["link"])
+                        results.append(apt)
                 except Exception:
                     pass
 
-            # BeautifulSoup fallback
-            if not results:
-                try:
-                    from bs4 import BeautifulSoup
-                    soup = BeautifulSoup(text, "lxml")
-                    cards = soup.find_all("div", attrs={"data-cy": "l-card"})
-                    for card in cards[:50]:
-                        a = card.find("a", href=True)
-                        if not a:
-                            continue
-                        href = a["href"]
-                        if not href.startswith("http"):
-                            href = "https://www.olx.pl" + href
-                        title_el = card.find("h6") or card.find("h4") or card.find("h3")
-                        title = title_el.get_text(strip=True) if title_el else ""
-                        if not title:
-                            continue
-                        price_el = card.find(attrs={"data-testid": "ad-price"})
-                        price = _price([]) if not price_el else int(
-                            "".join(c for c in price_el.get_text() if c.isdigit()) or "0"
-                        )
-                        results.append({
-                            "title": title, "price": price, "district": "Warsaw",
-                            "rooms": None, "area": None, "floor": None,
-                            "furnished": 0, "link": href, "image": "", "source": "OLX",
-                        })
-                except Exception as e:
-                    print(f"[OLX] BS4 error: {e}")
+    except Exception as e:
+        print(f"[OLX] HTML error {url}: {e}")
+    return results
 
-            # Last resort: regex
-            if not results:
-                links = re.findall(r'"url"\s*:\s*"(https://www\.olx\.pl/d/oferta/[^"]+)"', text)
-                titles = re.findall(r'"title"\s*:\s*"([^"]{10,100})"', text)
-                seen = set()
-                for i, link in enumerate(links[:50]):
-                    if link in seen:
-                        continue
-                    seen.add(link)
-                    title = titles[i] if i < len(titles) else f"Mieszkanie #{i+1}"
-                    results.append({
-                        "title": title, "price": 0, "district": "Warsaw",
-                        "rooms": None, "area": None, "floor": None,
-                        "furnished": 0, "link": link, "image": "", "source": "OLX",
-                    })
-        except Exception as e:
-            print(f"[OLX] HTML fallback error: {e}")
 
-    print(f"[OLX] Found {len(results)} listings")
+def parse_olx() -> list:
+    results = []
+    seen_links = set()
+
+    def add(items):
+        for apt in items:
+            if apt["link"] not in seen_links:
+                seen_links.add(apt["link"])
+                results.append(apt)
+
+    # Primary: OLX API with Warsaw city_id
+    print("[OLX] Fetching via API (Warsaw city_id=39610)...")
+    empty_pages = 0
+    for offset in range(0, 500, 50):
+        page_results, total_offers = _fetch_api_page(offset)
+        if total_offers == 0:
+            empty_pages += 1
+            if empty_pages >= 2:
+                break
+        else:
+            empty_pages = 0
+        add(page_results)
+        print(f"[OLX] API offset={offset}: {total_offers} raw → {len(page_results)} Warsaw")
+        time.sleep(random.uniform(0.8, 1.5))
+
+    # Fallback: HTML pages if API gave too few results
+    if len(results) < 30:
+        print("[OLX] API gave few results, trying HTML pages...")
+        for page in range(1, 6):
+            url = (
+                "https://www.olx.pl/nieruchomosci/mieszkania/wynajem/warszawa/"
+                if page == 1
+                else f"https://www.olx.pl/nieruchomosci/mieszkania/wynajem/warszawa/?page={page}"
+            )
+            page_results = _parse_html_page(url)
+            add(page_results)
+            print(f"[OLX] HTML page {page}: {len(page_results)}")
+            time.sleep(random.uniform(1, 2))
+
+    print(f"[OLX] Total Warsaw listings: {len(results)}")
     return results

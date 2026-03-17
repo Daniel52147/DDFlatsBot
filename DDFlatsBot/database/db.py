@@ -102,8 +102,8 @@ def _is_apartment_listing(title: str, price: int) -> bool:
 def save_apartment(data: dict) -> bool:
     if not _is_apartment_listing(data.get("title", ""), data.get("price", 0)):
         return False
-    # Deduplication check before opening connection
-    if find_duplicate(data.get("title", ""), data.get("price", 0)):
+    # Deduplicate within same source only
+    if find_duplicate(data.get("title", ""), data.get("price", 0), data.get("source", "")):
         return False
     conn = get_conn()
     c = conn.cursor()
@@ -511,17 +511,23 @@ def rate_apartment(user_id: int, apartment_id: int, rating: int):
 
 # ── Deduplication ─────────────────────────────────────────────
 
-def find_duplicate(title: str, price: int) -> bool:
-    """Check if very similar apartment already exists (same title+price from different source)."""
+def find_duplicate(title: str, price: int, source: str = "") -> bool:
+    """Check if very similar apartment already exists from the SAME source."""
     if not title or not price:
         return False
     conn = get_conn()
-    # Normalize: lowercase, remove extra spaces, take first 40 chars
     short_title = " ".join(title.lower().split())[:40]
-    row = conn.execute(
-        "SELECT id FROM apartments WHERE LOWER(TRIM(title)) LIKE ? AND price=? LIMIT 1",
-        (f"{short_title}%", price)
-    ).fetchone()
+    # Only deduplicate within same source — allow same apt from OLX+Otodom+Gratka+Morizon
+    if source:
+        row = conn.execute(
+            "SELECT id FROM apartments WHERE LOWER(TRIM(title)) LIKE ? AND price=? AND source=? LIMIT 1",
+            (f"{short_title}%", price, source)
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT id FROM apartments WHERE LOWER(TRIM(title)) LIKE ? AND price=? LIMIT 1",
+            (f"{short_title}%", price)
+        ).fetchone()
     conn.close()
     return row is not None
 
