@@ -185,8 +185,8 @@ async def _notify(apartments: list):
             except Exception:
                 pass
 
-    # 3. General VIP notification
-    if apartments:
+    # 3. General VIP notification — only if 5+ new apartments
+    if len(apartments) >= 5:
         vip_ids = get_all_vip_user_ids()
         for uid in vip_ids:
             if uid not in notified:

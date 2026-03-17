@@ -330,10 +330,15 @@ async def show_next_apartment(user_id: int, bot, state: FSMContext, chat_id: int
     record_user_activity(user_id)
 
     total = count_apartments(filters, vip=is_vip)
-    text = apt_text(apt)
+    text = apt_text(apt, lang)
     remaining = max(0, total - offset - 1)
     if remaining > 0:
         text += t(lang, "remaining", n=remaining)
+
+    # Warn when 1 view left before hitting limit
+    views_after = user["views"] + 1
+    if not is_vip and views_after == FREE_VIEWS - 1:
+        text += f"\n\n⚠️ <b>Осталась 1 квартира</b> из бесплатных {FREE_VIEWS}. Потом нужен VIP."
 
     kb = apt_keyboard(apt["id"], lang=lang)
     # Map button: build Google Maps link from district/title
