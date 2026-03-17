@@ -7,7 +7,13 @@ VIP_PRICE = 19          # zł / month
 
 # DB path — on Render use /var/data/ (persistent disk), locally use Flats.db
 _data_dir = os.environ.get("DATA_DIR", "")
-DB_PATH = os.path.join(_data_dir, "Flats.db") if _data_dir else "Flats.db"
+if _data_dir:
+    os.makedirs(_data_dir, exist_ok=True)
+    DB_PATH = os.path.join(_data_dir, "Flats.db")
+else:
+    DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Flats.db")
+
+print(f"[Config] DB_PATH = {DB_PATH}")
 
 ADMIN_IDS = [2066158453]
 MODERATOR_IDS = []

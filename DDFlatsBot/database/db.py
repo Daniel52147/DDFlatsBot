@@ -1,4 +1,5 @@
 import sqlite3
+import os
 import random
 import string
 from datetime import datetime, timedelta
@@ -17,6 +18,8 @@ def get_conn():
 
 
 def init_db():
+    print(f"[DB] Initializing database at: {DB_PATH}")
+    print(f"[DB] File exists: {os.path.exists(DB_PATH)}")
     conn = get_conn()
     c = conn.cursor()
     for sql in [CREATE_APARTMENTS, CREATE_USERS, CREATE_FAVORITES,
