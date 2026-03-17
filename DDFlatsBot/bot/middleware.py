@@ -25,8 +25,12 @@ async def is_subscribed(bot, user_id: int) -> bool:
 # Callbacks that are always allowed (subscription/payment flow)
 ALLOWED_CALLBACKS = {
     "check_sub", "open_vip", "vip_how_to_pay", "vip_request", "vip_stars",
-    "open_filter", "open_favorites", "open_subs", "open_stats",
+    "open_filter", "open_favorites", "open_subs", "open_stats", "open_stats_pub",
     "open_ref", "open_alerts", "open_prices", "open_today", "cancel",
+    "open_hot", "open_drops", "open_map", "open_cheap", "open_notes",
+    "open_compare", "open_leaderboard", "open_top", "open_feedback", "open_help",
+    "reset_filters", "next", "skip", "accept_disclaimer",
+    "alert_create", "open_menu",
 }
 
 

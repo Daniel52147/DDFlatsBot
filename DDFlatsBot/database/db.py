@@ -100,15 +100,16 @@ def _is_apartment_listing(title: str, price: int) -> bool:
 
 
 def save_apartment(data: dict) -> bool:
-    # Filter out non-apartment listings
     if not _is_apartment_listing(data.get("title", ""), data.get("price", 0)):
+        return False
+    # Deduplication check before opening connection
+    if find_duplicate(data.get("title", ""), data.get("price", 0)):
         return False
     conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT id, price FROM apartments WHERE link=?", (data["link"],))
     existing = c.fetchone()
     if existing:
-        # Track price change
         if data.get("price") and existing["price"] != data["price"]:
             c.execute(
                 "INSERT INTO price_history (apartment_id, price, recorded_at) VALUES (?,?,?)",
@@ -119,12 +120,6 @@ def save_apartment(data: dict) -> bool:
             conn.commit()
         conn.close()
         return False
-    conn.close()
-    # Deduplication: skip if very similar apartment already exists from another source
-    if find_duplicate(data.get("title", ""), data.get("price", 0)):
-        return False
-    conn = get_conn()
-    c = conn.cursor()
     c.execute("""
         INSERT INTO apartments
         (title, price, district, rooms, area, floor, furnished, link, image, source, created_at)
@@ -573,18 +568,9 @@ def get_stats() -> dict:
 # ── Auto VIP conditions ───────────────────────────────────────
 
 def check_auto_vip_conditions(user_id: int) -> str | None:
-    """
-    Check if user qualifies for automatic VIP.
-    Returns reason string if VIP should be granted, None otherwise.
-    Conditions:
-      - 10+ favorites saved → 3 days VIP
-      - 5+ referrals → 14 days VIP (handled separately in apply_referral)
-      - Active 7+ days → 2 days VIP trial
-    """
     conn = get_conn()
     c = conn.cursor()
 
-    # Already VIP — skip
     user = c.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
     if not user or user["vip"]:
         conn.close()
@@ -594,33 +580,35 @@ def check_auto_vip_conditions(user_id: int) -> str | None:
     fav_count = c.execute(
         "SELECT COUNT(*) FROM favorites WHERE user_id=?", (user_id,)
     ).fetchone()[0]
-    if fav_count >= 10:
-        conn.close()
-        set_vip(user_id, 1, days=3)
-        return "fav10"
 
     # Condition 2: active user (registered 7+ days ago, viewed 20+ apartments)
     created = user["created_at"] or ""
     views = user["views"] or 0
+    loyal = False
     if created and views >= 20:
-        from datetime import datetime
         try:
             days_since = (datetime.now() - datetime.fromisoformat(created)).days
             if days_since >= 7:
-                conn.close()
-                set_vip(user_id, 1, days=2)
-                return "loyal"
+                loyal = True
         except Exception:
             pass
+
+    conn.close()
+
+    if fav_count >= 10:
+        set_vip(user_id, 1, days=3)
+        return "fav10"
+
+    if loyal:
+        set_vip(user_id, 1, days=2)
+        return "loyal"
 
     # Condition 3: 7-day activity streak → 1 day VIP
     streak = get_user_streak_days(user_id)
     if streak >= 7:
-        conn.close()
         set_vip(user_id, 1, days=1)
         return "streak7"
 
-    conn.close()
     return None
 
 

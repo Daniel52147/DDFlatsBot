@@ -128,7 +128,6 @@ async def _remind_inactive():
         conn = get_conn()
         yesterday = (datetime.now() - timedelta(days=1)).date().isoformat()
         today = datetime.now().date().isoformat()
-        # Users active yesterday but not today
         rows = conn.execute("""
             SELECT DISTINCT ua.user_id FROM user_activity ua
             WHERE ua.date = ?
@@ -136,26 +135,18 @@ async def _remind_inactive():
                 SELECT user_id FROM user_activity WHERE date = ?
             )
         """, (yesterday, today)).fetchall()
+        new_count = conn.execute(
+            "SELECT COUNT(*) FROM apartments WHERE created_at >= ?", (today,)
+        ).fetchone()[0]
         conn.close()
 
-        for row in rows[:50]:  # max 50 reminders at once
+        for row in rows[:50]:
             uid = row["user_id"]
             try:
                 from database.db import get_or_create_user
                 user = get_or_create_user(uid)
                 if user.get("vip") == -1:  # banned
                     continue
-                new_count = conn.execute(
-                    "SELECT COUNT(*) FROM apartments WHERE created_at >= ?", (yesterday,)
-                ).fetchone()[0] if False else 0
-
-                conn2 = get_conn()
-                new_count = conn2.execute(
-                    "SELECT COUNT(*) FROM apartments WHERE created_at >= ?",
-                    (today,)
-                ).fetchone()[0]
-                conn2.close()
-
                 await _bot.send_message(
                     uid,
                     f"👋 <b>Привет! Ты ещё ищешь квартиру?</b>\n\n"
