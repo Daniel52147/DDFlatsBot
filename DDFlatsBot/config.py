@@ -1,25 +1,26 @@
-BOT_TOKEN = "8655267832:AAHG9jPbmT3UmT4TeHA4xy3IuHSPjJiY4cI"
+import os
+
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8655267832:AAHG9jPbmT3UmT4TeHA4xy3IuHSPjJiY4cI")
 
 FREE_VIEWS = 5
 VIP_PRICE = 19          # zł / month
-VIP_EARLY_ACCESS_MINUTES = 0
 
-DB_PATH = "Flats.db"
+# DB path — on Render use /var/data/ (persistent disk), locally use Flats.db
+_data_dir = os.environ.get("DATA_DIR", "")
+DB_PATH = os.path.join(_data_dir, "Flats.db") if _data_dir else "Flats.db"
 
 ADMIN_IDS = [2066158453]
-MODERATOR_IDS = []  # Добавляй сюда ID модераторов: [123456789, 987654321]
+MODERATOR_IDS = []
 
 CHANNEL_LINK = "https://t.me/ddflots"
 CHANNEL_ID = "@ddflots"
 
-EARLY_ADOPTER_LIMIT = 50  # First N users get free VIP
+EARLY_ADOPTER_LIMIT = 50
 
-# Referral: invite N friends → get free VIP days
 REFERRAL_REWARD_DAYS = 7
 REFERRAL_REQUIRED = 3
 
-# VIP exclusive features
-VIP_EARLY_ACCESS_MINUTES = 30   # VIP видит квартиры на 30 минут раньше бесплатных
+VIP_EARLY_ACCESS_MINUTES = 30
 
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",

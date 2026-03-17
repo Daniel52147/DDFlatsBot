@@ -25,6 +25,7 @@ from database.db import (
 from config import FREE_VIEWS, VIP_PRICE, DISTRICTS, ADMIN_IDS, CHANNEL_LINK, MODERATOR_IDS
 from config import REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS
 from bot.i18n import t
+from datetime import datetime
 
 router = Router()
 
@@ -277,6 +278,9 @@ async def cmd_start(message: Message, state: FSMContext):
         [
             InlineKeyboardButton(text=t(lang, "btn_notes"), callback_data="open_notes"),
             InlineKeyboardButton(text=t(lang, "btn_mystats"), callback_data="open_stats"),
+        ],
+        [
+            InlineKeyboardButton(text="🔄 Сбросить фильтры", callback_data="reset_filters"),
         ],
     ])
     await message.answer(
@@ -1361,6 +1365,12 @@ async def cb_cancel(call: CallbackQuery, state: FSMContext):
     await call.message.delete()
 
 
+@router.callback_query(F.data == "reset_filters")
+async def cb_reset_filters(call: CallbackQuery, state: FSMContext):
+    await state.update_data(filters={}, offset=0)
+    await call.answer("✅ Фильтры сброшены!", show_alert=True)
+
+
 # ── Rating ────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("rate:"))
@@ -1951,6 +1961,27 @@ async def cmd_modstats(message: Message):
         f"• Значок ✅ на проверенных объявлениях",
         parse_mode="HTML"
     )
+
+
+# ── /backup — admin DB download ──────────────────────────────
+
+@router.message(Command("backup"))
+async def cmd_backup(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    from config import DB_PATH
+    import os
+    if not os.path.exists(DB_PATH):
+        await message.answer("❌ База данных не найдена.")
+        return
+    try:
+        from aiogram.types import FSInputFile
+        await message.answer_document(
+            FSInputFile(DB_PATH, filename="Flats.db"),
+            caption=f"💾 Резервная копия базы данных\n📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+        )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
 
 
 # ── /map — интерактивная карта районов с ценами ───────────────

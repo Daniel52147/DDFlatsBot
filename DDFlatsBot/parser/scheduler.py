@@ -2,7 +2,9 @@ import schedule
 import time
 import asyncio
 import threading
-from datetime import datetime
+import shutil
+import os
+from datetime import datetime, timedelta
 
 from parser.parser_olx import parse_olx
 from parser.parser_otodom import parse_otodom
@@ -12,7 +14,9 @@ from database.db import (
     save_apartment, get_latest_apartments, get_all_user_ids,
     get_all_vip_user_ids, get_subscribers_for_district, log_parse,
     match_alerts, check_vip_expiry, get_daily_digest, check_auto_vip_conditions,
+    get_cheapest_apartments, get_conn,
 )
+from config import CHANNEL_ID, DB_PATH
 
 _bot = None
 _loop = None
@@ -55,19 +59,117 @@ def parse_all():
 
 
 def send_daily_digest():
-    """Send daily digest to all users at 9:00."""
     if _bot and _loop:
         asyncio.run_coroutine_threadsafe(_daily_digest(), _loop)
 
 
+def post_to_channel():
+    """Post best apartments to channel every 2 hours."""
+    if _bot and _loop:
+        asyncio.run_coroutine_threadsafe(_post_channel(), _loop)
+
+
+def send_reminders():
+    """Remind inactive users who haven't returned in 24h."""
+    if _bot and _loop:
+        asyncio.run_coroutine_threadsafe(_remind_inactive(), _loop)
+
+
 def check_auto_vip():
-    """Check all users for auto-VIP conditions every hour."""
     if _bot and _loop:
         asyncio.run_coroutine_threadsafe(_auto_vip_check(), _loop)
 
 
+def backup_db():
+    """Create a backup copy of the database."""
+    try:
+        if os.path.exists(DB_PATH):
+            backup_path = DB_PATH + ".backup"
+            shutil.copy2(DB_PATH, backup_path)
+            print(f"[Backup] DB backed up to {backup_path}")
+    except Exception as e:
+        print(f"[Backup] Error: {e}")
+
+
+async def _post_channel():
+    """Post top 3 cheapest apartments to the channel."""
+    try:
+        apts = get_cheapest_apartments(limit=3, price_max=3000)
+        if not apts:
+            return
+        from datetime import date
+        today = date.today().strftime("%d.%m.%Y")
+        header = f"🏠 <b>Лучшие квартиры на {today}:</b>\n\n"
+        await _bot.send_message(CHANNEL_ID, header, parse_mode="HTML")
+        for apt in apts:
+            source_icons = {"OLX": "🟠", "Otodom": "🔵", "Gratka": "🟢", "Morizon": "🟣"}
+            icon = source_icons.get(apt.get("source", ""), "📡")
+            text = (
+                f"🏠 <b>{apt['title']}</b>\n"
+                f"💰 <b>{apt['price']} zł/мес</b>\n"
+                f"📍 {apt.get('district', 'Warszawa')}\n"
+                f"🔗 <a href=\"{apt['link']}\">Открыть объявление</a> {icon}\n\n"
+                f"🤖 @DDFlatsBot — все квартиры Варшавы"
+            )
+            try:
+                if apt.get("image"):
+                    await _bot.send_photo(CHANNEL_ID, apt["image"], caption=text, parse_mode="HTML")
+                else:
+                    await _bot.send_message(CHANNEL_ID, text, parse_mode="HTML")
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"[Channel] Error: {e}")
+
+
+async def _remind_inactive():
+    """Send reminder to users who were active yesterday but not today."""
+    try:
+        conn = get_conn()
+        yesterday = (datetime.now() - timedelta(days=1)).date().isoformat()
+        today = datetime.now().date().isoformat()
+        # Users active yesterday but not today
+        rows = conn.execute("""
+            SELECT DISTINCT ua.user_id FROM user_activity ua
+            WHERE ua.date = ?
+            AND ua.user_id NOT IN (
+                SELECT user_id FROM user_activity WHERE date = ?
+            )
+        """, (yesterday, today)).fetchall()
+        conn.close()
+
+        for row in rows[:50]:  # max 50 reminders at once
+            uid = row["user_id"]
+            try:
+                from database.db import get_or_create_user
+                user = get_or_create_user(uid)
+                if user.get("vip") == -1:  # banned
+                    continue
+                new_count = conn.execute(
+                    "SELECT COUNT(*) FROM apartments WHERE created_at >= ?", (yesterday,)
+                ).fetchone()[0] if False else 0
+
+                conn2 = get_conn()
+                new_count = conn2.execute(
+                    "SELECT COUNT(*) FROM apartments WHERE created_at >= ?",
+                    (today,)
+                ).fetchone()[0]
+                conn2.close()
+
+                await _bot.send_message(
+                    uid,
+                    f"👋 <b>Привет! Ты ещё ищешь квартиру?</b>\n\n"
+                    f"🏠 Сегодня добавлено <b>{new_count}</b> новых квартир в Варшаве.\n\n"
+                    f"Нажми /next чтобы посмотреть 👇",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"[Reminder] Error: {e}")
+
+
 async def _auto_vip_check():
-    """Auto-grant VIP to users who meet conditions."""
     user_ids = get_all_user_ids()
     for uid in user_ids:
         try:
@@ -76,31 +178,23 @@ async def _auto_vip_check():
                 await _bot.send_message(
                     uid,
                     "🎁 <b>Автоматический VIP!</b>\n\n"
-                    "Ты сохранил 10+ квартир в избранное — это говорит о том, что ты серьёзно ищешь.\n"
-                    "Мы дарим тебе <b>3 дня VIP бесплатно!</b>\n\n"
-                    "✅ Безлимитный просмотр\n"
-                    "✅ Умные алерты: /alert\n"
-                    "✅ Подписка на районы: /subscribe",
+                    "Ты сохранил 10+ квартир — дарим <b>3 дня VIP бесплатно!</b>\n\n"
+                    "✅ Безлимитный просмотр\n✅ Умные алерты: /alert",
                     parse_mode="HTML"
                 )
             elif reason == "loyal":
                 await _bot.send_message(
                     uid,
                     "🎁 <b>Подарок за верность!</b>\n\n"
-                    "Ты с нами уже больше недели и активно ищешь квартиру.\n"
-                    "Дарим тебе <b>2 дня VIP бесплатно!</b>\n\n"
-                    "✅ Безлимитный просмотр\n"
-                    "✅ Умные алерты: /alert",
+                    "Дарим <b>2 дня VIP бесплатно!</b>\n\n"
+                    "✅ Безлимитный просмотр\n✅ Умные алерты: /alert",
                     parse_mode="HTML"
                 )
             elif reason == "streak7":
                 await _bot.send_message(
                     uid,
-                    "🔥 <b>7 дней подряд!</b>\n\n"
-                    "Ты заходишь в бот 7 дней подряд — это серьёзно!\n"
-                    "Дарим тебе <b>1 день VIP бесплатно</b> за стрик!\n\n"
-                    "✅ Безлимитный просмотр\n"
-                    "✅ Умные алерты: /alert",
+                    "🔥 <b>7 дней подряд!</b> Дарим <b>1 день VIP</b> за стрик!\n\n"
+                    "✅ Безлимитный просмотр\n✅ Умные алерты: /alert",
                     parse_mode="HTML"
                 )
         except Exception:
@@ -108,7 +202,6 @@ async def _auto_vip_check():
 
 
 async def _daily_digest():
-    """Send morning digest with today's stats."""
     digest = get_daily_digest()
     if not digest["new_today"]:
         return
@@ -122,19 +215,18 @@ async def _daily_digest():
         f"🏠 Новых квартир: <b>{digest['new_today']}</b>\n"
     )
     if digest["avg_price"]:
-        text += f"💰 Средняя цена сегодня: <b>{digest['avg_price']} zł</b>\n"
+        text += f"💰 Средняя цена: <b>{digest['avg_price']} zł</b>\n"
     if digest["cheapest"]:
         c = digest["cheapest"]
         text += (
             f"\n🏆 <b>Самая дешёвая сегодня:</b>\n"
             f"🏠 {c['title']}\n"
-            f"💰 {c['price']} zł/мес\n"
-            f"📍 {c['district']}\n"
-            f"🔗 {c['link']}\n"
+            f"💰 {c['price']} zł/мес · 📍 {c['district']}\n"
+            f"🔗 <a href=\"{c['link']}\">Открыть</a>\n"
         )
     if drops:
-        text += f"\n📉 <b>Снижение цен ({len(drops)}):</b> /drops\n"
-    text += "\nНажми /next чтобы смотреть квартиры 👇"
+        text += f"\n📉 Снижение цен: {len(drops)} объявл. → /drops\n"
+    text += "\n👇 /next — смотреть квартиры"
 
     for uid in user_ids:
         try:
@@ -160,7 +252,7 @@ async def _notify(apartments: list):
                     f"🏠 {apt['title']}\n"
                     f"💰 {apt['price']} zł/мес\n"
                     f"📍 {apt['district']}\n"
-                    f"🔗 {apt['link']}",
+                    f"🔗 <a href=\"{apt['link']}\">Открыть</a>",
                     parse_mode="HTML"
                 )
                 notified.add(uid)
@@ -178,14 +270,14 @@ async def _notify(apartments: list):
                     f"🔔 <b>Новая квартира в {apt['district']}!</b>\n\n"
                     f"🏠 {apt['title']}\n"
                     f"💰 {apt['price']} zł/мес\n"
-                    f"🔗 {apt['link']}",
+                    f"🔗 <a href=\"{apt['link']}\">Открыть</a>",
                     parse_mode="HTML"
                 )
                 notified.add(uid)
             except Exception:
                 pass
 
-    # 3. General VIP notification — only if 5+ new apartments
+    # 3. VIP notification — only if 5+ new apartments
     if len(apartments) >= 5:
         vip_ids = get_all_vip_user_ids()
         for uid in vip_ids:
@@ -202,9 +294,13 @@ async def _notify(apartments: list):
 
 def run_scheduler():
     schedule.every(10).minutes.do(parse_all)
+    schedule.every(2).hours.do(post_to_channel)
     schedule.every().hour.do(check_auto_vip)
+    schedule.every().hour.do(backup_db)
     schedule.every().day.at("09:00").do(send_daily_digest)
-    print("[Scheduler] Running: parse every 10min, auto-vip every hour, digest at 09:00")
+    schedule.every().day.at("18:00").do(send_reminders)
+    print("[Scheduler] Running: parse 10min, channel 2h, digest 09:00, reminders 18:00")
     while True:
         schedule.run_pending()
         time.sleep(1)
+
