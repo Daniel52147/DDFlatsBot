@@ -5,13 +5,18 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "8655267832:AAHG9jPbmT3UmT4TeHA4xy3IuHSP
 FREE_VIEWS = 5
 VIP_PRICE = 19          # zł / month
 
-# DB path — on Render use /var/data/ (persistent disk), locally use Flats.db
-_data_dir = os.environ.get("DATA_DIR", "")
-if _data_dir:
-    os.makedirs(_data_dir, exist_ok=True)
-    DB_PATH = os.path.join(_data_dir, "Flats.db")
+# DB path — hardcoded to /var/data/ (Render persistent disk)
+# Falls back to local path if /var/data doesn't exist (local dev)
+_RENDER_DISK = "/var/data"
+if os.path.isdir(_RENDER_DISK):
+    DB_PATH = os.path.join(_RENDER_DISK, "Flats.db")
 else:
-    DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Flats.db")
+    _data_dir = os.environ.get("DATA_DIR", "")
+    if _data_dir:
+        os.makedirs(_data_dir, exist_ok=True)
+        DB_PATH = os.path.join(_data_dir, "Flats.db")
+    else:
+        DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Flats.db")
 
 print(f"[Config] DB_PATH = {DB_PATH}")
 
