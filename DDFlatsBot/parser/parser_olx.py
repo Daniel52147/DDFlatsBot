@@ -96,10 +96,15 @@ def _parse_offer(o: dict) -> dict | None:
 
         price = _price(p)
         loc = o.get("location", {})
-        district = (
-            (loc.get("district") or {}).get("name") or
-            (loc.get("city") or {}).get("name") or "Warsaw"
-        )
+        city_name = (loc.get("city") or {}).get("name", "") or ""
+        district_name = (loc.get("district") or {}).get("name", "") or ""
+
+        # Only Warsaw listings
+        if city_name and city_name.lower() not in ("warszawa", "warsaw", ""):
+            return None
+
+        district = district_name or city_name or "Warszawa"
+
         photos = o.get("photos", [])
         image = ""
         if photos:
@@ -130,12 +135,13 @@ def _parse_offer(o: dict) -> dict | None:
 def parse_olx() -> list:
     results = []
 
-    # Fetch multiple pages from API using query search (most reliable for Warsaw)
+    # Fetch multiple pages from API — Warsaw only (city_id=39610)
     for offset in [0, 50, 100, 150, 200, 250, 300, 350, 400, 450]:
         params = {
             "offset": offset,
             "limit": 50,
-            "query": "mieszkanie wynajem warszawa",
+            "category_id": 15,   # mieszkania
+            "city_id": 39610,    # Warszawa
             "sort_by": "created_at:desc",
         }
         try:
@@ -153,14 +159,14 @@ def parse_olx() -> list:
             print(f"[OLX] API error at offset={offset}: {e}")
             break
 
-    # Also fetch by category (mieszkania/wynajem) for more coverage
+    # Also fetch with district_id for broader Warsaw coverage
     for offset in [0, 50, 100, 150, 200]:
         params = {
             "offset": offset,
             "limit": 50,
             "category_id": 15,
-            "region_id": 7,  # Mazowieckie
-            "city_id": 39610,  # Warszawa
+            "region_id": 7,      # Mazowieckie
+            "city_id": 39610,    # Warszawa
             "sort_by": "created_at:desc",
         }
         try:

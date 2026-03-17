@@ -885,7 +885,6 @@ def get_new_today_count() -> int:
 def cleanup_junk_listings():
     """Remove obvious non-apartment listings from DB. Called once on startup."""
     conn = get_conn()
-    # Only delete clear junk — very specific keywords
     junk_keywords = [
         "osuszacz", "osuszanie", "pochłaniacz",
         "na doby", "noclegi", "godz/", "/doby", "krótkoterminow",
@@ -895,9 +894,20 @@ def cleanup_junk_listings():
             "DELETE FROM apartments WHERE LOWER(title) LIKE ?",
             (f"%{kw}%",)
         )
-    # Remove only extreme price outliers (keep price=0 — means not specified)
+    # Remove extreme price outliers
     conn.execute("DELETE FROM apartments WHERE price > 0 AND price < 200")
     conn.execute("DELETE FROM apartments WHERE price > 50000")
+    # Remove non-Warsaw listings (OLX sometimes leaks other cities)
+    non_warsaw = [
+        "Zgierz", "Łódź", "Częstochowa", "Radomsko", "Kutno", "Łęczyca",
+        "Piotrków", "Łask", "Zduńska", "Zelów", "Sieradz", "Tomaszów",
+        "Opoczno", "Ostrowy", "Polesie", "Retkinia", "Bałuty",
+    ]
+    for city in non_warsaw:
+        conn.execute(
+            "DELETE FROM apartments WHERE district LIKE ? AND source='OLX'",
+            (f"%{city}%",)
+        )
     conn.commit()
     conn.close()
 
