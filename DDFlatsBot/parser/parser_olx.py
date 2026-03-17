@@ -70,13 +70,13 @@ def _is_apartment(title: str, category: dict) -> bool:
     for kw in _JUNK_KEYWORDS:
         if kw in title_lower:
             return False
-    # Must contain at least one apartment-related word
-    apt_words = ["mieszkanie", "kawalerka", "pokój", "apartament", "wynajem mieszk", "do wynajęcia"]
-    if not any(w in title_lower for w in apt_words):
-        # Check OLX category — apartments are category id 15 (Mieszkania)
-        if category:
-            cat_id = category.get("id")
-            if cat_id and cat_id not in (15,):
+    # Check OLX category
+    if category:
+        cat_id = category.get("id")
+        # Block only if clearly wrong category AND no apartment words in title
+        if cat_id and cat_id not in (15, 1, 3018, 3019, 3020):
+            apt_words = ["mieszkanie", "kawalerka", "pokój", "apartament", "wynajem", "do wynajęcia"]
+            if not any(w in title_lower for w in apt_words):
                 return False
     return True
 

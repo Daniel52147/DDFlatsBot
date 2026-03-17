@@ -895,21 +895,21 @@ def get_new_today_count() -> int:
 
 
 def cleanup_junk_listings():
-    """Remove non-apartment listings already in DB."""
+    """Remove obvious non-apartment listings from DB. Called once on startup."""
     conn = get_conn()
+    # Only delete clear junk — very specific keywords
     junk_keywords = [
-        "osuszacz", "osuszanie", "pochłaniacz", "klimatyzator", "agregat",
+        "osuszacz", "osuszanie", "pochłaniacz",
         "na doby", "noclegi", "godz/", "/doby", "krótkoterminow",
-        "garaż", "parking", "działka", "lokal użytkowy", "magazyn",
     ]
     for kw in junk_keywords:
         conn.execute(
             "DELETE FROM apartments WHERE LOWER(title) LIKE ?",
             (f"%{kw}%",)
         )
-    # Also remove price outliers
-    conn.execute("DELETE FROM apartments WHERE price > 0 AND price < 500")
-    conn.execute("DELETE FROM apartments WHERE price > 25000")
+    # Remove only extreme price outliers (keep price=0 — means not specified)
+    conn.execute("DELETE FROM apartments WHERE price > 0 AND price < 200")
+    conn.execute("DELETE FROM apartments WHERE price > 50000")
     conn.commit()
     conn.close()
 
