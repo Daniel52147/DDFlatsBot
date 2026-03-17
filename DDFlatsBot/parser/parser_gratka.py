@@ -256,18 +256,28 @@ def _parse_inline_json(html: str) -> list:
 def parse_gratka() -> list:
     results = []
     session = _session()
+    session.headers.update({
+        "Referer": "https://gratka.pl/",
+        "sec-ch-ua": '"Chromium";v="120", "Google Chrome";v="120"',
+        "sec-ch-ua-mobile": "?0",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "same-origin",
+        "Upgrade-Insecure-Requests": "1",
+    })
 
-    for page in range(1, 11):
+    for page in range(1, 6):
         url = BASE if page == 1 else f"{BASE}?page={page}"
         try:
             html = _fetch(url, session)
+            print(f"[Gratka] Page {page} HTML size: {len(html)}")
 
             # Method 1: JSON-LD individual offers (most reliable for Gratka)
             page_results = _parse_json_ld_offers(html)
             if page_results:
                 results.extend(page_results)
                 print(f"[Gratka] Page {page} JSON-LD: {len(page_results)}")
-                time.sleep(random.uniform(1.5, 3))
+                time.sleep(random.uniform(2, 3))
                 continue
 
             # Method 2: Parse HTML article cards
@@ -275,7 +285,7 @@ def parse_gratka() -> list:
             if page_results:
                 results.extend(page_results)
                 print(f"[Gratka] Page {page} HTML: {len(page_results)}")
-                time.sleep(random.uniform(1.5, 3))
+                time.sleep(random.uniform(2, 3))
                 continue
 
             # Method 3: Inline JS data
@@ -284,9 +294,10 @@ def parse_gratka() -> list:
                 results.extend(page_results)
                 print(f"[Gratka] Page {page} inline JS: {len(page_results)}")
             else:
-                print(f"[Gratka] Page {page}: 0 results")
+                snippet = html[:300].replace("\n", " ")
+                print(f"[Gratka] Page {page}: 0 results. Snippet: {snippet[:200]}")
 
-            time.sleep(random.uniform(1.5, 3))
+            time.sleep(random.uniform(2, 3))
         except Exception as e:
             print(f"[Gratka] Page {page} error: {e}")
 

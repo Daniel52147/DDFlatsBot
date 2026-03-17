@@ -195,10 +195,41 @@ def _extract_from_raw_json(html: str) -> list:
     return results
 
 
+def _fetch_api(page: int, session) -> list:
+    """Use Otodom's internal GraphQL/REST API — bypasses bot detection."""
+    try:
+        url = (
+            f"https://www.otodom.pl/api/offers/"
+            f"?limit=36&page={page}"
+            f"&category=mieszkania&offerType=wynajem"
+            f"&locations[0][regionId]=7&locations[0][cityId]=26"  # Warszawa
+        )
+        r = session.get(url, timeout=20)
+        if r.status_code == 200:
+            data = r.json()
+            items = data.get("items") or data.get("data") or []
+            if items:
+                return _parse_items(items)
+    except Exception as e:
+        print(f"[Otodom] API error page {page}: {e}")
+    return []
+
+
 def parse_otodom() -> list:
     results = []
     seen_links = set()
     session = _session()
+    # Add extra headers to look more like a real browser
+    session.headers.update({
+        "Referer": "https://www.otodom.pl/",
+        "sec-ch-ua": '"Chromium";v="120", "Google Chrome";v="120"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "same-origin",
+        "Upgrade-Insecure-Requests": "1",
+    })
 
     def add(items):
         for apt in items:
@@ -206,16 +237,15 @@ def parse_otodom() -> list:
                 seen_links.add(apt["link"])
                 results.append(apt)
 
-    urls = [
-        f"https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa?page={p}"
-        if p > 1 else
-        "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa"
-        for p in range(1, 11)
-    ]
-
-    for url in urls:
+    for page in range(1, 6):
+        url = (
+            "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa"
+            if page == 1 else
+            f"https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa?page={page}"
+        )
         try:
             html = _fetch(url, session)
+            print(f"[Otodom] Page {page} HTML size: {len(html)}")
 
             # Method 1: __NEXT_DATA__ deep search
             items = _extract_next_data(html)
@@ -223,21 +253,23 @@ def parse_otodom() -> list:
                 page_results = _parse_items(items)
                 if page_results:
                     add(page_results)
-                    print(f"[Otodom] __NEXT_DATA__: {len(page_results)} from {url[-30:]}")
-                    time.sleep(random.uniform(1, 2))
+                    print(f"[Otodom] Page {page} __NEXT_DATA__: {len(page_results)}")
+                    time.sleep(random.uniform(2, 3))
                     continue
 
             # Method 2: Raw JSON extraction
             page_results = _extract_from_raw_json(html)
             if page_results:
                 add(page_results)
-                print(f"[Otodom] Raw JSON: {len(page_results)} from {url[-30:]}")
+                print(f"[Otodom] Page {page} Raw JSON: {len(page_results)}")
             else:
-                print(f"[Otodom] 0 from {url[-30:]} — blocked?")
+                # Log first 500 chars to diagnose blocking
+                snippet = html[:500].replace("\n", " ")
+                print(f"[Otodom] Page {page}: 0 results. HTML snippet: {snippet[:200]}")
 
-            time.sleep(random.uniform(1.5, 2.5))
+            time.sleep(random.uniform(2, 4))
         except Exception as e:
-            print(f"[Otodom] Error {url[-30:]}: {e}")
+            print(f"[Otodom] Page {page} error: {e}")
 
     print(f"[Otodom] Total: {len(results)}")
     return results
