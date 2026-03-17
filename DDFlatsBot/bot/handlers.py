@@ -27,6 +27,9 @@ from config import REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS
 from bot.i18n import t
 from datetime import datetime
 
+# Stars price: ~50 XTR ≈ 19 zł
+VIP_STARS_PRICE = 50
+
 router = Router()
 
 
@@ -632,7 +635,8 @@ async def cmd_vip(message: Message):
     fav_bar = "🟩" * fav_progress + "⬜" * (10 - fav_progress)
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"💳 Оплатить {VIP_PRICE} zł/мес", callback_data="vip_how_to_pay")],
+        [InlineKeyboardButton(text=f"⭐ Оплатить Stars ({VIP_STARS_PRICE} XTR)", callback_data="vip_stars")],
+        [InlineKeyboardButton(text=f"💳 Оплатить {VIP_PRICE} zł/мес (Revolut/BLIK)", callback_data="vip_how_to_pay")],
         [InlineKeyboardButton(text="👥 Получить бесплатно (рефералы)", callback_data="open_ref")],
     ])
     await message.answer(
@@ -698,6 +702,49 @@ async def cb_vip_request(call: CallbackQuery):
         "Проверю оплату и активирую VIP в течение нескольких часов.\n"
         "Получишь уведомление как только VIP будет активирован. 🙏"
     )
+
+
+@router.callback_query(F.data == "vip_stars")
+async def cb_vip_stars(call: CallbackQuery):
+    await call.answer()
+    from aiogram.types import LabeledPrice
+    await call.bot.send_invoice(
+        call.message.chat.id,
+        title="VIP DDFlatsBot — 30 дней",
+        description="Безлимитный просмотр, алерты, уведомления о снижении цен",
+        payload="vip_30days",
+        currency="XTR",
+        prices=[LabeledPrice(label="VIP 30 дней", amount=VIP_STARS_PRICE)],
+    )
+
+
+@router.pre_checkout_query()
+async def pre_checkout(query):
+    await query.answer(ok=True)
+
+
+@router.message(F.successful_payment)
+async def successful_payment(message: Message):
+    set_vip(message.from_user.id, 1, days=30)
+    await message.answer(
+        "🎉 <b>VIP активирован на 30 дней!</b>\n\n"
+        "✅ Безлимитный просмотр\n"
+        "✅ Умные алерты: /alert\n"
+        "✅ Подписка на районы: /subscribe\n\n"
+        "Спасибо за поддержку! 🙏",
+        parse_mode="HTML"
+    )
+    for admin_id in ADMIN_IDS:
+        try:
+            await message.bot.send_message(
+                admin_id,
+                f"💰 <b>Оплата Stars!</b>\n"
+                f"👤 {message.from_user.full_name} (<code>{message.from_user.id}</code>)\n"
+                f"⭐ {VIP_STARS_PRICE} XTR → VIP 30 дней",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
 
 
 @router.callback_query(F.data.startswith("admin_approve:"))
@@ -1306,7 +1353,8 @@ async def cb_open_vip(call: CallbackQuery):
     fav_count = len(favs)
     fav_bar = "🟩" * min(fav_count, 10) + "⬜" * (10 - min(fav_count, 10))
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"💳 Оплатить {VIP_PRICE} zł/мес", callback_data="vip_how_to_pay")],
+        [InlineKeyboardButton(text=f"⭐ Оплатить Stars ({VIP_STARS_PRICE} XTR)", callback_data="vip_stars")],
+        [InlineKeyboardButton(text=f"💳 Оплатить {VIP_PRICE} zł/мес (Revolut/BLIK)", callback_data="vip_how_to_pay")],
         [InlineKeyboardButton(text="👥 Получить бесплатно (рефералы)", callback_data="open_ref")],
     ])
     await call.message.answer(
