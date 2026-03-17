@@ -93,6 +93,16 @@ async def _auto_vip_check():
                     "✅ Умные алерты: /alert",
                     parse_mode="HTML"
                 )
+            elif reason == "streak7":
+                await _bot.send_message(
+                    uid,
+                    "🔥 <b>7 дней подряд!</b>\n\n"
+                    "Ты заходишь в бот 7 дней подряд — это серьёзно!\n"
+                    "Дарим тебе <b>1 день VIP бесплатно</b> за стрик!\n\n"
+                    "✅ Безлимитный просмотр\n"
+                    "✅ Умные алерты: /alert",
+                    parse_mode="HTML"
+                )
         except Exception:
             pass
 
@@ -102,6 +112,9 @@ async def _daily_digest():
     digest = get_daily_digest()
     if not digest["new_today"]:
         return
+
+    from database.db import get_price_drops_today
+    drops = get_price_drops_today(limit=3)
 
     user_ids = get_all_user_ids()
     text = (
@@ -119,6 +132,8 @@ async def _daily_digest():
             f"📍 {c['district']}\n"
             f"🔗 {c['link']}\n"
         )
+    if drops:
+        text += f"\n📉 <b>Снижение цен ({len(drops)}):</b> /drops\n"
     text += "\nНажми /next чтобы смотреть квартиры 👇"
 
     for uid in user_ids:

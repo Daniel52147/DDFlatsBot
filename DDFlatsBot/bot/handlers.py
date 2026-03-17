@@ -14,6 +14,8 @@ from database.db import (
     create_alert, get_user_alerts, delete_alert, get_price_drop,
     rate_apartment, set_user_lang, get_user_lang,
     get_leaderboard, get_daily_digest, check_auto_vip_conditions,
+    get_hot_apartments, get_price_drops_today, record_user_activity,
+    get_user_streak_days,
 )
 from config import FREE_VIEWS, VIP_PRICE, DISTRICTS, ADMIN_IDS, CHANNEL_LINK
 from config import REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS
@@ -188,6 +190,10 @@ async def cmd_start(message: Message, state: FSMContext):
             InlineKeyboardButton(text="🏆 Топ квартир", callback_data="open_top"),
             InlineKeyboardButton(text="📈 Лидерборд", callback_data="open_leaderboard"),
         ],
+        [
+            InlineKeyboardButton(text="🔥 Горячие", callback_data="open_hot"),
+            InlineKeyboardButton(text="📉 Снижение цен", callback_data="open_drops"),
+        ],
     ])
     await message.answer(
         f"👋 Привет, {name}!\n"
@@ -206,6 +212,8 @@ async def cmd_start(message: Message, state: FSMContext):
         f"/vip — VIP подписка\n"
         f"/mystats — моя статистика\n"
         f"/leaderboard — топ рефералов\n"
+        f"/hot — горячие квартиры 🔥\n"
+        f"/drops — снижение цен 📉\n"
         f"/lang — сменить язык 🌍"
         f"{early_adopter_msg}",
         parse_mode="HTML",
@@ -263,6 +271,7 @@ async def show_next_apartment(user_id: int, bot, state: FSMContext, chat_id: int
     apt = apartments[0]
     await state.update_data(offset=offset + 1, last_apt_id=apt["id"])
     increment_views(user_id)
+    record_user_activity(user_id)
 
     total = count_apartments(filters, vip=is_vip)
     text = apt_text(apt)
@@ -727,31 +736,6 @@ async def cmd_prices(message: Message):
     await message.answer("\n".join(lines), parse_mode="HTML")
 
 
-# ── /mystats ─────────────────────────────────────────────────
-
-@router.message(Command("mystats"))
-async def cmd_mystats(message: Message):
-    user = get_or_create_user(message.from_user.id)
-    subs = get_user_subscriptions(message.from_user.id)
-    favs = get_favorites(message.from_user.id)
-    alerts = get_user_alerts(message.from_user.id)
-    ref = get_ref_stats(message.from_user.id)
-    vip_status = "💎 VIP" if user["vip"] else f"🆓 {user['views']}/{FREE_VIEWS}"
-    vip_until = user.get("vip_until", "")[:10] if user.get("vip_until") else ""
-    vip_line = f"{vip_status}" + (f" (до {vip_until})" if vip_until else "")
-    await message.answer(
-        f"📊 <b>Твоя статистика</b>\n\n"
-        f"📌 Статус: {vip_line}\n"
-        f"👁 Просмотрено: {user['views']}\n"
-        f"❤️ Избранное: {len(favs)}\n"
-        f"🔔 Подписки: {', '.join(subs) if subs else 'нет'}\n"
-        f"🎯 Алертов: {len(alerts)}\n"
-        f"👥 Приглашено: {ref.get('ref_count', 0)} чел.\n"
-        f"📅 С нами с: {user['created_at'][:10]}",
-        parse_mode="HTML"
-    )
-
-
 # ── /subscribe ───────────────────────────────────────────────
 
 @router.message(Command("subscribe"))
@@ -1129,6 +1113,13 @@ async def cmd_mystats(message: Message):
         else:
             next_reward = "\n\n✅ Ты выполнил условие для VIP! Напиши /start"
 
+    streak = get_user_streak_days(message.from_user.id)
+    streak_line = ""
+    if streak >= 3:
+        streak_line = f"\n🔥 Стрик: <b>{streak} дней подряд</b>!"
+    elif streak > 0:
+        streak_line = f"\n📆 Активен {streak} дн. подряд"
+
     await message.answer(
         f"📊 <b>Твоя статистика</b>\n\n"
         f"📌 Статус: {vip_line}\n"
@@ -1138,6 +1129,67 @@ async def cmd_mystats(message: Message):
         f"🎯 Алертов: {len(alerts)}\n"
         f"👥 Приглашено: {ref_count} чел.\n"
         f"📅 С нами с: {user['created_at'][:10]}"
+        f"{streak_line}"
         f"{next_reward}",
         parse_mode="HTML"
     )
+
+
+# ── /hot — горячие квартиры (много лайков за 24ч) ─────────────
+
+@router.message(Command("hot"))
+async def cmd_hot(message: Message):
+    apts = get_hot_apartments(limit=5)
+    if not apts:
+        await message.answer(
+            "🔥 Пока нет горячих квартир.\n\n"
+            "Ставь 👍 под квартирами — самые популярные появятся здесь!"
+        )
+        return
+    await message.answer("🔥 <b>Горячие квартиры (топ лайков за 24ч):</b>", parse_mode="HTML")
+    for apt in apts:
+        score = apt.get("hot_score", 0)
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="❤️ Избранное", callback_data=f"fav_add:{apt['id']}"),
+            InlineKeyboardButton(text="🔗 Открыть", url=apt["link"]),
+        ]])
+        text = apt_text(apt) + f"\n\n🔥 {score} лайков"
+        await message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+
+@router.callback_query(F.data == "open_hot")
+async def cb_open_hot(call: CallbackQuery):
+    await call.answer()
+    await cmd_hot(call.message)
+
+
+# ── /drops — снижение цен за 24ч ─────────────────────────────
+
+@router.message(Command("drops"))
+async def cmd_drops(message: Message):
+    drops = get_price_drops_today(limit=5)
+    if not drops:
+        await message.answer("📉 Снижений цен за последние 24ч не найдено.")
+        return
+    await message.answer("📉 <b>Снижение цен за 24ч:</b>", parse_mode="HTML")
+    for apt in drops:
+        old = apt.get("old_price") or apt.get("price", 0)
+        new = apt.get("new_price") or apt.get("price", 0)
+        diff = int(old) - int(new) if old and new else 0
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="❤️ Избранное", callback_data=f"fav_add:{apt['id']}"),
+            InlineKeyboardButton(text="🔗 Открыть", url=apt["link"]),
+        ]])
+        text = (
+            f"🏠 <b>{apt['title']}</b>\n"
+            f"📉 <s>{old} zł</s> → <b>{new} zł</b> (-{diff} zł)\n"
+            f"📍 {apt['district']}\n"
+            f"🔗 {apt['link']}"
+        )
+        await message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+
+@router.callback_query(F.data == "open_drops")
+async def cb_open_drops(call: CallbackQuery):
+    await call.answer()
+    await cmd_drops(call.message)

@@ -36,6 +36,12 @@ def init_db():
         "ALTER TABLE apartments ADD COLUMN furnished INTEGER DEFAULT 0",
         "ALTER TABLE apartments ADD COLUMN image TEXT",
         "ALTER TABLE apartments ADD COLUMN score REAL DEFAULT 0",
+        """CREATE TABLE IF NOT EXISTS user_activity (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            UNIQUE(user_id, date)
+        )""",
     ]
     for sql in migrations:
         try:
@@ -537,6 +543,13 @@ def check_auto_vip_conditions(user_id: int) -> str | None:
         except Exception:
             pass
 
+    # Condition 3: 7-day activity streak → 1 day VIP
+    streak = get_user_streak_days(user_id)
+    if streak >= 7:
+        conn.close()
+        set_vip(user_id, 1, days=1)
+        return "streak7"
+
     conn.close()
     return None
 
@@ -582,3 +595,87 @@ def get_user_streak(user_id: int) -> int:
     row = conn.execute("SELECT views FROM users WHERE user_id=?", (user_id,)).fetchone()
     conn.close()
     return row["views"] if row else 0
+
+
+def get_hot_apartments(limit: int = 5) -> list:
+    """Apartments with most likes in last 24h."""
+    conn = get_conn()
+    from datetime import timedelta
+    since = (datetime.now() - timedelta(hours=24)).isoformat()
+    rows = conn.execute("""
+        SELECT a.*, COALESCE(SUM(r.rating), 0) as hot_score
+        FROM apartments a
+        LEFT JOIN ratings r ON a.id = r.apartment_id
+        WHERE a.created_at >= ?
+        GROUP BY a.id
+        HAVING hot_score > 0
+        ORDER BY hot_score DESC
+        LIMIT ?
+    """, (since, limit)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_price_drops_today(limit: int = 5) -> list:
+    """Apartments where price dropped today."""
+    conn = get_conn()
+    from datetime import timedelta
+    since = (datetime.now() - timedelta(hours=24)).isoformat()
+    rows = conn.execute("""
+        SELECT a.*, ph.price as new_price,
+               (SELECT price FROM price_history WHERE apartment_id=a.id ORDER BY id DESC LIMIT 1 OFFSET 1) as old_price
+        FROM apartments a
+        JOIN price_history ph ON a.id = ph.apartment_id
+        WHERE ph.recorded_at >= ?
+        GROUP BY a.id
+        HAVING old_price IS NOT NULL AND new_price < old_price
+        ORDER BY (old_price - new_price) DESC
+        LIMIT ?
+    """, (since, limit)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def record_user_activity(user_id: int):
+    """Record today's activity for streak tracking."""
+    conn = get_conn()
+    today = datetime.now().date().isoformat()
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO user_activity (user_id, date) VALUES (?,?)",
+            (user_id, today)
+        )
+        conn.commit()
+    except Exception:
+        pass
+    conn.close()
+
+
+def get_user_streak_days(user_id: int) -> int:
+    """Count consecutive days user was active."""
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT date FROM user_activity WHERE user_id=? ORDER BY date DESC LIMIT 30",
+            (user_id,)
+        ).fetchall()
+    except Exception:
+        conn.close()
+        return 0
+    conn.close()
+    if not rows:
+        return 0
+    from datetime import date, timedelta
+    streak = 0
+    check_date = date.today()
+    for row in rows:
+        try:
+            row_date = date.fromisoformat(row["date"])
+            if row_date == check_date or row_date == check_date - timedelta(days=1):
+                streak += 1
+                check_date = row_date - timedelta(days=1)
+            else:
+                break
+        except Exception:
+            break
+    return streak
