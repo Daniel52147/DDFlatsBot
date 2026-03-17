@@ -8,3 +8,9 @@ services:
     envVars:
       - key: BOT_TOKEN
         value: 8655267832:AAHG9jPbmT3UmT4TeHA4xy3IuHSPjJiY4cI
+      - key: DATA_DIR
+        value: /var/data
+    disk:
+      name: flatsbot-data
+      mountPath: /var/data
+      sizeGB: 1
