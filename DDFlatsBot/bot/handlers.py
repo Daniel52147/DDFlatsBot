@@ -73,6 +73,14 @@ class AlertState(StatesGroup):
 class BroadcastState(StatesGroup):
     waiting_message = State()
 
+class AdminInputState(StatesGroup):
+    give_vip_id = State()
+    give_vip_days = State()
+    remove_vip_id = State()
+    ban_id = State()
+    unban_id = State()
+    find_user_id = State()
+
 class ReportState(StatesGroup):
     waiting_reason = State()
 
@@ -892,51 +900,71 @@ async def cb_subscribe(call: CallbackQuery):
 
 # ── /admin ───────────────────────────────────────────────────
 
-@router.message(Command("admin"))
-async def cmd_admin(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-    stats = get_stats()
-    last = stats["last_parse"][:16] if stats["last_parse"] != "никогда" else "никогда"
-    from database.db import get_pending_reports
-    pending_reports = get_pending_reports(limit=50)
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="📢 Рассылка всем", callback_data="admin_broadcast"),
-            InlineKeyboardButton(text="📢 Рассылка VIP", callback_data="admin_broadcast_vip"),
-        ],
+def _admin_kb(pending_count: int = 0) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users"),
             InlineKeyboardButton(text="💎 VIP список", callback_data="admin_vip_list"),
         ],
         [
-            InlineKeyboardButton(text="📊 Статистика парсера", callback_data="admin_parse_stats"),
+            InlineKeyboardButton(text="➕ Выдать VIP", callback_data="admin_give_vip"),
+            InlineKeyboardButton(text="➖ Снять VIP", callback_data="admin_remove_vip"),
+        ],
+        [
+            InlineKeyboardButton(text="🔍 Найти юзера", callback_data="admin_find_user"),
+            InlineKeyboardButton(text="💰 Финансы", callback_data="admin_finance"),
+        ],
+        [
+            InlineKeyboardButton(text="🚫 Забанить", callback_data="admin_ban_user"),
+            InlineKeyboardButton(text="✅ Разбанить", callback_data="admin_unban_user"),
+        ],
+        [
+            InlineKeyboardButton(text="📢 Рассылка всем", callback_data="admin_broadcast"),
+            InlineKeyboardButton(text="📢 VIP рассылка", callback_data="admin_broadcast_vip"),
+        ],
+        [
+            InlineKeyboardButton(text="📊 Парсер", callback_data="admin_parse_stats"),
             InlineKeyboardButton(text="🔄 Запустить парсер", callback_data="admin_parse"),
         ],
         [
-            InlineKeyboardButton(text=f"🚩 Жалобы ({len(pending_reports)})", callback_data="admin_reports"),
+            InlineKeyboardButton(text=f"🚩 Жалобы ({pending_count})", callback_data="admin_reports"),
             InlineKeyboardButton(text="🗑 Очистить старые", callback_data="admin_cleanup"),
         ],
         [
             InlineKeyboardButton(text="📈 Топ рефералов", callback_data="admin_top_refs"),
+            InlineKeyboardButton(text="💾 Бэкап БД", callback_data="admin_backup"),
         ],
     ])
-    await message.answer(
+
+
+async def _send_admin_panel(target, bot=None):
+    """Send admin panel. target = Message or CallbackQuery."""
+    stats = get_stats()
+    last = stats["last_parse"][:16] if stats["last_parse"] != "никогда" else "никогда"
+    pending_reports = get_pending_reports(limit=50)
+    text = (
         f"🛠 <b>Админ-панель DDFlatsBot</b>\n\n"
-        f"🏠 Квартир в базе: <b>{stats['apartments']}</b> (+{stats.get('new_today',0)} сегодня)\n"
+        f"🏠 Квартир: <b>{stats['apartments']}</b> (+{stats.get('new_today',0)} сегодня)\n"
         f"👥 Пользователей: <b>{stats['users']}</b> (+{stats.get('new_users_today',0)} сегодня)\n"
         f"💎 VIP активных: <b>{stats['vip']}</b>\n"
         f"❤️ Избранных: <b>{stats['favorites']}</b>\n"
         f"📊 Активных сегодня: <b>{stats.get('active_today',0)}</b> (вчера: {stats.get('active_yesterday',0)})\n"
-        f"🕐 Последний парсинг: <b>{last}</b>\n\n"
-        f"Команды:\n"
-        f"/setvip [id] — выдать VIP\n"
-        f"/removevip [id] — снять VIP\n"
-        f"/ban [id] — заблокировать\n"
-        f"/userinfo [id] — инфо о юзере\n"
-        f"/backup — скачать базу данных",
-        parse_mode="HTML", reply_markup=kb
+        f"🕐 Последний парсинг: <b>{last}</b>"
     )
+    kb = _admin_kb(len(pending_reports))
+    from aiogram.types import Message as Msg, CallbackQuery as CQ
+    if isinstance(target, Msg):
+        await target.answer(text, parse_mode="HTML", reply_markup=kb)
+    elif isinstance(target, CQ):
+        await target.answer()
+        await target.message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.message(Command("admin"))
+async def cmd_admin(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    await _send_admin_panel(message)
 
 
 @router.callback_query(F.data == "admin_users")
@@ -1122,6 +1150,295 @@ async def cb_admin_top_refs(call: CallbackQuery):
     for i, l in enumerate(leaders, 1):
         lines.append(f"{i}. <code>{l['user_id']}</code> — {l['ref_count']} чел.")
     await call.message.answer("\n".join(lines), parse_mode="HTML")
+
+
+# ── Admin: Give VIP ───────────────────────────────────────────
+
+@router.callback_query(F.data == "admin_give_vip")
+async def cb_admin_give_vip(call: CallbackQuery, state: FSMContext):
+    if call.from_user.id not in ADMIN_IDS:
+        await call.answer("⛔", show_alert=True)
+        return
+    await call.answer()
+    await call.message.answer("👤 Введи <b>user_id</b> которому выдать VIP:", parse_mode="HTML")
+    await state.set_state(AdminInputState.give_vip_id)
+
+
+@router.message(AdminInputState.give_vip_id)
+async def admin_give_vip_id(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    if not message.text.strip().isdigit():
+        await message.answer("❌ Введи числовой user_id")
+        return
+    await state.update_data(target_uid=int(message.text.strip()))
+    await state.set_state(AdminInputState.give_vip_days)
+    await message.answer("📅 Сколько дней VIP? (например: 30)")
+
+
+@router.message(AdminInputState.give_vip_days)
+async def admin_give_vip_days(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    if not message.text.strip().isdigit():
+        await message.answer("❌ Введи число дней")
+        return
+    data = await state.get_data()
+    uid = data["target_uid"]
+    days = int(message.text.strip())
+    await state.clear()
+    set_vip(uid, 1, days=days)
+    await message.answer(f"✅ VIP на {days} дней выдан пользователю <code>{uid}</code>", parse_mode="HTML")
+    try:
+        await message.bot.send_message(
+            uid,
+            f"🎉 <b>VIP активирован на {days} дней!</b>\n\n"
+            "✅ Безлимитный просмотр\n✅ Умные алерты: /alert\n✅ Подписка на районы: /subscribe\n\nСпасибо! 🙏",
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
+
+
+# ── Admin: Remove VIP ─────────────────────────────────────────
+
+@router.callback_query(F.data == "admin_remove_vip")
+async def cb_admin_remove_vip(call: CallbackQuery, state: FSMContext):
+    if call.from_user.id not in ADMIN_IDS:
+        await call.answer("⛔", show_alert=True)
+        return
+    await call.answer()
+    await call.message.answer("👤 Введи <b>user_id</b> у которого снять VIP:", parse_mode="HTML")
+    await state.set_state(AdminInputState.remove_vip_id)
+
+
+@router.message(AdminInputState.remove_vip_id)
+async def admin_remove_vip_id(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    if not message.text.strip().isdigit():
+        await message.answer("❌ Введи числовой user_id")
+        return
+    uid = int(message.text.strip())
+    await state.clear()
+    set_vip(uid, 0)
+    await message.answer(f"✅ VIP снят с пользователя <code>{uid}</code>", parse_mode="HTML")
+
+
+# ── Admin: Ban ────────────────────────────────────────────────
+
+@router.callback_query(F.data == "admin_ban_user")
+async def cb_admin_ban_user(call: CallbackQuery, state: FSMContext):
+    if call.from_user.id not in ADMIN_IDS:
+        await call.answer("⛔", show_alert=True)
+        return
+    await call.answer()
+    await call.message.answer("🚫 Введи <b>user_id</b> для блокировки:", parse_mode="HTML")
+    await state.set_state(AdminInputState.ban_id)
+
+
+@router.message(AdminInputState.ban_id)
+async def admin_ban_id(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    if not message.text.strip().isdigit():
+        await message.answer("❌ Введи числовой user_id")
+        return
+    uid = int(message.text.strip())
+    await state.clear()
+    from database.db import get_conn
+    conn = get_conn()
+    conn.execute("UPDATE users SET vip=-1 WHERE user_id=?", (uid,))
+    conn.commit()
+    conn.close()
+    await message.answer(f"🚫 Пользователь <code>{uid}</code> заблокирован.", parse_mode="HTML")
+
+
+# ── Admin: Unban ──────────────────────────────────────────────
+
+@router.callback_query(F.data == "admin_unban_user")
+async def cb_admin_unban_user(call: CallbackQuery, state: FSMContext):
+    if call.from_user.id not in ADMIN_IDS:
+        await call.answer("⛔", show_alert=True)
+        return
+    await call.answer()
+    await call.message.answer("✅ Введи <b>user_id</b> для разблокировки:", parse_mode="HTML")
+    await state.set_state(AdminInputState.unban_id)
+
+
+@router.message(AdminInputState.unban_id)
+async def admin_unban_id(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    if not message.text.strip().isdigit():
+        await message.answer("❌ Введи числовой user_id")
+        return
+    uid = int(message.text.strip())
+    await state.clear()
+    from database.db import get_conn
+    conn = get_conn()
+    conn.execute("UPDATE users SET vip=0 WHERE user_id=? AND vip=-1", (uid,))
+    conn.commit()
+    conn.close()
+    await message.answer(f"✅ Пользователь <code>{uid}</code> разблокирован.", parse_mode="HTML")
+
+
+# ── Admin: Find user ──────────────────────────────────────────
+
+@router.callback_query(F.data == "admin_find_user")
+async def cb_admin_find_user(call: CallbackQuery, state: FSMContext):
+    if call.from_user.id not in ADMIN_IDS:
+        await call.answer("⛔", show_alert=True)
+        return
+    await call.answer()
+    await call.message.answer("🔍 Введи <b>user_id</b> для поиска:", parse_mode="HTML")
+    await state.set_state(AdminInputState.find_user_id)
+
+
+@router.message(AdminInputState.find_user_id)
+async def admin_find_user_id(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    if not message.text.strip().isdigit():
+        await message.answer("❌ Введи числовой user_id")
+        return
+    uid = int(message.text.strip())
+    await state.clear()
+    from database.db import get_conn
+    conn = get_conn()
+    user = conn.execute("SELECT * FROM users WHERE user_id=?", (uid,)).fetchone()
+    fav_count = conn.execute("SELECT COUNT(*) FROM favorites WHERE user_id=?", (uid,)).fetchone()[0]
+    alert_count = conn.execute("SELECT COUNT(*) FROM alerts WHERE user_id=? AND active=1", (uid,)).fetchone()[0]
+    conn.close()
+    if not user:
+        await message.answer(f"❌ Пользователь <code>{uid}</code> не найден.", parse_mode="HTML")
+        return
+    vip_status = "🚫 Забанен" if user["vip"] == -1 else ("💎 VIP до " + (user["vip_until"] or "")[:10] if user["vip"] else "🆓 Бесплатный")
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="💎 Выдать VIP 30д", callback_data=f"admin_revoke:vip30:{uid}"),
+            InlineKeyboardButton(text="➖ Снять VIP", callback_data=f"admin_revoke:novip:{uid}"),
+        ],
+        [
+            InlineKeyboardButton(text="🚫 Забанить", callback_data=f"admin_do_ban:{uid}"),
+            InlineKeyboardButton(text="✅ Разбанить", callback_data=f"admin_do_unban:{uid}"),
+        ],
+    ])
+    await message.answer(
+        f"👤 <b>Пользователь {uid}</b>\n\n"
+        f"📌 Статус: {vip_status}\n"
+        f"👁 Просмотров: {user['views']}\n"
+        f"❤️ Избранных: {fav_count}\n"
+        f"🎯 Алертов: {alert_count}\n"
+        f"👥 Рефералов: {user['ref_count']}\n"
+        f"🌍 Язык: {user['lang'] or 'ru'}\n"
+        f"📅 Регистрация: {(user['created_at'] or '')[:10]}",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+
+
+@router.callback_query(F.data.startswith("admin_revoke:"))
+async def cb_admin_revoke(call: CallbackQuery):
+    if call.from_user.id not in ADMIN_IDS:
+        await call.answer("⛔", show_alert=True)
+        return
+    parts = call.data.split(":")
+    action, uid = parts[1], int(parts[2])
+    if action == "vip30":
+        set_vip(uid, 1, days=30)
+        await call.answer(f"✅ VIP 30д выдан {uid}")
+        try:
+            await call.bot.send_message(uid, "🎉 <b>VIP активирован на 30 дней!</b>", parse_mode="HTML")
+        except Exception:
+            pass
+    elif action == "novip":
+        set_vip(uid, 0)
+        await call.answer(f"✅ VIP снят с {uid}")
+
+
+@router.callback_query(F.data.startswith("admin_do_ban:"))
+async def cb_admin_do_ban(call: CallbackQuery):
+    if call.from_user.id not in ADMIN_IDS:
+        await call.answer("⛔", show_alert=True)
+        return
+    uid = int(call.data.split(":")[1])
+    from database.db import get_conn
+    conn = get_conn()
+    conn.execute("UPDATE users SET vip=-1 WHERE user_id=?", (uid,))
+    conn.commit()
+    conn.close()
+    await call.answer(f"🚫 {uid} забанен")
+    await call.message.edit_text(call.message.text + f"\n\n🚫 <b>Забанен</b>", parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("admin_do_unban:"))
+async def cb_admin_do_unban(call: CallbackQuery):
+    if call.from_user.id not in ADMIN_IDS:
+        await call.answer("⛔", show_alert=True)
+        return
+    uid = int(call.data.split(":")[1])
+    from database.db import get_conn
+    conn = get_conn()
+    conn.execute("UPDATE users SET vip=0 WHERE user_id=? AND vip=-1", (uid,))
+    conn.commit()
+    conn.close()
+    await call.answer(f"✅ {uid} разбанен")
+    await call.message.edit_text(call.message.text + f"\n\n✅ <b>Разбанен</b>", parse_mode="HTML")
+
+
+# ── Admin: Finance ────────────────────────────────────────────
+
+@router.callback_query(F.data == "admin_finance")
+async def cb_admin_finance(call: CallbackQuery):
+    if call.from_user.id not in ADMIN_IDS:
+        await call.answer("⛔", show_alert=True)
+        return
+    await call.answer()
+    from database.db import get_conn
+    conn = get_conn()
+    vip_count = conn.execute("SELECT COUNT(*) FROM users WHERE vip=1").fetchone()[0]
+    total_users = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    # Stars payments: count users who paid via stars (vip_until set, rough estimate)
+    paid_vip = conn.execute(
+        "SELECT COUNT(*) FROM users WHERE vip=1 AND vip_until IS NOT NULL"
+    ).fetchone()[0]
+    conn.close()
+    potential = vip_count * VIP_PRICE
+    await call.message.answer(
+        f"💰 <b>Финансовая статистика</b>\n\n"
+        f"👥 Всего пользователей: <b>{total_users}</b>\n"
+        f"💎 VIP активных: <b>{vip_count}</b>\n"
+        f"💵 Потенциальный доход: <b>{potential} zł/мес</b>\n"
+        f"   ({vip_count} × {VIP_PRICE} zł)\n\n"
+        f"⭐ Stars цена: <b>{VIP_STARS_PRICE} XTR</b> (~{VIP_PRICE} zł)\n\n"
+        f"💳 Revolut: @d_yaromenka\n"
+        f"📱 BLIK: +48 731 359 199",
+        parse_mode="HTML"
+    )
+
+
+# ── Admin: Backup ─────────────────────────────────────────────
+
+@router.callback_query(F.data == "admin_backup")
+async def cb_admin_backup(call: CallbackQuery):
+    if call.from_user.id not in ADMIN_IDS:
+        await call.answer("⛔", show_alert=True)
+        return
+    await call.answer("📦 Отправляю бэкап...")
+    from config import DB_PATH
+    import os
+    if not os.path.exists(DB_PATH):
+        await call.message.answer("❌ База данных не найдена.")
+        return
+    try:
+        from aiogram.types import FSInputFile
+        await call.message.answer_document(
+            FSInputFile(DB_PATH, filename="Flats.db"),
+            caption=f"💾 Бэкап базы данных\n📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+        )
+    except Exception as e:
+        await call.message.answer(f"❌ Ошибка: {e}")
 
 
 @router.message(Command("setvip"))
