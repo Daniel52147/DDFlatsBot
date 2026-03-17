@@ -876,16 +876,18 @@ async def cmd_admin(message: Message):
     ])
     await message.answer(
         f"🛠 <b>Админ-панель DDFlatsBot</b>\n\n"
-        f"🏠 Квартир в базе: <b>{stats['apartments']}</b>\n"
-        f"👥 Пользователей: <b>{stats['users']}</b>\n"
+        f"🏠 Квартир в базе: <b>{stats['apartments']}</b> (+{stats.get('new_today',0)} сегодня)\n"
+        f"👥 Пользователей: <b>{stats['users']}</b> (+{stats.get('new_users_today',0)} сегодня)\n"
         f"💎 VIP активных: <b>{stats['vip']}</b>\n"
         f"❤️ Избранных: <b>{stats['favorites']}</b>\n"
+        f"📊 Активных сегодня: <b>{stats.get('active_today',0)}</b> (вчера: {stats.get('active_yesterday',0)})\n"
         f"🕐 Последний парсинг: <b>{last}</b>\n\n"
         f"Команды:\n"
         f"/setvip [id] — выдать VIP\n"
         f"/removevip [id] — снять VIP\n"
         f"/ban [id] — заблокировать\n"
-        f"/userinfo [id] — инфо о юзере",
+        f"/userinfo [id] — инфо о юзере\n"
+        f"/backup — скачать базу данных",
         parse_mode="HTML", reply_markup=kb
     )
 
@@ -1658,7 +1660,8 @@ async def cb_accept_disclaimer(call: CallbackQuery, state: FSMContext):
     name = call.from_user.first_name or "друг"
     early_msg = ""
     if user.get("vip") and user.get("vip_until"):
-        early_msg = t(lang, "early_adopter")
+        vip_until = user.get("vip_until", "")[:10]
+        early_msg = f"\n\n🎁 <b>Тебе активирован пробный VIP на 1 день бесплатно!</b>\nДо {vip_until} — безлимит, алерты, всё включено.\nПотом {VIP_PRICE} zł/мес — /vip"
 
     if not user["vip"]:
         used = user["views"]

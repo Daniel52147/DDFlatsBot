@@ -253,12 +253,14 @@ def get_or_create_user(user_id: int) -> dict:
         row = c.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
 
         # Early adopter bonus: first N users get 7 days VIP free
+        # Everyone else gets 1 day trial
         total_users = c.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         conn.close()
         if total_users <= EARLY_ADOPTER_LIMIT:
             set_vip(user_id, 1, days=7)
-            return get_or_create_user(user_id)  # re-fetch with vip=1
-        return dict(row)
+        else:
+            set_vip(user_id, 1, days=1)  # 1 day trial for all new users
+        return get_or_create_user(user_id)
 
     conn.close()
     return dict(row)
@@ -519,9 +521,10 @@ def find_duplicate(title: str, price: int) -> bool:
     if not title or not price:
         return False
     conn = get_conn()
-    short_title = title[:50]
+    # Normalize: lowercase, remove extra spaces, take first 40 chars
+    short_title = " ".join(title.lower().split())[:40]
     row = conn.execute(
-        "SELECT id FROM apartments WHERE title LIKE ? AND price=? LIMIT 1",
+        "SELECT id FROM apartments WHERE LOWER(TRIM(title)) LIKE ? AND price=? LIMIT 1",
         (f"{short_title}%", price)
     ).fetchone()
     conn.close()
@@ -530,10 +533,26 @@ def find_duplicate(title: str, price: int) -> bool:
 
 def get_stats() -> dict:
     conn = get_conn()
+    from datetime import date
+    today = date.today().isoformat()
+    yesterday = (datetime.now() - timedelta(days=1)).date().isoformat()
+
     total_apts = conn.execute("SELECT COUNT(*) FROM apartments").fetchone()[0]
     total_users = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
     vip_users = conn.execute("SELECT COUNT(*) FROM users WHERE vip=1").fetchone()[0]
     total_favs = conn.execute("SELECT COUNT(*) FROM favorites").fetchone()[0]
+    new_today = conn.execute(
+        "SELECT COUNT(*) FROM apartments WHERE created_at >= ?", (today,)
+    ).fetchone()[0]
+    new_users_today = conn.execute(
+        "SELECT COUNT(*) FROM users WHERE created_at >= ?", (today,)
+    ).fetchone()[0]
+    active_today = conn.execute(
+        "SELECT COUNT(DISTINCT user_id) FROM user_activity WHERE date = ?", (today,)
+    ).fetchone()[0]
+    active_yesterday = conn.execute(
+        "SELECT COUNT(DISTINCT user_id) FROM user_activity WHERE date = ?", (yesterday,)
+    ).fetchone()[0]
     last_parse = conn.execute(
         "SELECT logged_at FROM parse_log ORDER BY id DESC LIMIT 1"
     ).fetchone()
@@ -543,6 +562,10 @@ def get_stats() -> dict:
         "users": total_users,
         "vip": vip_users,
         "favorites": total_favs,
+        "new_today": new_today,
+        "new_users_today": new_users_today,
+        "active_today": active_today,
+        "active_yesterday": active_yesterday,
         "last_parse": last_parse["logged_at"] if last_parse else "никогда",
     }
 
