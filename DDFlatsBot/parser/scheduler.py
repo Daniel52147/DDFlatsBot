@@ -11,6 +11,7 @@ from parser.parser_olx import parse_olx
 from parser.parser_otodom import parse_otodom
 from parser.parser_gratka import parse_gratka
 from parser.parser_morizon import parse_morizon
+from parser.parser_szybko import parse_szybko
 from database.db import (
     save_apartment, get_latest_apartments, get_all_user_ids,
     get_all_vip_user_ids, get_subscribers_for_district, log_parse,
@@ -60,6 +61,7 @@ def parse_all():
             ("Otodom",  parse_otodom),
             ("Gratka",  parse_gratka),
             ("Morizon", parse_morizon),
+            ("Szybko",  parse_szybko),
         ]
 
         total_new = 0
@@ -100,6 +102,24 @@ def send_reminders():
 def check_auto_vip():
     if _bot and _loop:
         asyncio.run_coroutine_threadsafe(_auto_vip_check(), _loop)
+
+
+def cleanup_old_listings():
+    """Auto-delete apartments older than 14 days — they're likely already rented."""
+    try:
+        from database.db import get_conn
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(days=14)).isoformat()
+        conn = get_conn()
+        deleted = conn.execute(
+            "DELETE FROM apartments WHERE created_at < ?", (cutoff,)
+        ).rowcount
+        conn.commit()
+        conn.close()
+        if deleted > 0:
+            print(f"[Cleanup] Removed {deleted} listings older than 14 days")
+    except Exception as e:
+        print(f"[Cleanup] Error: {e}")
 
 
 def send_vip_expiry_reminders():
@@ -408,10 +428,11 @@ def run_scheduler():
     schedule.every(2).hours.do(post_to_channel)
     schedule.every().hour.do(check_auto_vip)
     schedule.every().day.at("03:00").do(backup_db)
+    schedule.every().day.at("04:00").do(cleanup_old_listings)
     schedule.every().day.at("09:00").do(send_daily_digest)
     schedule.every().day.at("12:00").do(send_vip_expiry_reminders)
     schedule.every().day.at("18:00").do(send_reminders)
-    print("[Scheduler] Running: parse 10min, channel 2h, digest 09:00, vip-reminder 12:00, reminders 18:00, backup 03:00")
+    print("[Scheduler] Running: parse 10min, channel 2h, digest 09:00, vip-reminder 12:00, reminders 18:00, cleanup 04:00, backup 03:00")
     while True:
         schedule.run_pending()
         time.sleep(1)

@@ -21,6 +21,7 @@ from database.db import (
     delete_apartment, get_mod_stats, get_reported_apartments,
     get_price_stats, get_cheapest_apartments, get_apartment_by_id,
     add_user_note, get_user_notes, get_similar_apartments, get_new_today_count,
+    increment_apt_views,
 )
 from config import FREE_VIEWS, VIP_PRICE, DISTRICTS, ADMIN_IDS, CHANNEL_LINK, MODERATOR_IDS
 from config import REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS
@@ -132,6 +133,10 @@ def apt_text(apt: dict, lang: str = "ru") -> str:
         lines.append(f"📉 <b>Цена снижена!</b> {drop['old']} → {drop['new']} zł (−{drop['drop']} zł)")
 
     lines.append(f"🔗 <a href=\"{apt['link']}\">Открыть объявление</a>  {source_icon} {apt.get('source','')}")
+    # Views counter — creates FOMO
+    apt_views = apt.get("apt_views", 0) or 0
+    if apt_views >= 3:
+        lines.append(f"👁 <i>Смотрели {apt_views} раз</i>")
     lines.append(f"\n<i>⚠️ {t(lang, 'warn_check')}</i>")
     return "\n".join(lines)
 
@@ -145,6 +150,7 @@ def apt_keyboard(apt_id: int, lat=None, lon=None, lang: str = "ru") -> InlineKey
         InlineKeyboardButton(text="👍", callback_data=f"rate:1:{apt_id}"),
         InlineKeyboardButton(text="👎", callback_data=f"rate:-1:{apt_id}"),
         InlineKeyboardButton(text="🚩", callback_data=f"report:{apt_id}"),
+        InlineKeyboardButton(text="📤", callback_data=f"share:{apt_id}"),
     ]
     rows = [row1, row2]
     if lat and lon:
@@ -346,6 +352,7 @@ async def show_next_apartment(user_id: int, bot, state: FSMContext, chat_id: int
     apt = apartments[0]
     await state.update_data(offset=offset + 1, last_apt_id=apt["id"])
     increment_views(user_id)
+    increment_apt_views(apt["id"])
     record_user_activity(user_id)
 
     total = count_apartments(filters, vip=is_vip)
@@ -1795,6 +1802,27 @@ async def cb_rate(call: CallbackQuery):
     rate_apartment(call.from_user.id, apt_id, rating)
     emoji = "👍 Лайк!" if rating == 1 else "👎 Дизлайк"
     await call.answer(emoji)
+
+
+@router.callback_query(F.data.startswith("share:"))
+async def cb_share(call: CallbackQuery):
+    apt_id = int(call.data.split(":")[1])
+    apt = get_apartment_by_id(apt_id)
+    if not apt:
+        await call.answer("Объявление не найдено", show_alert=True)
+        return
+    await call.answer()
+    bot_me = await call.bot.get_me()
+    source_icons = {"OLX": "🟠", "Otodom": "🔵", "Gratka": "🟢", "Morizon": "🟣"}
+    icon = source_icons.get(apt.get("source", ""), "📡")
+    share_text = (
+        f"🏠 <b>{apt['title']}</b>\n"
+        f"💰 {apt['price']} zł/мес\n"
+        f"📍 {apt.get('district', 'Warszawa')}\n"
+        f"🔗 {apt['link']}\n\n"
+        f"{icon} Найдено через @{bot_me.username}"
+    )
+    await call.message.answer(share_text, parse_mode="HTML")
 
 
 # ── Language selection ────────────────────────────────────────

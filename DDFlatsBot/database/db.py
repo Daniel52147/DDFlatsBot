@@ -51,6 +51,7 @@ def init_db():
         "ALTER TABLE apartments ADD COLUMN score REAL DEFAULT 0",
         "ALTER TABLE apartments ADD COLUMN verified INTEGER DEFAULT 0",
         "ALTER TABLE apartments ADD COLUMN reported INTEGER DEFAULT 0",
+        "ALTER TABLE apartments ADD COLUMN apt_views INTEGER DEFAULT 0",
         """CREATE TABLE IF NOT EXISTS user_activity (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -277,6 +278,17 @@ def increment_views(user_id: int):
     conn = get_conn()
     conn.execute("UPDATE users SET views=views+1 WHERE user_id=?", (user_id,))
     conn.commit()
+    conn.close()
+
+
+def increment_apt_views(apt_id: int):
+    """Track how many times an apartment was shown to users."""
+    conn = get_conn()
+    try:
+        conn.execute("UPDATE apartments SET apt_views=COALESCE(apt_views,0)+1 WHERE id=?", (apt_id,))
+        conn.commit()
+    except Exception:
+        pass
     conn.close()
 
 

@@ -89,7 +89,8 @@ class SubscriptionMiddleware(BaseMiddleware):
                 event.data.startswith("fav_") or
                 event.data.startswith("alert_del:") or
                 event.data.startswith("onboard_d:") or
-                event.data.startswith("onboard_p:")
+                event.data.startswith("onboard_p:") or
+                event.data.startswith("share:")
             ):
                 return await handler(event, data)
         else:

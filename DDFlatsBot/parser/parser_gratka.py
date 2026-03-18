@@ -133,10 +133,13 @@ def _parse_gratka_html_cards(html: str) -> list:
             rm = re.search(r'(\d)\s*-?\s*(?:pok|pokój|pokoje|pokoi)', title, re.I)
             if rm:
                 rooms = int(rm.group(1))
+            # Image
+            img_m = re.search(r'<img[^>]+src="(https?://[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"', article, re.I)
+            image = img_m.group(1) if img_m else ""
             results.append({
                 "title": title, "price": price, "district": district,
                 "rooms": rooms, "area": None, "floor": None, "furnished": 0,
-                "link": url, "image": "", "source": "Gratka",
+                "link": url, "image": image, "source": "Gratka",
             })
         except Exception:
             continue
