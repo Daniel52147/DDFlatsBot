@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from database.models import (
     CREATE_APARTMENTS, CREATE_USERS, CREATE_FAVORITES,
     CREATE_SUBSCRIPTIONS, CREATE_ALERTS, CREATE_STATS, CREATE_PRICE_HISTORY,
-    CREATE_RATINGS, CREATE_INDEXES,
+    CREATE_RATINGS, CREATE_INDEXES, CREATE_USER_NOTES,
 )
 from config import DB_PATH, VIP_EARLY_ACCESS_MINUTES, REFERRAL_REWARD_DAYS, EARLY_ADOPTER_LIMIT
 
@@ -24,7 +24,7 @@ def init_db():
     c = conn.cursor()
     for sql in [CREATE_APARTMENTS, CREATE_USERS, CREATE_FAVORITES,
                 CREATE_SUBSCRIPTIONS, CREATE_ALERTS, CREATE_STATS,
-                CREATE_PRICE_HISTORY, CREATE_RATINGS]:
+                CREATE_PRICE_HISTORY, CREATE_RATINGS, CREATE_USER_NOTES]:
         c.execute(sql)
 
     # Create performance indexes
@@ -958,9 +958,6 @@ def add_user_note(user_id: int, apt_id: int, note: str):
     """User can add a personal note to an apartment."""
     conn = get_conn()
     try:
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS user_notes (user_id INTEGER, apt_id INTEGER, note TEXT, created_at TEXT, PRIMARY KEY(user_id, apt_id))"
-        )
         conn.execute(
             "INSERT OR REPLACE INTO user_notes (user_id, apt_id, note, created_at) VALUES (?,?,?,?)",
             (user_id, apt_id, note[:500], datetime.now().isoformat())

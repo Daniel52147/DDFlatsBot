@@ -54,7 +54,6 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 )
 """
 
-# Smart alerts: user sets exact criteria, bot notifies on match
 CREATE_ALERTS = """
 CREATE TABLE IF NOT EXISTS alerts (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,7 +76,6 @@ CREATE TABLE IF NOT EXISTS parse_log (
 )
 """
 
-# Price history to detect drops
 CREATE_PRICE_HISTORY = """
 CREATE TABLE IF NOT EXISTS price_history (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -87,7 +85,17 @@ CREATE TABLE IF NOT EXISTS price_history (
 )
 """
 
-# Index for /hot query performance
+CREATE_USER_NOTES = """
+CREATE TABLE IF NOT EXISTS user_notes (
+    user_id    INTEGER,
+    apt_id     INTEGER,
+    note       TEXT,
+    created_at TEXT,
+    PRIMARY KEY (user_id, apt_id)
+)
+"""
+
+# Performance indexes
 CREATE_INDEXES = """
 CREATE INDEX IF NOT EXISTS idx_apartments_score ON apartments(score DESC);
 CREATE INDEX IF NOT EXISTS idx_apartments_created ON apartments(created_at DESC);
