@@ -149,7 +149,11 @@ async def _post_channel():
         from datetime import date
         today = date.today().strftime("%d.%m.%Y")
         header = f"🏠 <b>Лучшие квартиры на {today}:</b>\n\n"
-        await _bot.send_message(CHANNEL_ID, header, parse_mode="HTML")
+        try:
+            await _bot.send_message(CHANNEL_ID, header, parse_mode="HTML")
+        except Exception as e:
+            print(f"[Channel] Cannot post — bot not admin or channel not found: {e}")
+            return
         for apt in apts:
             source_icons = {"OLX": "🟠", "Otodom": "🔵", "Gratka": "🟢", "Morizon": "🟣"}
             icon = source_icons.get(apt.get("source", ""), "📡")

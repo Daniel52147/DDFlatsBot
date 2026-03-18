@@ -9,7 +9,7 @@ import time
 import requests
 from config import USER_AGENTS
 
-GRATKA_BASE = "https://gratka.pl/nieruchomosci/mieszkania/warszawa/wynajem"
+GRATKA_BASE = "https://gratka.pl/nieruchomosci/mieszkania/warszawa/wynajem?sort=newest"
 DOMIPORTA_BASE = "https://www.domiporta.pl/mieszkanie/wynajme/mazowieckie/warszawa"
 
 
@@ -216,8 +216,8 @@ def parse_gratka() -> list:
     # Try Gratka first
     session = _session("https://gratka.pl/")
     gratka_ok = False
-    for page in range(1, 6):
-        url = GRATKA_BASE if page == 1 else f"{GRATKA_BASE}?page={page}"
+    for page in range(1, 11):
+        url = GRATKA_BASE if page == 1 else f"{GRATKA_BASE}&page={page}"
         try:
             r = session.get(url, timeout=25)
             html = r.text

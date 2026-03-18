@@ -9,7 +9,7 @@ import time
 import requests
 from config import USER_AGENTS
 
-MORIZON_BASE = "https://www.morizon.pl/do-wynajecia/mieszkania/warszawa/"
+MORIZON_BASE = "https://www.morizon.pl/do-wynajecia/mieszkania/warszawa/?sort=newest"
 NIERUCH_BASE = "https://www.nieruchomosci-online.pl/szukaj.html"
 
 
@@ -263,8 +263,8 @@ def parse_morizon() -> list:
     # Try Morizon first
     session = _session("https://www.morizon.pl/")
     morizon_ok = False
-    for page in range(1, 6):
-        url = MORIZON_BASE if page == 1 else f"{MORIZON_BASE}?page={page}"
+    for page in range(1, 11):
+        url = MORIZON_BASE if page == 1 else f"{MORIZON_BASE}&page={page}"
         try:
             r = session.get(url, timeout=25)
             html = r.text

@@ -159,7 +159,7 @@ def parse_otodom() -> list:
     seen = set()
     session = _session()
 
-    for page in range(1, 6):
+    for page in range(1, 11):
         url = BASE if page == 1 else f"{BASE}?page={page}"
         try:
             r = session.get(url, timeout=25)
