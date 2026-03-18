@@ -12,14 +12,17 @@ async def is_subscribed(bot, user_id: int) -> bool:
     Check if user is subscribed to the channel.
     Bot MUST be admin of the channel for this to work.
     Returns True if subscribed, False if not.
-    On error (bot not admin, etc.) — returns True to not block users.
+    On error (bot not admin, chat not found, etc.) — returns True to not block users.
     """
     try:
         member = await bot.get_chat_member(CHANNEL_ID, user_id)
         return member.status not in ("left", "kicked", "banned")
     except Exception as e:
-        print(f"[Sub check] Error for {user_id}: {e}")
-        return True
+        err = str(e).lower()
+        # Suppress noisy "chat not found" / "user not found" errors
+        if "not found" not in err and "deactivated" not in err:
+            print(f"[Sub check] Error for {user_id}: {e}")
+        return True  # Don't block on error
 
 
 # Callbacks that are always allowed (subscription/payment flow)
