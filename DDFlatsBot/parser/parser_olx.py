@@ -1,6 +1,8 @@
 """
-OLX parser — primary HTML via __NEXT_DATA__, fallback to API.
-OLX API now requires auth token on some Render IPs, so HTML is primary.
+OLX parser — uses OLX mobile/partner API v2 with proper headers.
+OLX switched to client-side rendering so HTML scraping returns empty shell.
+The v1 API requires auth token on datacenter IPs.
+We use the partner API endpoint which is more permissive.
 """
 import random
 import re
@@ -9,7 +11,9 @@ import time
 import requests
 from config import USER_AGENTS
 
-API_URL = "https://www.olx.pl/api/v1/offers/"
+# OLX API endpoints to try
+API_V1 = "https://www.olx.pl/api/v1/offers/"
+API_V2 = "https://www.olx.pl/api/v2/offers/"
 
 _JUNK_KEYWORDS = [
     "osuszacz", "klimatyzator", "agregat", "laweta", "przyczepa",
@@ -25,21 +29,16 @@ _JUNK_KEYWORDS = [
 _WARSAW_CITIES = {"warszawa", "warsaw"}
 
 
-def _session():
-    s = requests.Session()
-    s.headers.update({
-        "User-Agent": random.choice(USER_AGENTS),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "pl-PL,pl;q=0.9,en;q=0.8",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Referer": "https://www.olx.pl/",
-        "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "same-origin",
-    })
-    return s
+def _is_apartment(title: str, cat_id=None) -> bool:
+    t = title.lower()
+    for kw in _JUNK_KEYWORDS:
+        if kw in t:
+            return False
+    if cat_id and cat_id not in (15, 16, 1, 3018, 3019, 3020):
+        apt_words = ["mieszkanie", "kawalerka", "pokój", "pokoje", "apartament", "wynajem"]
+        if not any(w in t for w in apt_words):
+            return False
+    return True
 
 
 def _price_from_params(params: list) -> int:
@@ -60,30 +59,7 @@ def _param(params: list, key: str):
     return None
 
 
-def _price_from_str(val) -> int:
-    if not val:
-        return 0
-    try:
-        return int(float(str(val).replace(" ", "").replace("\xa0", "").replace(",", ".")))
-    except Exception:
-        digits = "".join(c for c in str(val) if c.isdigit())
-        return int(digits) if digits else 0
-
-
-def _is_apartment(title: str, category_id=None) -> bool:
-    title_lower = title.lower()
-    for kw in _JUNK_KEYWORDS:
-        if kw in title_lower:
-            return False
-    if category_id and category_id not in (15, 16, 1, 3018, 3019, 3020):
-        apt_words = ["mieszkanie", "kawalerka", "pokój", "pokoje", "apartament", "wynajem"]
-        if not any(w in title_lower for w in apt_words):
-            return False
-    return True
-
-
-def _parse_offer_api(o: dict) -> dict | None:
-    """Parse one offer from OLX API response."""
+def _parse_offer(o: dict) -> dict | None:
     try:
         p = o.get("params", [])
         title = o.get("title", "").strip()
@@ -127,205 +103,44 @@ def _parse_offer_api(o: dict) -> dict | None:
         return None
 
 
-def _parse_offer_next(item: dict) -> dict | None:
-    """Parse one offer from __NEXT_DATA__ JSON structure."""
-    try:
-        title = (item.get("title") or "").strip()
-        link = item.get("url") or item.get("href") or ""
-        if not title or not link:
-            return None
-        if not link.startswith("http"):
-            link = "https://www.olx.pl" + link
-        # Only OLX links
-        if "olx.pl" not in link:
-            return None
-        cat_id = None
-        cat = item.get("category") or {}
-        if isinstance(cat, dict):
-            cat_id = cat.get("id")
-        if not _is_apartment(title, cat_id):
-            return None
-
-        # Price — multiple possible locations
-        price = 0
-        price_obj = item.get("price") or {}
-        if isinstance(price_obj, dict):
-            price = _price_from_str(
-                price_obj.get("regularPrice", {}).get("value") or
-                price_obj.get("value") or
-                price_obj.get("amount") or 0
-            )
-        elif price_obj:
-            price = _price_from_str(price_obj)
-
-        # Location
-        loc = item.get("location") or {}
-        city_name = ""
-        district_name = ""
-        if isinstance(loc, dict):
-            city_obj = loc.get("cityName") or loc.get("city") or {}
-            city_name = (city_obj if isinstance(city_obj, str) else city_obj.get("name", "")).strip()
-            dist_obj = loc.get("districtName") or loc.get("district") or {}
-            district_name = (dist_obj if isinstance(dist_obj, str) else dist_obj.get("name", "")).strip()
-
-        if city_name and city_name.lower() not in _WARSAW_CITIES:
-            return None
-
-        district = district_name or city_name or "Warszawa"
-
-        # Image
-        photos = item.get("photos") or item.get("images") or []
-        image = ""
-        if photos and isinstance(photos[0], dict):
-            image = (photos[0].get("link") or photos[0].get("url") or
-                     photos[0].get("medium") or "")
-            if image and "{width}" in image:
-                image = image.replace("{width}", "400").replace("{height}", "300")
-        elif photos and isinstance(photos[0], str):
-            image = photos[0]
-
-        # Rooms / area from params list
-        rooms = None
-        area = None
-        params_list = item.get("params") or []
-        if params_list:
-            rooms_raw = _param(params_list, "rooms")
-            area_raw = _param(params_list, "m")
-            if rooms_raw:
-                try:
-                    rooms = int(str(rooms_raw).replace("+", "").strip())
-                except Exception:
-                    pass
-            if area_raw:
-                try:
-                    area = float(str(area_raw).replace(",", ".").strip())
-                except Exception:
-                    pass
-
+def _api_headers(mobile: bool = False) -> dict:
+    if mobile:
         return {
-            "title": title, "price": price, "district": district,
-            "rooms": rooms, "area": area, "floor": None,
-            "furnished": 0, "link": link, "image": image, "source": "OLX",
+            "User-Agent": "OLX/5.153.7 (Android 12; Mobile)",
+            "Accept": "application/json",
+            "Accept-Language": "pl-PL",
+            "x-platform": "android",
         }
-    except Exception:
-        return None
+    return {
+        "User-Agent": random.choice(USER_AGENTS),
+        "Accept": "application/json",
+        "Accept-Language": "pl-PL,pl;q=0.9",
+        "Referer": "https://www.olx.pl/nieruchomosci/mieszkania/wynajem/warszawa/",
+        "Origin": "https://www.olx.pl",
+    }
 
 
-def _extract_next_data(html: str, debug: bool = False) -> list:
-    """Extract listings from __NEXT_DATA__ JSON embedded in OLX HTML."""
-    results = []
-
-    m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.DOTALL)
-    if not m:
-        if debug:
-            print("[OLX] __NEXT_DATA__ not found in HTML")
-        return results
-
+def _fetch_api(url: str, params: dict, mobile: bool = False) -> tuple[list, int, int]:
+    """Returns (results, raw_count, status_code)."""
     try:
-        data = json.loads(m.group(1))
-        page_props = data.get("props", {}).get("pageProps", {})
-
-        if debug:
-            # Print top-level keys to understand structure
-            def _keys(obj, depth=0, prefix=""):
-                if depth > 4:
-                    return
-                if isinstance(obj, dict):
-                    for k, v in obj.items():
-                        vtype = type(v).__name__
-                        vlen = len(v) if isinstance(v, (list, dict)) else ""
-                        print(f"[OLX] {prefix}{k}: {vtype} {vlen}")
-                        if isinstance(v, (dict, list)) and depth < 3:
-                            _keys(v if isinstance(v, dict) else (v[0] if v else {}), depth+1, prefix + "  ")
-            print("[OLX] pageProps keys:")
-            _keys(page_props)
-
-        # OLX stores listings in multiple possible paths
-        listings = (
-            page_props.get("ads", {}).get("ads") or
-            page_props.get("listing", {}).get("listing", {}).get("ads") or
-            page_props.get("data", {}).get("ads") or
-            page_props.get("offers") or
-            []
-        )
-
-        if not listings:
-            def find_ads(obj, depth=0):
-                if depth > 7:
-                    return []
-                if isinstance(obj, list) and len(obj) >= 3:
-                    if isinstance(obj[0], dict) and (
-                        "url" in obj[0] or "title" in obj[0] or "href" in obj[0]
-                    ):
-                        return obj
-                if isinstance(obj, dict):
-                    for v in obj.values():
-                        found = find_ads(v, depth + 1)
-                        if found:
-                            return found
-                return []
-            listings = find_ads(page_props)
-
-        if debug:
-            print(f"[OLX] Found {len(listings)} raw listings in __NEXT_DATA__")
-            if listings and isinstance(listings[0], dict):
-                print(f"[OLX] First item keys: {list(listings[0].keys())[:15]}")
-
-        for item in listings:
-            if not isinstance(item, dict):
-                continue
-            apt = _parse_offer_next(item)
-            if apt:
-                results.append(apt)
-
-    except Exception as e:
-        print(f"[OLX] __NEXT_DATA__ parse error: {e}")
-
-    return results
-
-
-def _fetch_html_page(session, url: str, page_num: int) -> list:
-    """Fetch one OLX HTML page and extract listings."""
-    try:
-        r = session.get(url, timeout=25)
-        size = len(r.text)
-        print(f"[OLX] HTML page {page_num} status={r.status_code} size={size}")
+        r = requests.get(url, params=params, headers=_api_headers(mobile), timeout=20)
         if r.status_code != 200:
-            print(f"[OLX] HTML page {page_num} blocked")
-            return []
-        # Debug on first page to understand JSON structure
-        results = _extract_next_data(r.text, debug=(page_num == 1))
-        if not results:
-            # Regex fallback: grab offer links from HTML
-            links = re.findall(
-                r'href="(https://www\.olx\.pl/d/oferta/[^"?#]+)"',
-                r.text
-            )
-            seen = set()
-            for link in links:
-                if link in seen:
-                    continue
-                seen.add(link)
-                results.append({
-                    "title": "Mieszkanie Warszawa",
-                    "price": 0, "district": "Warszawa",
-                    "rooms": None, "area": None, "floor": None,
-                    "furnished": 0, "link": link, "image": "", "source": "OLX",
-                })
-            if results:
-                print(f"[OLX] HTML page {page_num}: {len(results)} via regex fallback")
-        print(f"[OLX] HTML page {page_num}: {len(results)} listings")
-        return results
+            return [], 0, r.status_code
+        data = r.json()
+        offers = data.get("data", [])
+        results = [apt for o in offers if (apt := _parse_offer(o))]
+        return results, len(offers), 200
     except Exception as e:
-        print(f"[OLX] HTML page {page_num} error: {e}")
-        return []
+        print(f"[OLX] API error: {e}")
+        return [], 0, 0
 
 
+def _try_api(cat_id: int, cat_name: str) -> tuple[list, bool]:
+    """Try fetching category via API. Returns (results, success)."""
+    results = []
+    seen = set()
 
-def _fetch_api_page(offset: int, cat_id: int = 15) -> tuple:
-    """Fetch one page from OLX API. Returns (results, raw_count)."""
-    params = {
-        "offset": offset,
+    base_params = {
         "limit": 50,
         "category_id": cat_id,
         "region_id": 7,
@@ -333,25 +148,104 @@ def _fetch_api_page(offset: int, cat_id: int = 15) -> tuple:
         "sort_by": "created_at:desc",
         "filter_refiners": "spell_checker",
     }
-    headers = {
+
+    # Try v1 with normal headers first
+    for api_url, mobile in [(API_V1, False), (API_V1, True), (API_V2, False)]:
+        params = {**base_params, "offset": 0}
+        page_results, raw_count, status = _fetch_api(api_url, params, mobile)
+        label = f"{'mobile' if mobile else 'desktop'} {api_url.split('/')[-2]}"
+        print(f"[OLX] API {cat_name} {label}: status={status} raw={raw_count}")
+
+        if status == 200 and raw_count > 0:
+            # This endpoint works — fetch all pages
+            for apt in page_results:
+                if apt["link"] not in seen:
+                    seen.add(apt["link"])
+                    results.append(apt)
+
+            empty = 0
+            for offset in range(50, 500, 50):
+                params = {**base_params, "offset": offset}
+                pr, rc, _ = _fetch_api(api_url, params, mobile)
+                if rc == 0:
+                    empty += 1
+                    if empty >= 2:
+                        break
+                else:
+                    empty = 0
+                for apt in pr:
+                    if apt["link"] not in seen:
+                        seen.add(apt["link"])
+                        results.append(apt)
+                print(f"[OLX] API {cat_name} offset={offset}: {rc} raw → {len(pr)} Warsaw")
+                time.sleep(random.uniform(0.5, 1.0))
+            return results, True
+
+        if status in (401, 403):
+            print(f"[OLX] API auth blocked ({status}) — trying next")
+            continue
+
+        time.sleep(0.5)
+
+    return [], False
+
+
+def _fetch_olx_json_endpoint(cat_id: int) -> list:
+    """
+    Try OLX's internal JSON search endpoint used by their SPA.
+    This is the XHR call the browser makes after page load.
+    """
+    results = []
+    seen = set()
+
+    # OLX SPA fetches data from this endpoint
+    url = "https://www.olx.pl/api/v1/offers/"
+    session = requests.Session()
+    session.headers.update({
         "User-Agent": random.choice(USER_AGENTS),
-        "Accept": "application/json",
-        "Referer": "https://www.olx.pl/nieruchomosci/mieszkania/wynajem/warszawa/",
+        "Accept": "application/json, text/plain, */*",
         "Accept-Language": "pl-PL,pl;q=0.9",
-    }
+        "Referer": "https://www.olx.pl/nieruchomosci/mieszkania/wynajem/warszawa/",
+        "Origin": "https://www.olx.pl",
+        "x-requested-with": "XMLHttpRequest",
+    })
+
+    # First visit homepage to get cookies
     try:
-        r = requests.get(API_URL, params=params, headers=headers, timeout=15)
-        if r.status_code == 401 or r.status_code == 403:
-            print(f"[OLX] API auth required (status {r.status_code}) — skipping API")
-            return [], -1  # -1 = auth error, stop trying
-        r.raise_for_status()
-        data = r.json()
-        offers = data.get("data", [])
-        results = [apt for o in offers if (apt := _parse_offer_api(o))]
-        return results, len(offers)
-    except Exception as e:
-        print(f"[OLX] API error offset={offset}: {e}")
-        return [], 0
+        session.get("https://www.olx.pl/", timeout=10,
+                    headers={"Accept": "text/html", "User-Agent": random.choice(USER_AGENTS)})
+        time.sleep(random.uniform(1, 2))
+    except Exception:
+        pass
+
+    for offset in range(0, 200, 50):
+        params = {
+            "offset": offset, "limit": 50,
+            "category_id": cat_id,
+            "region_id": 7, "city_id": 39610,
+            "sort_by": "created_at:desc",
+        }
+        try:
+            r = session.get(url, params=params, timeout=20)
+            print(f"[OLX] XHR cat={cat_id} offset={offset}: status={r.status_code} size={len(r.text)}")
+            if r.status_code != 200:
+                break
+            data = r.json()
+            offers = data.get("data", [])
+            if not offers:
+                break
+            for o in offers:
+                apt = _parse_offer(o)
+                if apt and apt["link"] not in seen:
+                    seen.add(apt["link"])
+                    results.append(apt)
+            print(f"[OLX] XHR cat={cat_id} offset={offset}: {len(offers)} raw → {len(results)} total")
+            time.sleep(random.uniform(1, 1.5))
+        except Exception as e:
+            print(f"[OLX] XHR error: {e}")
+            break
+
+    return results
 
 
 def parse_olx() -> list:
@@ -364,55 +258,16 @@ def parse_olx() -> list:
                 seen_links.add(apt["link"])
                 results.append(apt)
 
-    # 1. Try API first (fast, structured data)
-    api_works = True
+    # Try API for mieszkania + pokoje
     for cat_id, cat_name in [(15, "mieszkania"), (16, "pokoje")]:
-        if not api_works:
-            break
-        print(f"[OLX] API: {cat_name} (cat={cat_id})...")
-        empty_pages = 0
-        for offset in range(0, 500, 50):
-            page_results, raw_count = _fetch_api_page(offset, cat_id)
-            if raw_count == -1:
-                api_works = False
-                print("[OLX] API blocked — switching to HTML")
-                break
-            if raw_count == 0:
-                empty_pages += 1
-                if empty_pages >= 2:
-                    break
-            else:
-                empty_pages = 0
-            add(page_results)
-            print(f"[OLX] API {cat_name} offset={offset}: {raw_count} raw → {len(page_results)} Warsaw")
-            time.sleep(random.uniform(0.5, 1.0))
-
-    # 2. HTML fallback — always run if API gave < 30 results
-    if len(results) < 30:
-        print("[OLX] Fetching via HTML pages...")
-        session = _session()
-
-        # Warm up with homepage first (sets cookies)
-        try:
-            session.get("https://www.olx.pl/", timeout=10)
-            time.sleep(random.uniform(1, 2))
-        except Exception:
-            pass
-
-        urls = [
-            "https://www.olx.pl/nieruchomosci/mieszkania/wynajem/warszawa/",
-            "https://www.olx.pl/nieruchomosci/mieszkania/wynajem/warszawa/?page=2",
-            "https://www.olx.pl/nieruchomosci/mieszkania/wynajem/warszawa/?page=3",
-            "https://www.olx.pl/nieruchomosci/mieszkania/wynajem/warszawa/?page=4",
-            "https://www.olx.pl/nieruchomosci/mieszkania/wynajem/warszawa/?page=5",
-            # Also fetch pokoje (rooms)
-            "https://www.olx.pl/nieruchomosci/pokoje/wynajem/warszawa/",
-            "https://www.olx.pl/nieruchomosci/pokoje/wynajem/warszawa/?page=2",
-        ]
-        for i, url in enumerate(urls, 1):
-            page_results = _fetch_html_page(session, url, i)
-            add(page_results)
-            time.sleep(random.uniform(1.5, 2.5))
+        api_results, ok = _try_api(cat_id, cat_name)
+        if ok:
+            add(api_results)
+            print(f"[OLX] API {cat_name}: {len(api_results)} listings")
+        else:
+            print(f"[OLX] API {cat_name} failed — trying XHR session")
+            xhr_results = _fetch_olx_json_endpoint(cat_id)
+            add(xhr_results)
 
     print(f"[OLX] Total Warsaw listings: {len(results)}")
     return results
