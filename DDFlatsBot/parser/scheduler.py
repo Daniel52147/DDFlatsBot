@@ -102,6 +102,12 @@ def check_auto_vip():
         asyncio.run_coroutine_threadsafe(_auto_vip_check(), _loop)
 
 
+def send_vip_expiry_reminders():
+    """Remind users whose VIP expires in 1-3 days."""
+    if _bot and _loop:
+        asyncio.run_coroutine_threadsafe(_vip_expiry_reminders(), _loop)
+
+
 def backup_db():
     """Create a local backup and send to admin via Telegram."""
     try:
@@ -363,14 +369,49 @@ async def _notify(apartments: list):
                     pass
 
 
+async def _vip_expiry_reminders():
+    """Notify users whose VIP expires in 1-3 days."""
+    try:
+        conn = get_conn()
+        now = datetime.now()
+        in_3_days = (now + timedelta(days=3)).isoformat()
+        rows = conn.execute("""
+            SELECT user_id, vip_until FROM users
+            WHERE vip=1 AND vip_until IS NOT NULL AND vip_until > ? AND vip_until <= ?
+        """, (now.isoformat(), in_3_days)).fetchall()
+        conn.close()
+
+        for row in rows:
+            uid = row["user_id"]
+            try:
+                vip_until = datetime.fromisoformat(row["vip_until"])
+                days_left = (vip_until - now).days + 1
+                await _bot.send_message(
+                    uid,
+                    f"⚠️ <b>Твой VIP заканчивается через {days_left} дн.!</b>\n\n"
+                    f"Продли за 19 zł/мес чтобы не потерять:\n"
+                    f"✅ Безлимитный просмотр\n"
+                    f"✅ Умные алерты\n"
+                    f"✅ Уведомления о снижении цен\n\n"
+                    f"👉 /vip — продлить сейчас",
+                    parse_mode="HTML"
+                )
+                await asyncio.sleep(0.05)
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"[VIP Reminder] Error: {e}")
+
+
 def run_scheduler():
     schedule.every(10).minutes.do(parse_all)
     schedule.every(2).hours.do(post_to_channel)
     schedule.every().hour.do(check_auto_vip)
-    schedule.every().day.at("03:00").do(backup_db)   # Daily backup at 3am
+    schedule.every().day.at("03:00").do(backup_db)
     schedule.every().day.at("09:00").do(send_daily_digest)
+    schedule.every().day.at("12:00").do(send_vip_expiry_reminders)
     schedule.every().day.at("18:00").do(send_reminders)
-    print("[Scheduler] Running: parse 10min, channel 2h, digest 09:00, reminders 18:00, backup 03:00")
+    print("[Scheduler] Running: parse 10min, channel 2h, digest 09:00, vip-reminder 12:00, reminders 18:00, backup 03:00")
     while True:
         schedule.run_pending()
         time.sleep(1)

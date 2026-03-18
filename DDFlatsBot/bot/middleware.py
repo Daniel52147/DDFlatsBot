@@ -87,7 +87,9 @@ class SubscriptionMiddleware(BaseMiddleware):
             if event.data and (
                 event.data.startswith("admin_") or
                 event.data.startswith("fav_") or
-                event.data.startswith("alert_del:")
+                event.data.startswith("alert_del:") or
+                event.data.startswith("onboard_d:") or
+                event.data.startswith("onboard_p:")
             ):
                 return await handler(event, data)
         else:

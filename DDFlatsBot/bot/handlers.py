@@ -87,6 +87,10 @@ class ReportState(StatesGroup):
 class DisclaimerState(StatesGroup):
     waiting_accept = State()
 
+class OnboardingState(StatesGroup):
+    waiting_district = State()
+    waiting_budget = State()
+
 class NoteState(StatesGroup):
     waiting_note = State()
 
@@ -2053,7 +2057,6 @@ async def cb_accept_disclaimer(call: CallbackQuery, state: FSMContext):
     await call.answer("✅ Принято!")
     data = await state.get_data()
     pending_ref = data.get("pending_ref")
-    await state.clear()
 
     user = get_or_create_user(call.from_user.id)
 
@@ -2066,46 +2069,66 @@ async def cb_accept_disclaimer(call: CallbackQuery, state: FSMContext):
 
     lang = get_lang(call.from_user.id)
     name = call.from_user.first_name or "друг"
+
+    # VIP trial message
     early_msg = ""
     if user.get("vip") and user.get("vip_until"):
         vip_until = user.get("vip_until", "")[:10]
         early_msg = f"\n\n🎁 <b>Тебе активирован пробный VIP на 1 день бесплатно!</b>\nДо {vip_until} — безлимит, алерты, всё включено.\nПотом {VIP_PRICE} zł/мес — /vip"
 
-    if not user["vip"]:
-        used = user["views"]
-        bar = "🟩" * min(used, FREE_VIEWS) + "⬜" * max(0, FREE_VIEWS - used)
-        vip_badge = t(lang, "free_badge", bar=bar, used=used, total=FREE_VIEWS)
-    else:
-        vip_until = user.get("vip_until", "")[:10] if user.get("vip_until") else "∞"
-        vip_badge = t(lang, "vip_badge", until=vip_until)
-
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text=t(lang, "btn_find"), callback_data="next"),
-            InlineKeyboardButton(text=t(lang, "btn_filter"), callback_data="open_filter"),
-        ],
-        [
-            InlineKeyboardButton(text=t(lang, "btn_favorites"), callback_data="open_favorites"),
-            InlineKeyboardButton(text=t(lang, "btn_alerts"), callback_data="open_alerts"),
-        ],
-        [
-            InlineKeyboardButton(text=t(lang, "btn_vip"), callback_data="open_vip"),
-            InlineKeyboardButton(text=t(lang, "btn_ref"), callback_data="open_ref"),
-        ],
-        [
-            InlineKeyboardButton(text=t(lang, "btn_cheap"), callback_data="open_cheap"),
-            InlineKeyboardButton(text=t(lang, "btn_hot"), callback_data="open_hot"),
-        ],
-        [
-            InlineKeyboardButton(text=t(lang, "btn_drops"), callback_data="open_drops"),
-            InlineKeyboardButton(text=t(lang, "btn_map"), callback_data="open_map"),
-        ],
-    ])
+    # Start onboarding: ask district
+    await state.update_data(pending_ref=pending_ref, onboard_early_msg=early_msg)
+    await state.set_state(OnboardingState.waiting_district)
     await call.message.answer(
-        t(lang, "start_greeting", name=name, badge=vip_badge) + early_msg,
+        f"👋 Привет, <b>{name}</b>! Давай настроим поиск под тебя.\n\n"
+        f"📍 <b>Шаг 1/2: Выбери район Варшавы</b>\n\n"
+        f"Или нажми «Все районы» если ещё не определился:",
         parse_mode="HTML",
-        reply_markup=kb
+        reply_markup=districts_keyboard("onboard_d")
     )
+
+
+@router.callback_query(F.data.startswith("onboard_d:"))
+async def cb_onboard_district(call: CallbackQuery, state: FSMContext):
+    district = call.data.split(":", 1)[1]
+    filters = {} if district == "все" else {"district": district}
+    await state.update_data(filters=filters, offset=0)
+    await call.message.edit_text(
+        f"📍 Район: <b>{'Все' if district == 'все' else district}</b>\n\n"
+        f"💰 <b>Шаг 2/2: Максимальный бюджет</b>\n\n"
+        f"Сколько готов платить в месяц?",
+        parse_mode="HTML",
+        reply_markup=price_keyboard("onboard_p")
+    )
+    await state.set_state(OnboardingState.waiting_budget)
+
+
+@router.callback_query(F.data.startswith("onboard_p:"), OnboardingState.waiting_budget)
+async def cb_onboard_budget(call: CallbackQuery, state: FSMContext):
+    val = int(call.data.split(":")[1])
+    data = await state.get_data()
+    filters = data.get("filters", {})
+    if val > 0:
+        filters["price_max"] = val
+    await state.update_data(filters=filters, offset=0)
+    await state.set_state(None)
+
+    lang = get_lang(call.from_user.id)
+    early_msg = data.get("onboard_early_msg", "")
+    user = get_or_create_user(call.from_user.id)
+
+    budget_str = f"до {val} zł" if val > 0 else "без ограничений"
+    district_str = filters.get("district", "все районы")
+
+    await call.message.edit_text(
+        f"✅ <b>Отлично! Настройки сохранены:</b>\n\n"
+        f"📍 Район: <b>{district_str}</b>\n"
+        f"💰 Бюджет: <b>{budget_str}</b>\n\n"
+        f"Показываю первую квартиру 👇"
+        + early_msg,
+        parse_mode="HTML"
+    )
+    await show_next_apartment(call.from_user.id, call.bot, state, call.message.chat.id)
 
 
 # ── Report apartment ──────────────────────────────────────────
@@ -2183,6 +2206,27 @@ async def cb_report_reason(call: CallbackQuery, state: FSMContext):
             )
         except Exception:
             pass
+
+    # Alert admins if apartment reaches 3+ reports
+    if apt and apt["reported"] >= 3:
+        for admin_id in ADMIN_IDS:
+            try:
+                kb_alert = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="🗑 Удалить объявление", callback_data=f"mod_delete:{apt_id}"),
+                    InlineKeyboardButton(text="✅ Проверено", callback_data=f"mod_verify:{apt_id}"),
+                ]])
+                await call.bot.send_message(
+                    admin_id,
+                    f"⚠️ <b>Объявление получило {apt['reported']} жалобы!</b>\n\n"
+                    f"🏠 {apt['title']}\n"
+                    f"💰 {apt['price']} zł · 📍 {apt['district']}\n"
+                    f"🔗 {apt['link']}\n\n"
+                    f"Рекомендуется проверить или удалить.",
+                    parse_mode="HTML",
+                    reply_markup=kb_alert
+                )
+            except Exception:
+                pass
 
 
 # ── Moderator panel ───────────────────────────────────────────
