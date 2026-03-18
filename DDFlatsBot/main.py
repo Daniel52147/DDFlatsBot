@@ -68,7 +68,7 @@ async def main():
         dp.callback_query.middleware(SubscriptionMiddleware())
         dp.include_router(router)
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         set_bot(bot, loop)
 
         await bot.delete_webhook(drop_pending_updates=True)

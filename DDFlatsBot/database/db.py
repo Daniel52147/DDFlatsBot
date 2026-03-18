@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from database.models import (
     CREATE_APARTMENTS, CREATE_USERS, CREATE_FAVORITES,
     CREATE_SUBSCRIPTIONS, CREATE_ALERTS, CREATE_STATS, CREATE_PRICE_HISTORY,
-    CREATE_RATINGS,
+    CREATE_RATINGS, CREATE_INDEXES,
 )
 from config import DB_PATH, VIP_EARLY_ACCESS_MINUTES, REFERRAL_REWARD_DAYS, EARLY_ADOPTER_LIMIT
 
@@ -26,6 +26,15 @@ def init_db():
                 CREATE_SUBSCRIPTIONS, CREATE_ALERTS, CREATE_STATS,
                 CREATE_PRICE_HISTORY, CREATE_RATINGS]:
         c.execute(sql)
+
+    # Create performance indexes
+    for stmt in CREATE_INDEXES.strip().split(";"):
+        stmt = stmt.strip()
+        if stmt:
+            try:
+                c.execute(stmt)
+            except Exception:
+                pass
 
     migrations = [
         "ALTER TABLE users ADD COLUMN vip_until TEXT",

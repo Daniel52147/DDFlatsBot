@@ -182,7 +182,8 @@ def parse_otodom() -> list:
                 # Log snippet to diagnose
                 snippet = r.text[:300].replace("\n", " ")
                 print(f"[Otodom] Page {page} snippet: {snippet}")
-                break
+                if page >= 2:
+                    break  # Only stop after 2 consecutive empty pages
 
             time.sleep(random.uniform(2, 3))
         except Exception as e:

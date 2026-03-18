@@ -36,15 +36,25 @@ ALLOWED_CALLBACKS = {
 # Rate limiting: max N actions per window (seconds)
 _RATE_LIMIT = 8        # max requests
 _RATE_WINDOW = 10      # per N seconds
+_RATE_STORE_MAX = 5000  # max users to track (prevents memory leak)
 _rate_store: dict[int, list] = defaultdict(list)
+_rate_store_order: list = []  # insertion order for eviction
 
 
 def _is_rate_limited(user_id: int) -> bool:
-    """Returns True if user exceeded rate limit."""
+    """Returns True if user exceeded rate limit. Caps store size to prevent memory leak."""
     now = time.monotonic()
-    timestamps = _rate_store[user_id]
+    # Evict oldest entries if store is too large
+    if len(_rate_store) >= _RATE_STORE_MAX and user_id not in _rate_store:
+        try:
+            oldest = _rate_store_order.pop(0)
+            _rate_store.pop(oldest, None)
+        except (IndexError, KeyError):
+            pass
+    if user_id not in _rate_store:
+        _rate_store_order.append(user_id)
     # Remove old timestamps outside the window
-    _rate_store[user_id] = [t for t in timestamps if now - t < _RATE_WINDOW]
+    _rate_store[user_id] = [t for t in _rate_store[user_id] if now - t < _RATE_WINDOW]
     if len(_rate_store[user_id]) >= _RATE_LIMIT:
         return True
     _rate_store[user_id].append(now)

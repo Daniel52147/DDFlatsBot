@@ -86,3 +86,10 @@ CREATE TABLE IF NOT EXISTS price_history (
     recorded_at  TEXT
 )
 """
+
+# Index for /hot query performance
+CREATE_INDEXES = """
+CREATE INDEX IF NOT EXISTS idx_apartments_score ON apartments(score DESC);
+CREATE INDEX IF NOT EXISTS idx_apartments_created ON apartments(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_apartments_price ON apartments(price);
+"""

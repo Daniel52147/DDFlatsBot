@@ -203,6 +203,7 @@ async def _remind_inactive():
                     f"Нажми /next чтобы посмотреть 👇",
                     parse_mode="HTML"
                 )
+                await asyncio.sleep(0.05)
             except Exception:
                 pass
     except Exception as e:
@@ -293,6 +294,7 @@ async def _daily_digest():
     for uid in user_ids:
         try:
             await _bot.send_message(uid, text, parse_mode="HTML")
+            await asyncio.sleep(0.05)  # Avoid Telegram flood (429)
         except Exception:
             pass
 
@@ -318,6 +320,7 @@ async def _notify(apartments: list):
                     parse_mode="HTML"
                 )
                 notified.add(uid)
+                await asyncio.sleep(0.05)
             except Exception:
                 pass
 
@@ -336,6 +339,7 @@ async def _notify(apartments: list):
                     parse_mode="HTML"
                 )
                 notified.add(uid)
+                await asyncio.sleep(0.05)
             except Exception:
                 pass
 
@@ -350,6 +354,7 @@ async def _notify(apartments: list):
                         f"🏠 Добавлено <b>{len(apartments)}</b> новых квартир!\nНажми /next",
                         parse_mode="HTML"
                     )
+                    await asyncio.sleep(0.05)
                 except Exception:
                     pass
 
