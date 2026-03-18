@@ -3,6 +3,8 @@ from aiogram.types import TelegramObject, Message, CallbackQuery
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from config import CHANNEL_LINK, CHANNEL_ID, ADMIN_IDS
 from typing import Callable, Awaitable, Any
+from collections import defaultdict
+import time
 
 
 async def is_subscribed(bot, user_id: int) -> bool:
@@ -17,8 +19,6 @@ async def is_subscribed(bot, user_id: int) -> bool:
         return member.status not in ("left", "kicked", "banned")
     except Exception as e:
         print(f"[Sub check] Error for {user_id}: {e}")
-        # If bot is not admin of channel — allow access (fail open)
-        # To fix: add bot as admin of @ddflots channel
         return True
 
 
@@ -32,6 +32,23 @@ ALLOWED_CALLBACKS = {
     "reset_filters", "next", "skip", "accept_disclaimer",
     "alert_create", "open_menu",
 }
+
+# Rate limiting: max N actions per window (seconds)
+_RATE_LIMIT = 8        # max requests
+_RATE_WINDOW = 10      # per N seconds
+_rate_store: dict[int, list] = defaultdict(list)
+
+
+def _is_rate_limited(user_id: int) -> bool:
+    """Returns True if user exceeded rate limit."""
+    now = time.monotonic()
+    timestamps = _rate_store[user_id]
+    # Remove old timestamps outside the window
+    _rate_store[user_id] = [t for t in timestamps if now - t < _RATE_WINDOW]
+    if len(_rate_store[user_id]) >= _RATE_LIMIT:
+        return True
+    _rate_store[user_id].append(now)
+    return False
 
 
 class SubscriptionMiddleware(BaseMiddleware):
@@ -53,7 +70,7 @@ class SubscriptionMiddleware(BaseMiddleware):
             # Allow subscription/payment callbacks
             if event.data in ALLOWED_CALLBACKS:
                 return await handler(event, data)
-            # Allow admin_approve/reject callbacks
+            # Allow admin/fav/alert callbacks
             if event.data and (
                 event.data.startswith("admin_") or
                 event.data.startswith("fav_") or
@@ -63,9 +80,15 @@ class SubscriptionMiddleware(BaseMiddleware):
         else:
             return await handler(event, data)
 
-        # Admins bypass subscription check
+        # Admins bypass all checks
         if user.id in ADMIN_IDS:
             return await handler(event, data)
+
+        # Rate limiting — prevent spam
+        if _is_rate_limited(user.id):
+            if isinstance(event, CallbackQuery):
+                await event.answer("⏳ Не так быстро!", show_alert=False)
+            return
 
         # Check if user is banned (vip = -1)
         try:

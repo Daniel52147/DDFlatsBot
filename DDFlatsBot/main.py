@@ -2,14 +2,17 @@ import asyncio
 import threading
 import sys
 import os
+from datetime import datetime
 
 from bot.bot import bot, dp
 from bot.handlers import router
 from bot.middleware import SubscriptionMiddleware
-from database.db import init_db
+from database.db import init_db, get_stats
 from parser.scheduler import run_scheduler, set_bot, parse_all
+from config import ADMIN_IDS
 
 LOCK_FILE = "bot.lock"
+_START_TIME = datetime.now()
 
 
 def check_lock():
@@ -23,7 +26,7 @@ def check_lock():
                     print(f"⚠️  Bot already running (PID {pid}). Close it first.")
                     sys.exit(1)
             except ImportError:
-                pass  # psutil not installed — skip check
+                pass
         except Exception:
             pass
         os.remove(LOCK_FILE)
@@ -34,6 +37,26 @@ def check_lock():
 def remove_lock():
     if os.path.exists(LOCK_FILE):
         os.remove(LOCK_FILE)
+
+
+async def notify_admin_startup():
+    """Notify admin that bot started successfully."""
+    try:
+        stats = get_stats()
+        text = (
+            f"✅ <b>DDFlatsBot запущен</b>\n\n"
+            f"🕐 {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
+            f"🏠 Квартир в базе: <b>{stats['apartments']}</b>\n"
+            f"👥 Пользователей: <b>{stats['users']}</b>\n"
+            f"💎 VIP: <b>{stats['vip']}</b>"
+        )
+        for admin_id in ADMIN_IDS:
+            try:
+                await bot.send_message(admin_id, text, parse_mode="HTML")
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"[Startup] Notify error: {e}")
 
 
 async def main():
@@ -48,10 +71,11 @@ async def main():
         loop = asyncio.get_event_loop()
         set_bot(bot, loop)
 
-        # Kill any other bot sessions on Telegram side
         await bot.delete_webhook(drop_pending_updates=True)
-        # Small delay to let Telegram close other connections
         await asyncio.sleep(2)
+
+        # Notify admin on startup
+        await notify_admin_startup()
 
         threading.Thread(target=parse_all, daemon=True).start()
         threading.Thread(target=run_scheduler, daemon=True).start()

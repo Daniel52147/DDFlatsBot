@@ -4,6 +4,7 @@ import asyncio
 import threading
 import shutil
 import os
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from datetime import datetime, timedelta
 
 from parser.parser_olx import parse_olx
@@ -16,10 +17,13 @@ from database.db import (
     match_alerts, check_vip_expiry, get_daily_digest, check_auto_vip_conditions,
     get_cheapest_apartments, get_conn,
 )
-from config import CHANNEL_ID, DB_PATH
+from config import CHANNEL_ID, DB_PATH, ADMIN_IDS
 
 _bot = None
 _loop = None
+_parse_lock = threading.Lock()  # Prevent overlapping parse cycles
+
+PARSER_TIMEOUT = 120  # seconds per source
 
 
 def set_bot(bot, loop):
@@ -28,34 +32,52 @@ def set_bot(bot, loop):
     _loop = loop
 
 
-def parse_all():
-    print(f"[Scheduler] Starting parse at {datetime.now().isoformat()}")
-    before = datetime.now().isoformat()
-
-    sources = [
-        ("OLX",     parse_olx),
-        ("Otodom",  parse_otodom),
-        ("Gratka",  parse_gratka),
-        ("Morizon", parse_morizon),
-    ]
-
-    total_new = 0
-    for source_name, parser_fn in sources:
+def _run_parser_with_timeout(parser_fn, source_name: str) -> list:
+    """Run a parser function with a hard timeout."""
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(parser_fn)
         try:
-            listings = parser_fn()
+            return future.result(timeout=PARSER_TIMEOUT)
+        except FuturesTimeout:
+            print(f"[{source_name}] ⏰ Timeout after {PARSER_TIMEOUT}s — skipping")
+            return []
+        except Exception as e:
+            print(f"[{source_name}] Error: {e}")
+            return []
+
+
+def parse_all():
+    # Prevent overlapping cycles — if previous parse is still running, skip
+    if not _parse_lock.acquire(blocking=False):
+        print("[Scheduler] Previous parse still running — skipping this cycle")
+        return
+    try:
+        print(f"[Scheduler] Starting parse at {datetime.now().isoformat()}")
+        before = datetime.now().isoformat()
+
+        sources = [
+            ("OLX",     parse_olx),
+            ("Otodom",  parse_otodom),
+            ("Gratka",  parse_gratka),
+            ("Morizon", parse_morizon),
+        ]
+
+        total_new = 0
+        for source_name, parser_fn in sources:
+            listings = _run_parser_with_timeout(parser_fn, source_name)
             new = sum(1 for l in listings if save_apartment(l))
             log_parse(source_name, new)
             total_new += new
             print(f"[{source_name}] +{new} new")
-        except Exception as e:
-            print(f"[{source_name}] Error: {e}")
 
-    print(f"[Scheduler] Done. Total new: {total_new}")
-    check_vip_expiry()
+        print(f"[Scheduler] Done. Total new: {total_new}")
+        check_vip_expiry()
 
-    if total_new > 0 and _bot and _loop:
-        new_apartments = get_latest_apartments(before)
-        asyncio.run_coroutine_threadsafe(_notify(new_apartments), _loop)
+        if total_new > 0 and _bot and _loop:
+            new_apartments = get_latest_apartments(before)
+            asyncio.run_coroutine_threadsafe(_notify(new_apartments), _loop)
+    finally:
+        _parse_lock.release()
 
 
 def send_daily_digest():
@@ -81,14 +103,41 @@ def check_auto_vip():
 
 
 def backup_db():
-    """Create a backup copy of the database."""
+    """Create a local backup and send to admin via Telegram."""
     try:
-        if os.path.exists(DB_PATH):
-            backup_path = DB_PATH + ".backup"
-            shutil.copy2(DB_PATH, backup_path)
-            print(f"[Backup] DB backed up to {backup_path}")
+        if not os.path.exists(DB_PATH):
+            return
+        backup_path = DB_PATH + ".backup"
+        shutil.copy2(DB_PATH, backup_path)
+        size_kb = os.path.getsize(DB_PATH) // 1024
+        print(f"[Backup] DB backed up ({size_kb} KB)")
+        # Send to admin via Telegram
+        if _bot and _loop:
+            asyncio.run_coroutine_threadsafe(_send_backup_to_admin(backup_path, size_kb), _loop)
     except Exception as e:
         print(f"[Backup] Error: {e}")
+
+
+async def _send_backup_to_admin(backup_path: str, size_kb: int):
+    """Send DB backup file to all admins."""
+    try:
+        from aiogram.types import FSInputFile
+        for admin_id in ADMIN_IDS:
+            try:
+                await _bot.send_document(
+                    admin_id,
+                    FSInputFile(backup_path, filename="Flats.db"),
+                    caption=(
+                        f"💾 <b>Авто-бэкап БД</b>\n"
+                        f"📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
+                        f"📦 {size_kb} KB"
+                    ),
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                print(f"[Backup] Failed to send to admin {admin_id}: {e}")
+    except Exception as e:
+        print(f"[Backup] Send error: {e}")
 
 
 async def _post_channel():
@@ -161,8 +210,30 @@ async def _remind_inactive():
 
 
 async def _auto_vip_check():
-    user_ids = get_all_user_ids()
-    for uid in user_ids:
+    """Check auto-VIP conditions. Uses batch SQL to avoid N+1 queries."""
+    # Only check users who are NOT already VIP and have enough activity
+    conn = get_conn()
+    try:
+        candidates = conn.execute("""
+            SELECT u.user_id,
+                   u.views,
+                   u.created_at,
+                   (SELECT COUNT(*) FROM favorites f WHERE f.user_id = u.user_id) as fav_count
+            FROM users u
+            WHERE u.vip = 0
+              AND (
+                  (SELECT COUNT(*) FROM favorites f WHERE f.user_id = u.user_id) >= 10
+                  OR u.views >= 20
+              )
+        """).fetchall()
+    except Exception as e:
+        print(f"[AutoVIP] Query error: {e}")
+        conn.close()
+        return
+    conn.close()
+
+    for row in candidates:
+        uid = row["user_id"]
         try:
             reason = check_auto_vip_conditions(uid)
             if reason == "fav10":
@@ -287,10 +358,10 @@ def run_scheduler():
     schedule.every(10).minutes.do(parse_all)
     schedule.every(2).hours.do(post_to_channel)
     schedule.every().hour.do(check_auto_vip)
-    schedule.every().hour.do(backup_db)
+    schedule.every().day.at("03:00").do(backup_db)   # Daily backup at 3am
     schedule.every().day.at("09:00").do(send_daily_digest)
     schedule.every().day.at("18:00").do(send_reminders)
-    print("[Scheduler] Running: parse 10min, channel 2h, digest 09:00, reminders 18:00")
+    print("[Scheduler] Running: parse 10min, channel 2h, digest 09:00, reminders 18:00, backup 03:00")
     while True:
         schedule.run_pending()
         time.sleep(1)
