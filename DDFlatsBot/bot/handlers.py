@@ -1711,7 +1711,35 @@ async def cb_open_ref(call: CallbackQuery):
 @router.callback_query(F.data == "open_stats")
 async def cb_open_stats(call: CallbackQuery):
     await call.answer()
-    await cmd_mystats(call.message)
+    # Use call.from_user.id — not call.message (which belongs to the bot)
+    user = get_or_create_user(call.from_user.id)
+    subs = get_user_subscriptions(call.from_user.id)
+    favs = get_favorites(call.from_user.id)
+    alerts = get_user_alerts(call.from_user.id)
+    ref = get_ref_stats(call.from_user.id)
+    ref_count = ref.get("ref_count", 0)
+    if not user["vip"]:
+        used = user["views"]
+        bar = "🟩" * min(used, FREE_VIEWS) + "⬜" * max(0, FREE_VIEWS - used)
+        vip_line = f"🆓 {bar} {used}/{FREE_VIEWS} просмотров"
+    else:
+        vip_until = user.get("vip_until", "")[:10] if user.get("vip_until") else "∞"
+        vip_line = f"💎 VIP до {vip_until}"
+    fav_count = len(favs)
+    streak = get_user_streak_days(call.from_user.id)
+    streak_line = f"\n🔥 Стрик: <b>{streak} дней подряд</b>!" if streak >= 3 else (f"\n📆 Активен {streak} дн. подряд" if streak > 0 else "")
+    await call.message.answer(
+        f"📊 <b>Твоя статистика</b>\n\n"
+        f"📌 Статус: {vip_line}\n"
+        f"👁 Просмотрено: {user['views']} квартир\n"
+        f"❤️ Избранное: {fav_count}\n"
+        f"🔔 Подписки: {', '.join(subs) if subs else 'нет'}\n"
+        f"🎯 Алертов: {len(alerts)}\n"
+        f"👥 Приглашено: {ref_count} чел.\n"
+        f"📅 С нами с: {user['created_at'][:10]}"
+        f"{streak_line}",
+        parse_mode="HTML"
+    )
 
 
 @router.callback_query(F.data == "open_prices")
@@ -1723,7 +1751,22 @@ async def cb_open_prices(call: CallbackQuery):
 @router.callback_query(F.data == "open_today")
 async def cb_open_today(call: CallbackQuery, state: FSMContext):
     await call.answer()
-    await cmd_today(call.message, state)
+    from datetime import date
+    today = date.today().isoformat()
+    from database.db import get_conn
+    conn = get_conn()
+    count = conn.execute(
+        "SELECT COUNT(*) FROM apartments WHERE created_at >= ?", (today,)
+    ).fetchone()[0]
+    conn.close()
+    await state.update_data(filters={"today": today}, offset=0)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🏠 Смотреть", callback_data="next")
+    ]])
+    await call.message.answer(
+        f"🆕 Сегодня добавлено <b>{count}</b> квартир!",
+        parse_mode="HTML", reply_markup=kb
+    )
 
 @router.callback_query(F.data == "cancel")
 async def cb_cancel(call: CallbackQuery, state: FSMContext):
@@ -2613,6 +2656,12 @@ async def cmd_menu(message: Message):
         parse_mode="HTML",
         reply_markup=kb
     )
+
+
+@router.callback_query(F.data == "open_menu")
+async def cb_open_menu(call: CallbackQuery):
+    await call.answer()
+    await cmd_menu(call.message)
 
 
 @router.callback_query(F.data == "open_notes")

@@ -73,8 +73,9 @@ def _is_apartment(title: str, category: dict) -> bool:
             return False
     if category:
         cat_id = category.get("id")
-        if cat_id and cat_id not in (15, 1, 3018, 3019, 3020):
-            apt_words = ["mieszkanie", "kawalerka", "pokój", "apartament", "wynajem"]
+        # cat 15 = mieszkania, cat 16 = pokoje — both are valid rentals
+        if cat_id and cat_id not in (15, 16, 1, 3018, 3019, 3020):
+            apt_words = ["mieszkanie", "kawalerka", "pokój", "pokoje", "apartament", "wynajem"]
             if not any(w in title_lower for w in apt_words):
                 return False
     return True
