@@ -131,8 +131,8 @@ def _parse_offer(o: dict) -> dict | None:
         return None
 
 
-def _fetch_api_page(offset: int, extra_params: dict = None) -> list:
-    """Fetch one page from OLX API, return parsed offers."""
+def _fetch_api_page(offset: int, extra_params: dict = None) -> tuple:
+    """Fetch one page from OLX API, return (parsed_offers, raw_count)."""
     params = {
         "offset": offset,
         "limit": 50,
@@ -238,20 +238,21 @@ def parse_olx() -> list:
                 seen_links.add(apt["link"])
                 results.append(apt)
 
-    # Primary: OLX API with Warsaw city_id
-    print("[OLX] Fetching via API (Warsaw city_id=39610)...")
-    empty_pages = 0
-    for offset in range(0, 500, 50):
-        page_results, total_offers = _fetch_api_page(offset)
-        if total_offers == 0:
-            empty_pages += 1
-            if empty_pages >= 2:
-                break
-        else:
-            empty_pages = 0
-        add(page_results)
-        print(f"[OLX] API offset={offset}: {total_offers} raw → {len(page_results)} Warsaw")
-        time.sleep(random.uniform(0.8, 1.5))
+    # Primary: OLX API — mieszkania (cat 15) + pokoje (cat 16) in Warsaw
+    for cat_id, cat_name in [(15, "mieszkania"), (16, "pokoje")]:
+        print(f"[OLX] Fetching {cat_name} (city_id=39610, cat={cat_id})...")
+        empty_pages = 0
+        for offset in range(0, 500, 50):
+            page_results, total_offers = _fetch_api_page(offset, {"category_id": cat_id})
+            if total_offers == 0:
+                empty_pages += 1
+                if empty_pages >= 2:
+                    break
+            else:
+                empty_pages = 0
+            add(page_results)
+            print(f"[OLX] {cat_name} offset={offset}: {total_offers} raw → {len(page_results)} Warsaw")
+            time.sleep(random.uniform(0.8, 1.5))
 
     # Fallback: HTML pages if API gave too few results
     if len(results) < 30:
