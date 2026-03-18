@@ -211,18 +211,34 @@ def _parse_offer_next(item: dict) -> dict | None:
         return None
 
 
-def _extract_next_data(html: str) -> list:
+def _extract_next_data(html: str, debug: bool = False) -> list:
     """Extract listings from __NEXT_DATA__ JSON embedded in OLX HTML."""
     results = []
 
-    # Try __NEXT_DATA__ script tag
     m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.DOTALL)
     if not m:
+        if debug:
+            print("[OLX] __NEXT_DATA__ not found in HTML")
         return results
 
     try:
         data = json.loads(m.group(1))
         page_props = data.get("props", {}).get("pageProps", {})
+
+        if debug:
+            # Print top-level keys to understand structure
+            def _keys(obj, depth=0, prefix=""):
+                if depth > 4:
+                    return
+                if isinstance(obj, dict):
+                    for k, v in obj.items():
+                        vtype = type(v).__name__
+                        vlen = len(v) if isinstance(v, (list, dict)) else ""
+                        print(f"[OLX] {prefix}{k}: {vtype} {vlen}")
+                        if isinstance(v, (dict, list)) and depth < 3:
+                            _keys(v if isinstance(v, dict) else (v[0] if v else {}), depth+1, prefix + "  ")
+            print("[OLX] pageProps keys:")
+            _keys(page_props)
 
         # OLX stores listings in multiple possible paths
         listings = (
@@ -234,7 +250,6 @@ def _extract_next_data(html: str) -> list:
         )
 
         if not listings:
-            # Deep search for any list with "url" and "title" keys
             def find_ads(obj, depth=0):
                 if depth > 7:
                     return []
@@ -250,6 +265,11 @@ def _extract_next_data(html: str) -> list:
                             return found
                 return []
             listings = find_ads(page_props)
+
+        if debug:
+            print(f"[OLX] Found {len(listings)} raw listings in __NEXT_DATA__")
+            if listings and isinstance(listings[0], dict):
+                print(f"[OLX] First item keys: {list(listings[0].keys())[:15]}")
 
         for item in listings:
             if not isinstance(item, dict):
@@ -273,7 +293,8 @@ def _fetch_html_page(session, url: str, page_num: int) -> list:
         if r.status_code != 200:
             print(f"[OLX] HTML page {page_num} blocked")
             return []
-        results = _extract_next_data(r.text)
+        # Debug on first page to understand JSON structure
+        results = _extract_next_data(r.text, debug=(page_num == 1))
         if not results:
             # Regex fallback: grab offer links from HTML
             links = re.findall(
@@ -285,18 +306,20 @@ def _fetch_html_page(session, url: str, page_num: int) -> list:
                 if link in seen:
                     continue
                 seen.add(link)
-                # Try to get title from nearby HTML
                 results.append({
                     "title": "Mieszkanie Warszawa",
                     "price": 0, "district": "Warszawa",
                     "rooms": None, "area": None, "floor": None,
                     "furnished": 0, "link": link, "image": "", "source": "OLX",
                 })
+            if results:
+                print(f"[OLX] HTML page {page_num}: {len(results)} via regex fallback")
         print(f"[OLX] HTML page {page_num}: {len(results)} listings")
         return results
     except Exception as e:
         print(f"[OLX] HTML page {page_num} error: {e}")
         return []
+
 
 
 def _fetch_api_page(offset: int, cat_id: int = 15) -> tuple:
