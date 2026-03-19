@@ -177,7 +177,7 @@ def districts_keyboard(action: str = "sub") -> InlineKeyboardMarkup:
 
 
 def price_keyboard(action: str) -> InlineKeyboardMarkup:
-    prices = [1500, 2000, 2500, 3000, 3500, 4000]
+    prices = [1500, 2000, 2500, 3000, 3500, 4000, 5000, 5500, 6000]
     buttons = []
     row = []
     for p in prices:

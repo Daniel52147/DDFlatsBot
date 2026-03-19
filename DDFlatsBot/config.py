@@ -62,5 +62,5 @@ USER_AGENTS = [
 DISTRICTS = [
     "Mokotów", "Ursynów", "Wilanów", "Wola", "Śródmieście",
     "Praga-Południe", "Praga-Północ", "Żoliborz", "Bielany",
-    "Bemowo", "Ochota", "Targówek", "Białołęka", "Ursus",
+    "Bemowo", "Ochota", "Targówek", "Białołęka", "Ursus", "Włochy",
 ]

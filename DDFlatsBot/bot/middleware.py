@@ -88,9 +88,24 @@ class SubscriptionMiddleware(BaseMiddleware):
                 event.data.startswith("admin_") or
                 event.data.startswith("fav_") or
                 event.data.startswith("alert_del:") or
+                event.data.startswith("alert_d:") or
+                event.data.startswith("alert_pmax:") or
+                event.data.startswith("alert_rooms:") or
+                event.data.startswith("filter_d:") or
+                event.data.startswith("filter_pmax:") or
+                event.data.startswith("filter_rooms:") or
                 event.data.startswith("onboard_d:") or
                 event.data.startswith("onboard_p:") or
-                event.data.startswith("share:")
+                event.data.startswith("share:") or
+                event.data.startswith("sub:") or
+                event.data.startswith("lang:") or
+                event.data.startswith("rate:") or
+                event.data.startswith("report:") or
+                event.data.startswith("report_reason:") or
+                event.data.startswith("note:") or
+                event.data.startswith("similar:") or
+                event.data.startswith("mod_") or
+                event.data.startswith("vip_")
             ):
                 return await handler(event, data)
         else:
