@@ -36,6 +36,18 @@ def init_db():
             except Exception:
                 pass
 
+    # user_seen table
+    try:
+        c.execute("""CREATE TABLE IF NOT EXISTS user_seen (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            apt_id INTEGER NOT NULL,
+            seen_at TEXT,
+            UNIQUE(user_id, apt_id)
+        )""")
+    except Exception:
+        pass
+
     migrations = [
         "ALTER TABLE users ADD COLUMN vip_until TEXT",
         "ALTER TABLE users ADD COLUMN ref_code TEXT",
@@ -112,8 +124,30 @@ def _is_apartment_listing(title: str, price: int) -> bool:
     return True
 
 
+_NON_WARSAW = {
+    "widzew", "górna", "bałuty", "polesie", "retkinia", "śródmieście-wschód",
+    "zgierz", "łódź", "lodz", "częstochowa", "radomsko", "kutno", "łęczyca",
+    "piotrków", "łask", "zduńska", "zelów", "sieradz", "tomaszów",
+    "opoczno", "gdańsk", "gdansk", "kraków", "krakow", "wrocław", "wroclaw",
+    "poznań", "poznan", "katowice", "lublin", "szczecin", "bydgoszcz", "białystok",
+}
+
+
+def _is_warsaw(district: str) -> bool:
+    """Return False if district clearly belongs to another city."""
+    if not district:
+        return True  # unknown district — allow
+    d = district.lower().strip()
+    for city in _NON_WARSAW:
+        if city in d:
+            return False
+    return True
+
+
 def save_apartment(data: dict) -> bool:
     if not _is_apartment_listing(data.get("title", ""), data.get("price", 0)):
+        return False
+    if not _is_warsaw(data.get("district", "")):
         return False
     # Deduplicate within same source only
     if find_duplicate(data.get("title", ""), data.get("price", 0), data.get("source", "")):
@@ -144,7 +178,7 @@ def save_apartment(data: dict) -> bool:
 
 
 def get_apartments(filters: dict = None, offset: int = 0, limit: int = 1,
-                   vip: bool = False) -> list[dict]:
+                   vip: bool = False, exclude_ids: list = None) -> list[dict]:
     conn = get_conn()
     c = conn.cursor()
     query = "SELECT * FROM apartments WHERE 1=1"
@@ -175,6 +209,14 @@ def get_apartments(filters: dict = None, offset: int = 0, limit: int = 1,
         if filters.get("today"):
             query += " AND created_at >= ?"
             params.append(filters["today"])
+        if filters.get("furnished") is not None:
+            query += " AND furnished = ?"
+            params.append(filters["furnished"])
+
+    if exclude_ids:
+        placeholders = ",".join("?" * len(exclude_ids))
+        query += f" AND id NOT IN ({placeholders})"
+        params.extend(exclude_ids)
 
     query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
     params += [limit, offset]
@@ -927,15 +969,18 @@ def cleanup_junk_listings():
     # Remove extreme price outliers
     conn.execute("DELETE FROM apartments WHERE price > 0 AND price < 200")
     conn.execute("DELETE FROM apartments WHERE price > 50000")
-    # Remove non-Warsaw listings (OLX sometimes leaks other cities)
-    non_warsaw = [
+    # Remove non-Warsaw listings — these cities are NOT Warsaw districts
+    non_warsaw_districts = [
         "Zgierz", "Łódź", "Częstochowa", "Radomsko", "Kutno", "Łęczyca",
         "Piotrków", "Łask", "Zduńska", "Zelów", "Sieradz", "Tomaszów",
-        "Opoczno", "Ostrowy", "Polesie", "Retkinia", "Bałuty",
+        "Opoczno", "Ostrowy", "Retkinia", "Bałuty",
+        "Widzew", "Górna", "Polesie", "Śródmieście-Wschód",
+        "Gdańsk", "Kraków", "Wrocław", "Poznań", "Katowice",
+        "Lublin", "Szczecin", "Bydgoszcz", "Białystok",
     ]
-    for city in non_warsaw:
+    for city in non_warsaw_districts:
         conn.execute(
-            "DELETE FROM apartments WHERE district LIKE ? AND source='OLX'",
+            "DELETE FROM apartments WHERE district LIKE ?",
             (f"%{city}%",)
         )
     conn.commit()
@@ -1013,7 +1058,7 @@ def get_similar_apartments(apt_id: int, limit: int = 3) -> list:
 
 
 def get_cheapest_apartments(limit: int = 5, price_max: int = 2500) -> list:
-    """Get cheapest real apartments, filtering junk."""
+    """Get cheapest real Warsaw apartments, filtering junk."""
     junk_sql = " AND ".join([
         "LOWER(title) NOT LIKE '%osuszacz%'",
         "LOWER(title) NOT LIKE '%garaż%'",
@@ -1026,11 +1071,67 @@ def get_cheapest_apartments(limit: int = 5, price_max: int = 2500) -> list:
         "LOWER(title) NOT LIKE '%sprzedaż%'",
         "LOWER(title) NOT LIKE '%na sprzedaż%'",
     ])
+    # Warsaw districts/keywords — exclude listings clearly from other cities
+    warsaw_sql = (
+        "("
+        "district IS NULL OR district = '' OR "
+        "LOWER(district) LIKE '%warszawa%' OR "
+        "LOWER(district) LIKE '%mokotów%' OR LOWER(district) LIKE '%mokotow%' OR "
+        "LOWER(district) LIKE '%ursynów%' OR LOWER(district) LIKE '%ursynow%' OR "
+        "LOWER(district) LIKE '%wilanów%' OR LOWER(district) LIKE '%wilanow%' OR "
+        "LOWER(district) LIKE '%wola%' OR "
+        "LOWER(district) LIKE '%śródmieście%' OR LOWER(district) LIKE '%srodmiescie%' OR "
+        "LOWER(district) LIKE '%praga%' OR "
+        "LOWER(district) LIKE '%żoliborz%' OR LOWER(district) LIKE '%zoliborz%' OR "
+        "LOWER(district) LIKE '%bielany%' OR "
+        "LOWER(district) LIKE '%bemowo%' OR "
+        "LOWER(district) LIKE '%ochota%' OR "
+        "LOWER(district) LIKE '%targówek%' OR LOWER(district) LIKE '%targowek%' OR "
+        "LOWER(district) LIKE '%białołęka%' OR LOWER(district) LIKE '%bialoleka%' OR "
+        "LOWER(district) LIKE '%ursus%' OR "
+        "LOWER(district) LIKE '%włochy%' OR LOWER(district) LIKE '%wlochy%' OR "
+        "LOWER(district) LIKE '%wawer%' OR "
+        "LOWER(district) LIKE '%rembertów%' OR LOWER(district) LIKE '%rembertow%' OR "
+        "LOWER(district) LIKE '%wesoła%' OR LOWER(district) LIKE '%wesola%' OR "
+        "LOWER(district) LIKE '%kabaty%' OR LOWER(district) LIKE '%natolin%' OR "
+        "LOWER(district) LIKE '%służew%' OR LOWER(district) LIKE '%sluzew%' OR "
+        "LOWER(district) LIKE '%sadyba%' OR LOWER(district) LIKE '%wilanów%'"
+        ")"
+    )
     conn = get_conn()
     rows = conn.execute(f"""
         SELECT * FROM apartments
-        WHERE price > 300 AND price <= ? AND {junk_sql}
+        WHERE price > 300 AND price <= ? AND {junk_sql} AND {warsaw_sql}
         ORDER BY price ASC LIMIT ?
     """, (price_max, limit)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# ── Seen apartments ───────────────────────────────────────────
+
+def mark_seen(user_id: int, apt_id: int):
+    """Mark apartment as already seen by user."""
+    conn = get_conn()
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO user_seen (user_id, apt_id, seen_at) VALUES (?,?,?)",
+            (user_id, apt_id, datetime.now().isoformat())
+        )
+        conn.commit()
+    except Exception:
+        pass
+    conn.close()
+
+
+def get_seen_ids(user_id: int) -> list:
+    """Get list of apartment IDs already seen by user."""
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT apt_id FROM user_seen WHERE user_id=?", (user_id,)
+        ).fetchall()
+    except Exception:
+        rows = []
+    conn.close()
+    return [r["apt_id"] for r in rows]

@@ -105,7 +105,8 @@ class SubscriptionMiddleware(BaseMiddleware):
                 event.data.startswith("note:") or
                 event.data.startswith("similar:") or
                 event.data.startswith("mod_") or
-                event.data.startswith("vip_")
+                event.data.startswith("vip_") or
+                event.data.startswith("seen:")
             ):
                 return await handler(event, data)
         else:

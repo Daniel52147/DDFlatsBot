@@ -21,7 +21,7 @@ from database.db import (
     delete_apartment, get_mod_stats, get_reported_apartments,
     get_price_stats, get_cheapest_apartments, get_apartment_by_id,
     add_user_note, get_user_notes, get_similar_apartments, get_new_today_count,
-    increment_apt_views,
+    increment_apt_views, mark_seen, get_seen_ids,
 )
 from config import FREE_VIEWS, VIP_PRICE, DISTRICTS, ADMIN_IDS, CHANNEL_LINK, MODERATOR_IDS
 from config import REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS
@@ -61,6 +61,7 @@ class FilterState(StatesGroup):
     waiting_price_max = State()
     waiting_price_min = State()
     waiting_rooms = State()
+    waiting_furnished = State()
 
 class SearchState(StatesGroup):
     waiting_keyword = State()
@@ -152,7 +153,10 @@ def apt_keyboard(apt_id: int, lat=None, lon=None, lang: str = "ru") -> InlineKey
         InlineKeyboardButton(text="🚩", callback_data=f"report:{apt_id}"),
         InlineKeyboardButton(text="📤", callback_data=f"share:{apt_id}"),
     ]
-    rows = [row1, row2]
+    row3 = [
+        InlineKeyboardButton(text="👁 Уже смотрел", callback_data=f"seen:{apt_id}"),
+    ]
+    rows = [row1, row2, row3]
     if lat and lon:
         rows.append([InlineKeyboardButton(
             text=t(lang, "btn_on_map"),
@@ -333,13 +337,14 @@ async def show_next_apartment(user_id: int, bot, state: FSMContext, chat_id: int
 
     offset = data.get("offset", 0)
     filters = data.get("filters", {})
-    apartments = get_apartments(filters=filters, offset=offset, vip=is_vip)
+    seen_ids = get_seen_ids(user_id)
+    apartments = get_apartments(filters=filters, offset=offset, vip=is_vip, exclude_ids=seen_ids)
 
     if not apartments:
         if offset > 0:
             # Wrap around — start from beginning
             await state.update_data(offset=0)
-            apartments = get_apartments(filters=filters, offset=0, vip=is_vip)
+            apartments = get_apartments(filters=filters, offset=0, vip=is_vip, exclude_ids=seen_ids)
             if apartments:
                 await bot.send_message(chat_id, t(lang, "wrap_around"))
             else:
@@ -408,7 +413,7 @@ async def cb_filter_district(call: CallbackQuery, state: FSMContext):
     await state.update_data(filters=filters, offset=0)
     await call.message.edit_text(
         f"📍 Район: <b>{'Все' if district == 'все' else district}</b>\n\n"
-        f"💰 <b>Шаг 2/3: Максимальная цена</b>",
+        f"💰 <b>Шаг 2/4: Максимальная цена</b>",
         parse_mode="HTML",
         reply_markup=price_keyboard("filter_pmax")
     )
@@ -425,7 +430,7 @@ async def cb_filter_price_max(call: CallbackQuery, state: FSMContext):
     await state.update_data(filters=filters)
     await call.message.edit_text(
         f"💰 Макс. цена: <b>{'без ограничений' if val == 0 else f'{val} zł'}</b>\n\n"
-        f"🛏 <b>Шаг 3/3: Количество комнат</b>",
+        f"🛏 <b>Шаг 3/4: Количество комнат</b>",
         parse_mode="HTML",
         reply_markup=rooms_keyboard("filter_rooms")
     )
@@ -439,6 +444,32 @@ async def cb_filter_rooms(call: CallbackQuery, state: FSMContext):
     filters = data.get("filters", {})
     if val > 0:
         filters["rooms"] = val
+    await state.update_data(filters=filters)
+    await call.message.edit_text(
+        f"🛏 Комнат: <b>{'любое' if val == 0 else val}</b>\n\n"
+        f"🛋 <b>Шаг 4/4: Меблированная?</b>",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Да", callback_data="filter_furn:1"),
+                InlineKeyboardButton(text="❌ Нет", callback_data="filter_furn:0"),
+                InlineKeyboardButton(text="🚫 Любая", callback_data="filter_furn:any"),
+            ]
+        ])
+    )
+    await state.set_state(FilterState.waiting_furnished)
+
+
+@router.callback_query(F.data.startswith("filter_furn:"), FilterState.waiting_furnished)
+async def cb_filter_furnished(call: CallbackQuery, state: FSMContext):
+    val = call.data.split(":")[1]
+    data = await state.get_data()
+    filters = data.get("filters", {})
+    if val == "1":
+        filters["furnished"] = 1
+    elif val == "0":
+        filters["furnished"] = 0
+    # "any" — don't add filter
     await state.update_data(filters=filters, offset=0)
     await state.set_state(None)
 
@@ -451,6 +482,10 @@ async def cb_filter_rooms(call: CallbackQuery, state: FSMContext):
         summary.append(f"до {filters['price_max']} zł")
     if filters.get("rooms"):
         summary.append(f"{filters['rooms']} комн.")
+    if filters.get("furnished") == 1:
+        summary.append("🛋 меблированная")
+    elif filters.get("furnished") == 0:
+        summary.append("🚫 без мебели")
 
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="🏠 Смотреть квартиры", callback_data="next")
@@ -1823,6 +1858,14 @@ async def cb_share(call: CallbackQuery):
         f"{icon} Найдено через @{bot_me.username}"
     )
     await call.message.answer(share_text, parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("seen:"))
+async def cb_seen(call: CallbackQuery, state: FSMContext):
+    apt_id = int(call.data.split(":")[1])
+    mark_seen(call.from_user.id, apt_id)
+    await call.answer("👁 Отмечено как просмотренное")
+    await show_next_apartment(call.from_user.id, call.bot, state, call.message.chat.id)
 
 
 # ── Language selection ────────────────────────────────────────
