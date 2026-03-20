@@ -1,7 +1,8 @@
 """
-Otodom parser.
-Pass 1: today's new listings (__NEXT_DATA__)
-Pass 2: regular pages (__NEXT_DATA__ fallback)
+Otodom parser — __NEXT_DATA__ JSON extraction.
+Pass 1: today's new listings (daysSinceCreated=1)
+Pass 2: latest sort, multiple pages
+Pass 3: price ascending sort for cheap listings
 """
 import random
 import re
@@ -10,8 +11,11 @@ import time
 import requests
 from config import USER_AGENTS
 
-BASE          = "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa"
-BASE_NEW      = "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa?daysSinceCreated=1&by=LATEST&direction=DESC"
+BASE     = "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa"
+BASE_NEW = "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa?daysSinceCreated=1&by=LATEST&direction=DESC"
+BASE_PRICE_ASC = "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa?by=PRICE&direction=ASC"
+
+_ROOMS_MAP = {"ONE": 1, "TWO": 2, "THREE": 3, "FOUR": 4, "FIVE": 5, "MORE": 6}
 
 
 def _session():
@@ -53,7 +57,7 @@ def _parse_item(item: dict) -> dict | None:
         else:
             return None
 
-        # Price — totalPrice is the rent+admin, rentPrice is rent-only
+        # Price — totalPrice is rent+admin fees, rentPrice is rent-only
         price = 0
         for pf in ("totalPrice", "rentPrice", "price"):
             pobj = item.get(pf)
@@ -69,9 +73,12 @@ def _parse_item(item: dict) -> dict | None:
             rev = loc.get("reverseGeocoding") or {}
             if isinstance(rev, dict):
                 locs = rev.get("locations") or []
-                # Prefer district level, fallback to city
                 for level in ("district", "city_or_village"):
-                    found = next((l.get("name") for l in locs if isinstance(l, dict) and l.get("locationLevel") == level), None)
+                    found = next(
+                        (l.get("name") for l in locs
+                         if isinstance(l, dict) and l.get("locationLevel") == level),
+                        None
+                    )
                     if found:
                         district = found
                         break
@@ -86,19 +93,17 @@ def _parse_item(item: dict) -> dict | None:
                         "Warszawa"
                     )
 
-        # Images
         images = item.get("images") or []
         image  = ""
         if images and isinstance(images[0], dict):
             image = images[0].get("medium") or images[0].get("small") or ""
 
         # Rooms — Otodom uses string enum: ONE, TWO, THREE, FOUR, FIVE, MORE
-        _rooms_map = {"ONE": 1, "TWO": 2, "THREE": 3, "FOUR": 4, "FIVE": 5, "MORE": 6}
         rooms = None
         r_val = item.get("roomsNumber") or item.get("rooms")
         if r_val:
-            if isinstance(r_val, str) and r_val.upper() in _rooms_map:
-                rooms = _rooms_map[r_val.upper()]
+            if isinstance(r_val, str) and r_val.upper() in _ROOMS_MAP:
+                rooms = _ROOMS_MAP[r_val.upper()]
             else:
                 try:
                     rooms = int(str(r_val).replace("+", ""))
@@ -130,54 +135,6 @@ def _parse_item(item: dict) -> dict | None:
         return None
 
 
-def _fetch_graphql(session, page: int = 1, limit: int = 36) -> list:
-    """Call Otodom GraphQL API — same endpoint the browser uses."""
-    payload = {
-        "operationName": "GetListings",
-        "variables": {
-            "locale": "pl",
-            "page": page,
-            "limit": limit,
-            "searchingCriteria": {
-                "transaction": "RENT",
-                "category": "APARTMENT",
-                "locations": [{"id": "warszawa", "type": "CITY"}],
-                "sortingField": "CREATED_AT",
-                "sortingOrder": "DESC",
-            },
-        },
-        "query": _GQL_QUERY,
-    }
-    try:
-        r = session.post(
-            GRAPHQL_URL,
-            json=payload,
-            headers={
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                "Referer": BASE,
-                "Origin": "https://www.otodom.pl",
-            },
-            timeout=20,
-        )
-        print(f"[Otodom-GQL] page={page} status={r.status_code} size={len(r.text)}")
-        if r.status_code != 200:
-            return []
-        data  = r.json()
-        items = (
-            data.get("data", {}).get("searchAds", {}).get("items") or []
-        )
-        results = []
-        for item in items:
-            apt = _parse_item(item)
-            if apt:
-                results.append(apt)
-        return results
-    except Exception as e:
-        print(f"[Otodom-GQL] error: {e}")
-        return []
-
-
 def _extract_next_data(html: str) -> list:
     results = []
     m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.DOTALL)
@@ -186,7 +143,6 @@ def _extract_next_data(html: str) -> list:
     try:
         data       = json.loads(m.group(1))
         page_props = data.get("props", {}).get("pageProps", {})
-        # Primary path: data.searchAds.items
         items = (
             page_props.get("data", {}).get("searchAds", {}).get("items") or
             page_props.get("searchAds", {}).get("items") or
@@ -230,7 +186,7 @@ def parse_otodom() -> list:
                 n += 1
         return n
 
-    # ── Pass 1: today's new listings (__NEXT_DATA__) ─────────
+    # ── Pass 1: today's new listings ─────────────────────────
     for page in range(1, 4):
         url = BASE_NEW if page == 1 else f"{BASE_NEW}&page={page}"
         try:
@@ -247,9 +203,9 @@ def parse_otodom() -> list:
             print(f"[Otodom-new] page={page} error: {e}")
             break
 
-    # ── Pass 2: regular pages ─────────────────────────────────
-    for page in range(1, 11):
-        url = BASE if page == 1 else f"{BASE}?page={page}"
+    # ── Pass 2: latest sort, multiple pages ──────────────────
+    for page in range(1, 6):
+        url = f"{BASE}?by=LATEST&direction=DESC" if page == 1 else f"{BASE}?by=LATEST&direction=DESC&page={page}"
         try:
             r   = session.get(url, headers={"Accept": "text/html"}, timeout=25)
             print(f"[Otodom] page={page} status={r.status_code} size={len(r.text)}")
@@ -263,6 +219,36 @@ def parse_otodom() -> list:
         except Exception as e:
             print(f"[Otodom] page={page} error: {e}")
             break
+
+    # ── Pass 3: price ascending (cheap listings) ─────────────
+    for page in range(1, 4):
+        url = BASE_PRICE_ASC if page == 1 else f"{BASE_PRICE_ASC}&page={page}"
+        try:
+            r   = session.get(url, headers={"Accept": "text/html"}, timeout=25)
+            if r.status_code != 200:
+                break
+            new = add(_extract_next_data(r.text))
+            print(f"[Otodom-price] page={page}: {new} new")
+            if new == 0:
+                break
+            time.sleep(random.uniform(2.0, 3.0))
+        except Exception as e:
+            print(f"[Otodom-price] page={page} error: {e}")
+            break
+
+    # ── Pass 3: per-district (broader coverage) ───────────────
+    for dist in WARSAW_DISTRICTS:
+        url = BASE_DIST.format(district=dist)
+        try:
+            r = session.get(url, headers={"Accept": "text/html"}, timeout=25)
+            if r.status_code != 200:
+                continue
+            new = add(_extract_next_data(r.text))
+            print(f"[Otodom-dist] {dist}: {new} new")
+            if new > 0:
+                time.sleep(random.uniform(1.5, 2.5))
+        except Exception as e:
+            print(f"[Otodom-dist] {dist} error: {e}")
 
     print(f"[Otodom] Total: {len(results)} listings")
     return results
