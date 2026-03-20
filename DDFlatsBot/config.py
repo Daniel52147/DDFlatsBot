@@ -38,11 +38,11 @@ def _find_db_path() -> str:
 DB_PATH = _find_db_path()
 print(f"[Config] DB_PATH = {DB_PATH}")
 
-ADMIN_IDS = [2066158453]
+ADMIN_IDS = [int(x) for x in os.environ.get("ADMIN_IDS", "2066158453").split(",") if x.strip()]
 MODERATOR_IDS = []
 
 CHANNEL_LINK = "https://t.me/ddflots"
-CHANNEL_ID = "@ddflots"
+CHANNEL_ID = os.environ.get("CHANNEL_ID", "@ddflots")
 
 EARLY_ADOPTER_LIMIT = 50
 

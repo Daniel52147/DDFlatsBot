@@ -110,7 +110,7 @@ def apt_text(apt: dict, lang: str = "ru") -> str:
 
     verified = "✅ <b>Проверено модератором</b>\n" if apt.get("verified") else ""
 
-    source_icons = {"OLX": "🟠", "Otodom": "🔵", "Gratka": "🟢", "Morizon": "🟣", "Nieruch-online": "🟡", "Domiporta": "🔴", "Lento": "🟤"}
+    source_icons = {"OLX": "🟠", "Otodom": "🔵", "Gratka": "🟢", "Morizon": "🟣", "Adresowo": "🟡", "Domiporta": "🔴", "Lento": "🟤"}
     source_icon = source_icons.get(apt.get("source", ""), "📡")
 
     price = apt.get("price", 0)
@@ -1851,7 +1851,7 @@ async def cb_share(call: CallbackQuery):
         return
     await call.answer()
     bot_me = await call.bot.get_me()
-    source_icons = {"OLX": "🟠", "Otodom": "🔵", "Gratka": "🟢", "Morizon": "🟣", "Nieruch-online": "🟡", "Domiporta": "🔴", "Lento": "🟤"}
+    source_icons = {"OLX": "🟠", "Otodom": "🔵", "Gratka": "🟢", "Morizon": "🟣", "Adresowo": "🟡", "Domiporta": "🔴", "Lento": "🟤"}
     icon = source_icons.get(apt.get("source", ""), "📡")
     share_text = (
         f"🏠 <b>{apt['title']}</b>\n"

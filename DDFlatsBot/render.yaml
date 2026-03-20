@@ -2,12 +2,16 @@ services:
   - type: worker
     name: ddflatsbot
     env: python
-    pythonVersion: "3.11.0"
+    rootDir: DDFlatsBot
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
     envVars:
       - key: BOT_TOKEN
-        value: 8655267832:AAHG9jPbmT3UmT4TeHA4xy3IuHSPjJiY4cI
+        sync: false          # Set manually in Render dashboard
+      - key: ADMIN_IDS
+        value: "2066158453"
+      - key: CHANNEL_ID
+        value: "@ddflots"
       - key: DATA_DIR
         value: /var/data
     disk:
