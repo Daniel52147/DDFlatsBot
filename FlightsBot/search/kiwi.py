@@ -78,7 +78,7 @@ def search_one_way(
 ) -> list:
     """Search one-way flights only."""
     if not KIWI_API_KEY:
-        return _mock_results(origin, destination)
+        return []  # No mock for alerts — only real data matters
 
     if not date_from:
         date_from = datetime.now().strftime("%d/%m/%Y")

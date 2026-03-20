@@ -1,6 +1,6 @@
 services:
   - type: worker
-    name: flightsbot
+    name: skycheap-bot
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
@@ -12,8 +12,12 @@ services:
       - key: ADMIN_IDS
         value: "2066158453"
       - key: CHANNEL_ID
-        value: "@ddflights"
+        value: "@skycheapbot"
+      - key: CHANNEL_LINK
+        value: "https://t.me/skycheapbot"
+      - key: BOT_USERNAME
+        value: "SkyCheapBot"
     disk:
-      name: flightsbot-data
+      name: skycheap-data
       mountPath: /var/data
       sizeGB: 1

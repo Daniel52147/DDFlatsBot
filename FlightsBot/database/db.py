@@ -277,3 +277,14 @@ def get_all_user_ids() -> list:
     rows = conn.execute("SELECT user_id FROM users").fetchall()
     conn.close()
     return [r[0] for r in rows]
+
+
+def save_search(user_id: int, origin: str, destination: str,
+                date_from: str, date_to: str, results: int):
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO searches (user_id, origin, destination, date_from, date_to, results) VALUES (?,?,?,?,?,?)",
+        (user_id, origin, destination, date_from, date_to, results)
+    )
+    conn.commit()
+    conn.close()
