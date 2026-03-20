@@ -85,6 +85,13 @@ def init_db():
             note TEXT,
             created_at TEXT
         )""",
+        """CREATE TABLE IF NOT EXISTS conversions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            apt_id INTEGER,
+            source TEXT,
+            created_at TEXT
+        )""",
     ]
     for sql in migrations:
         try:
@@ -1135,3 +1142,39 @@ def get_seen_ids(user_id: int) -> list:
         rows = []
     conn.close()
     return [r["apt_id"] for r in rows]
+
+
+# ── Conversion tracking ───────────────────────────────────────
+
+def record_conversion(user_id: int, apt_id: int = None, source: str = ""):
+    """User found an apartment — record conversion."""
+    conn = get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO conversions (user_id, apt_id, source, created_at) VALUES (?,?,?,?)",
+            (user_id, apt_id, source, datetime.now().isoformat())
+        )
+        conn.commit()
+    except Exception:
+        pass
+    conn.close()
+
+
+def get_conversion_stats() -> dict:
+    conn = get_conn()
+    total = conn.execute("SELECT COUNT(*) FROM conversions").fetchone()[0]
+    today = datetime.now().date().isoformat()
+    today_count = conn.execute(
+        "SELECT COUNT(*) FROM conversions WHERE created_at >= ?", (today,)
+    ).fetchone()[0]
+    by_source = conn.execute("""
+        SELECT a.source, COUNT(*) as cnt
+        FROM conversions c LEFT JOIN apartments a ON c.apt_id = a.id
+        GROUP BY a.source ORDER BY cnt DESC
+    """).fetchall()
+    conn.close()
+    return {
+        "total": total,
+        "today": today_count,
+        "by_source": [dict(r) for r in by_source],
+    }

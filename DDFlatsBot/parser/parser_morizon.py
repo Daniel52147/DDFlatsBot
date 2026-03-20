@@ -10,6 +10,7 @@ import requests
 from config import USER_AGENTS
 
 MORIZON_BASE = "https://www.morizon.pl/do-wynajecia/mieszkania/warszawa/?sort=newest"
+MORIZON_PRICE_ASC = "https://www.morizon.pl/do-wynajecia/mieszkania/warszawa/?sort=price_from_lowest"
 NIERUCH_BASE = "https://www.nieruchomosci-online.pl/szukaj.html"
 
 
@@ -263,49 +264,52 @@ def parse_morizon() -> list:
                 seen.add(apt["link"])
                 results.append(apt)
 
-    # Try Morizon first
-    session = _session("https://www.morizon.pl/")
+    # Two passes: newest + price_asc — catches different listings
+    urls_to_try = [MORIZON_BASE, MORIZON_PRICE_ASC]
     morizon_ok = False
-    for page in range(1, 11):
-        url = MORIZON_BASE if page == 1 else f"{MORIZON_BASE}&page={page}"
-        try:
-            r = session.get(url, timeout=25)
-            html = r.text
-            print(f"[Morizon] Page {page} status={r.status_code} size={len(html)}")
 
-            if r.status_code != 200:
-                print(f"[Morizon] Blocked (status {r.status_code})")
-                break
+    for base_url in urls_to_try:
+        session = _session("https://www.morizon.pl/")
+        for page in range(1, 4):
+            url = base_url if page == 1 else f"{base_url}&page={page}"
+            try:
+                r = session.get(url, timeout=25)
+                html = r.text
+                print(f"[Morizon] Page {page} status={r.status_code} size={len(html)}")
 
-            page_results = _parse_morizon_next_data(html)
-            if not page_results:
-                page_results = _parse_morizon_json_ld(html)
-            if not page_results:
-                page_results = _parse_morizon_html_cards(html)
-
-            if page_results:
-                add(page_results)
-                morizon_ok = True
-                print(f"[Morizon] Page {page}: {len(page_results)} listings")
-            else:
-                snippet = html[:300].replace("\n", " ")
-                print(f"[Morizon] Page {page}: 0 listings. Snippet: {snippet}")
-                if page == 1:
+                if r.status_code != 200:
+                    print(f"[Morizon] Blocked (status {r.status_code})")
                     break
 
-            time.sleep(random.uniform(2, 3))
-        except Exception as e:
-            print(f"[Morizon] Page {page} error: {e}")
-            break
+                page_results = _parse_morizon_next_data(html)
+                if not page_results:
+                    page_results = _parse_morizon_json_ld(html)
+                if not page_results:
+                    page_results = _parse_morizon_html_cards(html)
+
+                if page_results:
+                    add(page_results)
+                    morizon_ok = True
+                    print(f"[Morizon] Page {page}: {len(page_results)} listings")
+                else:
+                    snippet = html[:300].replace("\n", " ")
+                    print(f"[Morizon] Page {page}: 0 listings. Snippet: {snippet}")
+                    if page == 1:
+                        break
+
+                time.sleep(random.uniform(1.5, 2.5))
+            except Exception as e:
+                print(f"[Morizon] Page {page} error: {e}")
+                break
 
     # Fallback: nieruchomosci-online.pl
     if not morizon_ok:
         print("[Morizon] Trying nieruchomosci-online fallback...")
         session2 = _session("https://www.nieruchomosci-online.pl/")
         params = {
-            "transaction": "2",   # wynajem
-            "category": "1",      # mieszkania
-            "city_id": "26",      # Warszawa
+            "transaction": "2",
+            "category": "1",
+            "city_id": "26",
             "page": 1,
         }
         for page in range(1, 4):
@@ -321,7 +325,7 @@ def parse_morizon() -> list:
                 else:
                     snippet = html[:300].replace("\n", " ")
                     print(f"[Nieruch-online] Page {page}: 0. Snippet: {snippet}")
-                time.sleep(random.uniform(2, 3))
+                time.sleep(random.uniform(1.5, 2.5))
             except Exception as e:
                 print(f"[Nieruch-online] Page {page} error: {e}")
 

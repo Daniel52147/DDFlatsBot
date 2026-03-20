@@ -21,7 +21,7 @@ from database.db import (
     delete_apartment, get_mod_stats, get_reported_apartments,
     get_price_stats, get_cheapest_apartments, get_apartment_by_id,
     add_user_note, get_user_notes, get_similar_apartments, get_new_today_count,
-    increment_apt_views, mark_seen, get_seen_ids,
+    increment_apt_views, mark_seen, get_seen_ids, record_conversion, get_conversion_stats,
 )
 from config import FREE_VIEWS, VIP_PRICE, DISTRICTS, ADMIN_IDS, CHANNEL_LINK, MODERATOR_IDS
 from config import REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS
@@ -155,6 +155,7 @@ def apt_keyboard(apt_id: int, lat=None, lon=None, lang: str = "ru") -> InlineKey
     ]
     row3 = [
         InlineKeyboardButton(text="👁 Уже смотрел", callback_data=f"seen:{apt_id}"),
+        InlineKeyboardButton(text="✅ Нашёл!", callback_data=f"found:{apt_id}"),
     ]
     rows = [row1, row2, row3]
     if lat and lon:
@@ -988,6 +989,7 @@ async def _send_admin_panel(target, bot=None):
     stats = get_stats()
     last = stats["last_parse"][:16] if stats["last_parse"] != "никогда" else "никогда"
     pending_reports = get_pending_reports(limit=50)
+    conv = get_conversion_stats()
     text = (
         f"🛠 <b>Админ-панель DDFlatsBot</b>\n\n"
         f"🏠 Квартир: <b>{stats['apartments']}</b> (+{stats.get('new_today',0)} сегодня)\n"
@@ -995,6 +997,7 @@ async def _send_admin_panel(target, bot=None):
         f"💎 VIP активных: <b>{stats['vip']}</b>\n"
         f"❤️ Избранных: <b>{stats['favorites']}</b>\n"
         f"📊 Активных сегодня: <b>{stats.get('active_today',0)}</b> (вчера: {stats.get('active_yesterday',0)})\n"
+        f"✅ Конверсий: <b>{conv['total']}</b> (+{conv['today']} сегодня)\n"
         f"🕐 Последний парсинг: <b>{last}</b>"
     )
     kb = _admin_kb(len(pending_reports))
@@ -1866,6 +1869,35 @@ async def cb_seen(call: CallbackQuery, state: FSMContext):
     mark_seen(call.from_user.id, apt_id)
     await call.answer("👁 Отмечено как просмотренное")
     await show_next_apartment(call.from_user.id, call.bot, state, call.message.chat.id)
+
+
+@router.callback_query(F.data.startswith("found:"))
+async def cb_found(call: CallbackQuery):
+    apt_id = int(call.data.split(":")[1])
+    apt = get_apartment_by_id(apt_id)
+    source = apt.get("source", "") if apt else ""
+    record_conversion(call.from_user.id, apt_id, source)
+    await call.answer("🎉 Поздравляем!", show_alert=True)
+    await call.message.answer(
+        "🎉 <b>Отлично! Рады за тебя!</b>\n\n"
+        "Если бот помог найти квартиру — расскажи друзьям:\n"
+        "👉 /ref — пригласи друга и получи VIP бесплатно\n\n"
+        "Удачи на новом месте! 🏠",
+        parse_mode="HTML"
+    )
+    # Notify admin
+    for admin_id in ADMIN_IDS:
+        try:
+            apt_info = f"🏠 {apt['title']} · {apt.get('price',0)} zł · {apt.get('source','')}" if apt else f"apt_id={apt_id}"
+            await call.bot.send_message(
+                admin_id,
+                f"✅ <b>Конверсия!</b>\n"
+                f"👤 <code>{call.from_user.id}</code>\n"
+                f"{apt_info}",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
 
 
 # ── Language selection ────────────────────────────────────────

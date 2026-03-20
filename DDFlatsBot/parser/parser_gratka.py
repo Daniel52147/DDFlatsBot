@@ -10,6 +10,7 @@ import requests
 from config import USER_AGENTS
 
 GRATKA_BASE = "https://gratka.pl/nieruchomosci/mieszkania/warszawa/wynajem?sort=newest"
+GRATKA_PRICE_ASC = "https://gratka.pl/nieruchomosci/mieszkania/warszawa/wynajem?sort=price_asc"
 DOMIPORTA_BASE = "https://www.domiporta.pl/mieszkanie/wynajme/mazowieckie/warszawa"
 
 
@@ -216,38 +217,42 @@ def parse_gratka() -> list:
                 seen.add(apt["link"])
                 results.append(apt)
 
-    # Try Gratka first
-    session = _session("https://gratka.pl/")
+    # Two passes: newest first, then price_asc (catches different listings)
+    urls_to_try = [GRATKA_BASE, GRATKA_PRICE_ASC]
     gratka_ok = False
-    for page in range(1, 11):
-        url = GRATKA_BASE if page == 1 else f"{GRATKA_BASE}&page={page}"
-        try:
-            r = session.get(url, timeout=25)
-            html = r.text
-            print(f"[Gratka] Page {page} status={r.status_code} size={len(html)}")
 
-            if r.status_code != 200:
-                print(f"[Gratka] Blocked (status {r.status_code})")
+    for base_url in urls_to_try:
+        session = _session("https://gratka.pl/")
+        # Only 3 pages per sort — we run every 10 min so page 1-3 is enough for new listings
+        for page in range(1, 4):
+            url = base_url if page == 1 else f"{base_url}&page={page}"
+            try:
+                r = session.get(url, timeout=25)
+                html = r.text
+                print(f"[Gratka] Page {page} status={r.status_code} size={len(html)}")
+
+                if r.status_code != 200:
+                    print(f"[Gratka] Blocked (status {r.status_code})")
+                    break
+
+                page_results = _parse_gratka_json_ld(html)
+                if not page_results:
+                    page_results = _parse_gratka_html_cards(html)
+
+                if page_results:
+                    add(page_results)
+                    gratka_ok = True
+                    print(f"[Gratka] Page {page}: {len(page_results)} listings")
+                else:
+                    snippet = html[:300].replace("\n", " ")
+                    print(f"[Gratka] Page {page}: 0 listings. Snippet: {snippet}")
+                    if page == 1:
+                        break
+
+                time.sleep(random.uniform(1.5, 2.5))
+            except Exception as e:
+                print(f"[Gratka] Page {page} error: {e}")
                 break
-
-            page_results = _parse_gratka_json_ld(html)
-            if not page_results:
-                page_results = _parse_gratka_html_cards(html)
-
-            if page_results:
-                add(page_results)
-                gratka_ok = True
-                print(f"[Gratka] Page {page}: {len(page_results)} listings")
-            else:
-                snippet = html[:300].replace("\n", " ")
-                print(f"[Gratka] Page {page}: 0 listings. Snippet: {snippet}")
-                if page == 1:
-                    break  # Blocked on first page, try fallback
-
-            time.sleep(random.uniform(2, 3))
-        except Exception as e:
-            print(f"[Gratka] Page {page} error: {e}")
-            break
 
     # Fallback: Domiporta
     if not gratka_ok:
@@ -266,7 +271,7 @@ def parse_gratka() -> list:
                 else:
                     snippet = html[:300].replace("\n", " ")
                     print(f"[Domiporta] Page {page}: 0. Snippet: {snippet}")
-                time.sleep(random.uniform(2, 3))
+                time.sleep(random.uniform(1.5, 2.5))
             except Exception as e:
                 print(f"[Domiporta] Page {page} error: {e}")
 
