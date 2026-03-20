@@ -1078,6 +1078,24 @@ def get_cheapest_apartments(limit: int = 5, price_max: int = 2500) -> list:
         "LOWER(title) NOT LIKE '%sprzedaż%'",
         "LOWER(title) NOT LIKE '%na sprzedaż%'",
     ])
+    # Explicitly block known non-Warsaw districts/cities
+    non_warsaw_sql = (
+        "LOWER(district) NOT LIKE '%widzew%' AND "
+        "LOWER(district) NOT LIKE '%górna%' AND LOWER(district) NOT LIKE '%gorna%' AND "
+        "LOWER(district) NOT LIKE '%bałuty%' AND LOWER(district) NOT LIKE '%baluty%' AND "
+        "LOWER(district) NOT LIKE '%polesie%' AND "
+        "LOWER(district) NOT LIKE '%retkinia%' AND "
+        "LOWER(district) NOT LIKE '%łódź%' AND LOWER(district) NOT LIKE '%lodz%' AND "
+        "LOWER(district) NOT LIKE '%gdańsk%' AND LOWER(district) NOT LIKE '%gdansk%' AND "
+        "LOWER(district) NOT LIKE '%kraków%' AND LOWER(district) NOT LIKE '%krakow%' AND "
+        "LOWER(district) NOT LIKE '%wrocław%' AND LOWER(district) NOT LIKE '%wroclaw%' AND "
+        "LOWER(district) NOT LIKE '%poznań%' AND LOWER(district) NOT LIKE '%poznan%' AND "
+        "LOWER(district) NOT LIKE '%katowice%' AND "
+        "LOWER(district) NOT LIKE '%lublin%' AND "
+        "LOWER(district) NOT LIKE '%szczecin%' AND "
+        "LOWER(district) NOT LIKE '%bydgoszcz%' AND "
+        "LOWER(district) NOT LIKE '%białystok%' AND LOWER(district) NOT LIKE '%bialystok%'"
+    )
     # Warsaw districts/keywords — exclude listings clearly from other cities
     warsaw_sql = (
         "("
@@ -1102,13 +1120,13 @@ def get_cheapest_apartments(limit: int = 5, price_max: int = 2500) -> list:
         "LOWER(district) LIKE '%wesoła%' OR LOWER(district) LIKE '%wesola%' OR "
         "LOWER(district) LIKE '%kabaty%' OR LOWER(district) LIKE '%natolin%' OR "
         "LOWER(district) LIKE '%służew%' OR LOWER(district) LIKE '%sluzew%' OR "
-        "LOWER(district) LIKE '%sadyba%' OR LOWER(district) LIKE '%wilanów%'"
+        "LOWER(district) LIKE '%sadyba%'"
         ")"
     )
     conn = get_conn()
     rows = conn.execute(f"""
         SELECT * FROM apartments
-        WHERE price > 300 AND price <= ? AND {junk_sql} AND {warsaw_sql}
+        WHERE price > 300 AND price <= ? AND {junk_sql} AND {warsaw_sql} AND {non_warsaw_sql}
         ORDER BY price ASC LIMIT ?
     """, (price_max, limit)).fetchall()
     conn.close()

@@ -12,6 +12,7 @@ from parser.parser_otodom import parse_otodom
 from parser.parser_gratka import parse_gratka
 from parser.parser_morizon import parse_morizon
 from parser.parser_szybko import parse_szybko
+from parser.parser_nieruch import parse_nieruch_online, parse_domiporta
 from database.db import (
     save_apartment, get_latest_apartments, get_all_user_ids,
     get_all_vip_user_ids, get_subscribers_for_district, log_parse,
@@ -57,11 +58,13 @@ def parse_all():
         before = datetime.now().isoformat()
 
         sources = [
-            ("OLX",     parse_olx),
-            ("Otodom",  parse_otodom),
-            ("Gratka",  parse_gratka),
-            ("Morizon", parse_morizon),
-            ("Szybko",  parse_szybko),
+            ("OLX",            parse_olx),
+            ("Otodom",         parse_otodom),
+            ("Gratka",         parse_gratka),
+            ("Morizon",        parse_morizon),
+            ("Szybko",         parse_szybko),
+            ("Nieruch-online", parse_nieruch_online),
+            ("Domiporta",      parse_domiporta),
         ]
 
         total_new = 0
@@ -181,7 +184,7 @@ async def _post_channel():
             print(f"[Channel] Cannot post — bot not admin or channel not found: {e}")
             return
         for apt in apts:
-            source_icons = {"OLX": "🟠", "Otodom": "🔵", "Gratka": "🟢", "Morizon": "🟣"}
+            source_icons = {"OLX": "🟠", "Otodom": "🔵", "Gratka": "🟢", "Morizon": "🟣", "Nieruch-online": "🟡", "Domiporta": "🔴"}
             icon = source_icons.get(apt.get("source", ""), "📡")
             text = (
                 f"🏠 <b>{apt['title']}</b>\n"
