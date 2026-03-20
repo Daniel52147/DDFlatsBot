@@ -420,7 +420,7 @@ async def cb_filter_district(call: CallbackQuery, state: FSMContext):
     await state.set_state(FilterState.waiting_price_max)
 
 
-@router.callback_query(F.data.startswith("filter_pmax:"), FilterState.waiting_price_max)
+@router.callback_query(F.data.startswith("filter_pmax:"))
 async def cb_filter_price_max(call: CallbackQuery, state: FSMContext):
     val = int(call.data.split(":")[1])
     data = await state.get_data()
@@ -437,7 +437,7 @@ async def cb_filter_price_max(call: CallbackQuery, state: FSMContext):
     await state.set_state(FilterState.waiting_rooms)
 
 
-@router.callback_query(F.data.startswith("filter_rooms:"), FilterState.waiting_rooms)
+@router.callback_query(F.data.startswith("filter_rooms:"))
 async def cb_filter_rooms(call: CallbackQuery, state: FSMContext):
     val = int(call.data.split(":")[1])
     data = await state.get_data()
@@ -460,7 +460,7 @@ async def cb_filter_rooms(call: CallbackQuery, state: FSMContext):
     await state.set_state(FilterState.waiting_furnished)
 
 
-@router.callback_query(F.data.startswith("filter_furn:"), FilterState.waiting_furnished)
+@router.callback_query(F.data.startswith("filter_furn:"))
 async def cb_filter_furnished(call: CallbackQuery, state: FSMContext):
     val = call.data.split(":")[1]
     data = await state.get_data()
@@ -2252,7 +2252,7 @@ async def cb_report_reason(call: CallbackQuery, state: FSMContext):
     await call.answer("✅ Жалоба отправлена!", show_alert=True)
     await call.message.delete()
 
-    # Notify moderators and admins
+    # Re-query apt AFTER increment to get updated reported count
     from database.db import get_conn
     conn = get_conn()
     apt = conn.execute("SELECT * FROM apartments WHERE id=?", (apt_id,)).fetchone()
