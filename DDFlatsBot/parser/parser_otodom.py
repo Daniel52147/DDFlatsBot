@@ -1,6 +1,5 @@
 """
 Otodom parser.
-Pass 0: GraphQL API /api/query  — fastest, structured JSON
 Pass 1: today's new listings (__NEXT_DATA__)
 Pass 2: regular pages (__NEXT_DATA__ fallback)
 """
@@ -13,30 +12,6 @@ from config import USER_AGENTS
 
 BASE          = "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa"
 BASE_NEW      = "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa?daysSinceCreated=1&by=LATEST&direction=DESC"
-GRAPHQL_URL   = "https://www.otodom.pl/api/query"
-
-# GraphQL query used by Otodom's own frontend
-_GQL_QUERY = """
-query GetListings(
-  $after: String, $before: String, $limit: Int, $page: Int,
-  $locale: String, $searchingCriteria: SearchingCriteria
-) {
-  searchAds(
-    after: $after, before: $before, limit: $limit, page: $page,
-    locale: $locale, searchingCriteria: $searchingCriteria
-  ) {
-    items {
-      id slug title
-      totalPrice { value }
-      rentPrice  { value }
-      location { address { district { name } city { name } } }
-      images { medium small }
-      roomsNumber areaInSquareMeters
-    }
-    totalCount
-  }
-}
-"""
 
 
 def _session():
@@ -68,13 +43,17 @@ def _parse_item(item: dict) -> dict | None:
 
         slug   = item.get("slug") or ""
         apt_id = item.get("id")   or ""
-        if slug:
+        href   = item.get("href") or ""
+        if href:
+            link = f"https://www.otodom.pl{href}" if href.startswith("/") else href
+        elif slug:
             link = f"https://www.otodom.pl/pl/oferta/{slug}"
         elif apt_id:
             link = f"https://www.otodom.pl/pl/oferta/{apt_id}"
         else:
             return None
 
+        # Price — totalPrice is the rent+admin, rentPrice is rent-only
         price = 0
         for pf in ("totalPrice", "rentPrice", "price"):
             pobj = item.get(pf)
@@ -83,30 +62,48 @@ def _parse_item(item: dict) -> dict | None:
                 if price:
                     break
 
-        loc      = item.get("location") or {}
-        addr     = loc.get("address")   or {} if isinstance(loc, dict) else {}
+        # District — from reverseGeocoding.locations (district level) or address
         district = "Warszawa"
-        if isinstance(addr, dict):
-            d = addr.get("district") or {}
-            c = addr.get("city")     or {}
-            district = (
-                (d.get("name") if isinstance(d, dict) else d) or
-                (c.get("name") if isinstance(c, dict) else c) or
-                "Warszawa"
-            )
+        loc = item.get("location") or {}
+        if isinstance(loc, dict):
+            rev = loc.get("reverseGeocoding") or {}
+            if isinstance(rev, dict):
+                locs = rev.get("locations") or []
+                # Prefer district level, fallback to city
+                for level in ("district", "city_or_village"):
+                    found = next((l.get("name") for l in locs if isinstance(l, dict) and l.get("locationLevel") == level), None)
+                    if found:
+                        district = found
+                        break
+            if district == "Warszawa":
+                addr = loc.get("address") or {}
+                if isinstance(addr, dict):
+                    d = addr.get("district") or {}
+                    c = addr.get("city") or {}
+                    district = (
+                        (d.get("name") if isinstance(d, dict) else d) or
+                        (c.get("name") if isinstance(c, dict) else c) or
+                        "Warszawa"
+                    )
 
+        # Images
         images = item.get("images") or []
         image  = ""
         if images and isinstance(images[0], dict):
             image = images[0].get("medium") or images[0].get("small") or ""
 
+        # Rooms — Otodom uses string enum: ONE, TWO, THREE, FOUR, FIVE, MORE
+        _rooms_map = {"ONE": 1, "TWO": 2, "THREE": 3, "FOUR": 4, "FIVE": 5, "MORE": 6}
         rooms = None
-        try:
-            r = item.get("roomsNumber") or item.get("rooms")
-            if r:
-                rooms = int(str(r).replace("+", ""))
-        except Exception:
-            pass
+        r_val = item.get("roomsNumber") or item.get("rooms")
+        if r_val:
+            if isinstance(r_val, str) and r_val.upper() in _rooms_map:
+                rooms = _rooms_map[r_val.upper()]
+            else:
+                try:
+                    rooms = int(str(r_val).replace("+", ""))
+                except Exception:
+                    pass
 
         area = None
         try:
@@ -116,9 +113,17 @@ def _parse_item(item: dict) -> dict | None:
         except Exception:
             pass
 
+        floor = None
+        try:
+            f = item.get("floorNumber") or item.get("floor")
+            if f is not None:
+                floor = int(f)
+        except Exception:
+            pass
+
         return {
             "title": title, "price": price, "district": str(district),
-            "rooms": rooms, "area": area, "floor": None, "furnished": 0,
+            "rooms": rooms, "area": area, "floor": floor, "furnished": 0,
             "link": link, "image": image, "source": "Otodom",
         }
     except Exception:
@@ -181,11 +186,11 @@ def _extract_next_data(html: str) -> list:
     try:
         data       = json.loads(m.group(1))
         page_props = data.get("props", {}).get("pageProps", {})
+        # Primary path: data.searchAds.items
         items = (
             page_props.get("data", {}).get("searchAds", {}).get("items") or
-            page_props.get("listings", {}).get("listing", {}).get("items") or
-            page_props.get("data", {}).get("listing", {}).get("items") or
             page_props.get("searchAds", {}).get("items") or
+            page_props.get("data", {}).get("listing", {}).get("items") or
             []
         )
         if not items:
@@ -224,24 +229,6 @@ def parse_otodom() -> list:
                 results.append(apt)
                 n += 1
         return n
-
-    # ── Pass 0: GraphQL API (fastest) ────────────────────────
-    gql_ok = False
-    for page in range(1, 6):          # up to 5 pages × 36 = 180 listings
-        items = _fetch_graphql(session, page=page, limit=36)
-        if not items:
-            if page == 1:
-                print("[Otodom-GQL] No results — falling back to HTML")
-            break
-        new = add(items)
-        gql_ok = True
-        print(f"[Otodom-GQL] page={page}: {new} new")
-        if new == 0 and page > 1:
-            break
-        time.sleep(random.uniform(1.0, 1.8))
-
-    if gql_ok:
-        print(f"[Otodom] GQL pass done: {len(results)} listings")
 
     # ── Pass 1: today's new listings (__NEXT_DATA__) ─────────
     for page in range(1, 4):
