@@ -66,6 +66,30 @@ async def notify_admin_startup():
         print(f"[Startup] Notify error: {e}")
 
 
+async def setup_bot_commands():
+    """Set bot command menu visible in Telegram mobile app."""
+    from aiogram.types import BotCommand, BotCommandScopeDefault
+    commands = [
+        BotCommand(command="start",      description="🏠 Главная / перезапуск"),
+        BotCommand(command="next",       description="➡️ Следующая квартира"),
+        BotCommand(command="filter",     description="🔍 Фильтры (район, цена, комнаты)"),
+        BotCommand(command="favorites",  description="❤️ Моё избранное"),
+        BotCommand(command="vip",        description="⭐ VIP подписка — 19 zł/мес"),
+        BotCommand(command="mystats",    description="📊 Моя статистика"),
+        BotCommand(command="alert",      description="🔔 Умный алерт (VIP)"),
+        BotCommand(command="hot",        description="🔥 Горячие квартиры"),
+        BotCommand(command="drops",      description="📉 Снижение цен"),
+        BotCommand(command="cheap",      description="💚 Самые дешёвые"),
+        BotCommand(command="map",        description="🗺 Карта цен по районам"),
+        BotCommand(command="ref",        description="👥 Пригласить друга → VIP"),
+        BotCommand(command="notes",      description="📝 Мои заметки"),
+        BotCommand(command="menu",       description="📋 Быстрое меню"),
+        BotCommand(command="help",       description="📖 Все команды"),
+    ]
+    await bot.set_my_commands(commands, scope=BotCommandScopeDefault())
+    print("[Bot] Commands menu updated")
+
+
 async def main():
     check_lock()
     try:
@@ -79,6 +103,7 @@ async def main():
         set_bot(bot, loop)
 
         await notify_admin_startup()
+        await setup_bot_commands()
 
         threading.Thread(target=parse_all, daemon=True).start()
         threading.Thread(target=run_scheduler, daemon=True).start()
