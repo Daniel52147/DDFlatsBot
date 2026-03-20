@@ -1,0 +1,19 @@
+services:
+  - type: worker
+    name: flightsbot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: KIWI_API_KEY
+        sync: false
+      - key: ADMIN_IDS
+        value: "2066158453"
+      - key: CHANNEL_ID
+        value: "@ddflights"
+    disk:
+      name: flightsbot-data
+      mountPath: /var/data
+      sizeGB: 1
