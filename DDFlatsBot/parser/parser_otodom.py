@@ -1,6 +1,8 @@
 """
-Otodom parser — extracts listings from __NEXT_DATA__ embedded JSON.
-No external API needed, works without Cloudflare bypass.
+Otodom parser.
+Pass 0: GraphQL API /api/query  — fastest, structured JSON
+Pass 1: today's new listings (__NEXT_DATA__)
+Pass 2: regular pages (__NEXT_DATA__ fallback)
 """
 import random
 import re
@@ -9,21 +11,41 @@ import time
 import requests
 from config import USER_AGENTS
 
-BASE = "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa"
+BASE          = "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa"
+BASE_NEW      = "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa?daysSinceCreated=1&by=LATEST&direction=DESC"
+GRAPHQL_URL   = "https://www.otodom.pl/api/query"
+
+# GraphQL query used by Otodom's own frontend
+_GQL_QUERY = """
+query GetListings(
+  $after: String, $before: String, $limit: Int, $page: Int,
+  $locale: String, $searchingCriteria: SearchingCriteria
+) {
+  searchAds(
+    after: $after, before: $before, limit: $limit, page: $page,
+    locale: $locale, searchingCriteria: $searchingCriteria
+  ) {
+    items {
+      id slug title
+      totalPrice { value }
+      rentPrice  { value }
+      location { address { district { name } city { name } } }
+      images { medium small }
+      roomsNumber areaInSquareMeters
+    }
+    totalCount
+  }
+}
+"""
 
 
 def _session():
     s = requests.Session()
     s.headers.update({
         "User-Agent": random.choice(USER_AGENTS),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "pl-PL,pl;q=0.9,en;q=0.8",
         "Accept-Encoding": "gzip, deflate, br",
         "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
     })
     return s
 
@@ -44,8 +66,8 @@ def _parse_item(item: dict) -> dict | None:
         if not title or len(title) < 5:
             return None
 
-        slug = item.get("slug") or ""
-        apt_id = item.get("id") or ""
+        slug   = item.get("slug") or ""
+        apt_id = item.get("id")   or ""
         if slug:
             link = f"https://www.otodom.pl/pl/oferta/{slug}"
         elif apt_id:
@@ -53,7 +75,6 @@ def _parse_item(item: dict) -> dict | None:
         else:
             return None
 
-        # Price extraction
         price = 0
         for pf in ("totalPrice", "rentPrice", "price"):
             pobj = item.get(pf)
@@ -62,27 +83,23 @@ def _parse_item(item: dict) -> dict | None:
                 if price:
                     break
 
-        # Location
-        loc = item.get("location") or {}
-        addr = loc.get("address") or {} if isinstance(loc, dict) else {}
+        loc      = item.get("location") or {}
+        addr     = loc.get("address")   or {} if isinstance(loc, dict) else {}
         district = "Warszawa"
         if isinstance(addr, dict):
             d = addr.get("district") or {}
-            c = addr.get("city") or {}
+            c = addr.get("city")     or {}
             district = (
                 (d.get("name") if isinstance(d, dict) else d) or
                 (c.get("name") if isinstance(c, dict) else c) or
                 "Warszawa"
             )
 
-        # Image
         images = item.get("images") or []
-        image = ""
+        image  = ""
         if images and isinstance(images[0], dict):
-            image = (images[0].get("medium") or images[0].get("small") or
-                     images[0].get("large") or "")
+            image = images[0].get("medium") or images[0].get("small") or ""
 
-        # Rooms
         rooms = None
         try:
             r = item.get("roomsNumber") or item.get("rooms")
@@ -91,7 +108,6 @@ def _parse_item(item: dict) -> dict | None:
         except Exception:
             pass
 
-        # Area
         area = None
         try:
             a = item.get("areaInSquareMeters") or item.get("area")
@@ -109,18 +125,62 @@ def _parse_item(item: dict) -> dict | None:
         return None
 
 
-def _extract_from_next_data(html: str) -> list:
-    """Extract listings from __NEXT_DATA__ JSON embedded in HTML."""
+def _fetch_graphql(session, page: int = 1, limit: int = 36) -> list:
+    """Call Otodom GraphQL API — same endpoint the browser uses."""
+    payload = {
+        "operationName": "GetListings",
+        "variables": {
+            "locale": "pl",
+            "page": page,
+            "limit": limit,
+            "searchingCriteria": {
+                "transaction": "RENT",
+                "category": "APARTMENT",
+                "locations": [{"id": "warszawa", "type": "CITY"}],
+                "sortingField": "CREATED_AT",
+                "sortingOrder": "DESC",
+            },
+        },
+        "query": _GQL_QUERY,
+    }
+    try:
+        r = session.post(
+            GRAPHQL_URL,
+            json=payload,
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "Referer": BASE,
+                "Origin": "https://www.otodom.pl",
+            },
+            timeout=20,
+        )
+        print(f"[Otodom-GQL] page={page} status={r.status_code} size={len(r.text)}")
+        if r.status_code != 200:
+            return []
+        data  = r.json()
+        items = (
+            data.get("data", {}).get("searchAds", {}).get("items") or []
+        )
+        results = []
+        for item in items:
+            apt = _parse_item(item)
+            if apt:
+                results.append(apt)
+        return results
+    except Exception as e:
+        print(f"[Otodom-GQL] error: {e}")
+        return []
+
+
+def _extract_next_data(html: str) -> list:
     results = []
     m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.DOTALL)
     if not m:
         return results
     try:
-        data = json.loads(m.group(1))
-        # Navigate the nested structure
+        data       = json.loads(m.group(1))
         page_props = data.get("props", {}).get("pageProps", {})
-
-        # Try multiple known paths
         items = (
             page_props.get("data", {}).get("searchAds", {}).get("items") or
             page_props.get("listings", {}).get("listing", {}).get("items") or
@@ -128,67 +188,94 @@ def _extract_from_next_data(html: str) -> list:
             page_props.get("searchAds", {}).get("items") or
             []
         )
-
         if not items:
-            # Try to find any list of items with "slug" or "title" keys
-            def find_items(obj, depth=0):
+            def _find(obj, depth=0):
                 if depth > 6:
                     return []
-                if isinstance(obj, list) and len(obj) > 0:
-                    if isinstance(obj[0], dict) and ("slug" in obj[0] or "title" in obj[0]):
+                if isinstance(obj, list) and obj and isinstance(obj[0], dict):
+                    if "slug" in obj[0] or "title" in obj[0]:
                         return obj
                 if isinstance(obj, dict):
                     for v in obj.values():
-                        found = find_items(v, depth + 1)
+                        found = _find(v, depth + 1)
                         if found:
                             return found
                 return []
-            items = find_items(page_props)
-
+            items = _find(page_props)
         for item in items:
             apt = _parse_item(item)
             if apt:
                 results.append(apt)
     except Exception as e:
-        print(f"[Otodom] __NEXT_DATA__ parse error: {e}")
+        print(f"[Otodom] __NEXT_DATA__ error: {e}")
     return results
 
 
 def parse_otodom() -> list:
     results = []
-    seen = set()
+    seen    = set()
     session = _session()
 
+    def add(items):
+        n = 0
+        for apt in items:
+            if apt["link"] not in seen:
+                seen.add(apt["link"])
+                results.append(apt)
+                n += 1
+        return n
+
+    # ── Pass 0: GraphQL API (fastest) ────────────────────────
+    gql_ok = False
+    for page in range(1, 6):          # up to 5 pages × 36 = 180 listings
+        items = _fetch_graphql(session, page=page, limit=36)
+        if not items:
+            if page == 1:
+                print("[Otodom-GQL] No results — falling back to HTML")
+            break
+        new = add(items)
+        gql_ok = True
+        print(f"[Otodom-GQL] page={page}: {new} new")
+        if new == 0 and page > 1:
+            break
+        time.sleep(random.uniform(1.0, 1.8))
+
+    if gql_ok:
+        print(f"[Otodom] GQL pass done: {len(results)} listings")
+
+    # ── Pass 1: today's new listings (__NEXT_DATA__) ─────────
+    for page in range(1, 4):
+        url = BASE_NEW if page == 1 else f"{BASE_NEW}&page={page}"
+        try:
+            r   = session.get(url, headers={"Accept": "text/html"}, timeout=25)
+            print(f"[Otodom-new] page={page} status={r.status_code} size={len(r.text)}")
+            if r.status_code != 200:
+                break
+            new = add(_extract_next_data(r.text))
+            print(f"[Otodom-new] page={page}: {new} new")
+            if new == 0:
+                break
+            time.sleep(random.uniform(1.5, 2.5))
+        except Exception as e:
+            print(f"[Otodom-new] page={page} error: {e}")
+            break
+
+    # ── Pass 2: regular pages ─────────────────────────────────
     for page in range(1, 11):
         url = BASE if page == 1 else f"{BASE}?page={page}"
         try:
-            r = session.get(url, timeout=25)
-            print(f"[Otodom] Page {page} status={r.status_code} size={len(r.text)}")
-
+            r   = session.get(url, headers={"Accept": "text/html"}, timeout=25)
+            print(f"[Otodom] page={page} status={r.status_code} size={len(r.text)}")
             if r.status_code != 200:
-                print(f"[Otodom] Blocked on page {page}, stopping")
                 break
-
-            page_results = _extract_from_next_data(r.text)
-            new = 0
-            for apt in page_results:
-                if apt["link"] not in seen:
-                    seen.add(apt["link"])
-                    results.append(apt)
-                    new += 1
-
-            print(f"[Otodom] Page {page}: {new} listings")
-            if new == 0:
-                # Log snippet to diagnose
-                snippet = r.text[:300].replace("\n", " ")
-                print(f"[Otodom] Page {page} snippet: {snippet}")
-                if page >= 2:
-                    break  # Only stop after 2 consecutive empty pages
-
-            time.sleep(random.uniform(2, 3))
+            new = add(_extract_next_data(r.text))
+            print(f"[Otodom] page={page}: {new} new")
+            if new == 0 and page >= 2:
+                break
+            time.sleep(random.uniform(2.0, 3.0))
         except Exception as e:
-            print(f"[Otodom] Page {page} error: {e}")
+            print(f"[Otodom] page={page} error: {e}")
             break
 
-    print(f"[Otodom] Found {len(results)} listings")
+    print(f"[Otodom] Total: {len(results)} listings")
     return results

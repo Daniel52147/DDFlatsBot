@@ -13,6 +13,7 @@ from parser.parser_gratka import parse_gratka
 from parser.parser_morizon import parse_morizon
 from parser.parser_szybko import parse_szybko
 from parser.parser_nieruch import parse_nieruch_online, parse_domiporta
+from parser.parser_lento import parse_lento
 from database.db import (
     save_apartment, get_latest_apartments, get_all_user_ids,
     get_all_vip_user_ids, get_subscribers_for_district, log_parse,
@@ -65,6 +66,7 @@ def parse_all():
             ("Szybko",         parse_szybko),
             ("Nieruch-online", parse_nieruch_online),
             ("Domiporta",      parse_domiporta),
+            ("Lento",          parse_lento),
         ]
 
         total_new = 0
@@ -184,7 +186,7 @@ async def _post_channel():
             print(f"[Channel] Cannot post — bot not admin or channel not found: {e}")
             return
         for apt in apts:
-            source_icons = {"OLX": "🟠", "Otodom": "🔵", "Gratka": "🟢", "Morizon": "🟣", "Nieruch-online": "🟡", "Domiporta": "🔴"}
+            source_icons = {"OLX": "🟠", "Otodom": "🔵", "Gratka": "🟢", "Morizon": "🟣", "Nieruch-online": "🟡", "Domiporta": "🔴", "Lento": "🟤"}
             icon = source_icons.get(apt.get("source", ""), "📡")
             text = (
                 f"🏠 <b>{apt['title']}</b>\n"
