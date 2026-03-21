@@ -178,8 +178,9 @@ def _make(origin, dest, price, code, dep, arr, dur_min, stops, date_iso):
 
 def _kiwi(origin, dest, date_from, price_max=None, limit=20, max_stops=2):
     """
-    Kiwi.com public search — работает для ЛЮБЫХ маршрутов включая дальние.
-    Не требует API ключа для базовых запросов.
+    Kiwi.com Tequila API — реальные цены на ЛЮБЫЕ маршруты.
+    С ключом (KIWI_API_KEY) — полный доступ.
+    Без ключа — пробуем публичный endpoint.
     """
     try:
         d0 = datetime.strptime(date_from, "%d/%m/%Y")
@@ -187,6 +188,12 @@ def _kiwi(origin, dest, date_from, price_max=None, limit=20, max_stops=2):
     except Exception:
         d0 = datetime.now() + timedelta(days=1)
         d1 = d0 + timedelta(days=90)
+
+    # Пробуем получить ключ из config
+    try:
+        from config import KIWI_API_KEY
+    except Exception:
+        KIWI_API_KEY = ""
 
     url = "https://api.tequila.kiwi.com/v2/search"
     params = {
@@ -205,25 +212,32 @@ def _kiwi(origin, dest, date_from, price_max=None, limit=20, max_stops=2):
     if price_max:
         params["price_to"] = price_max
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "application/json",
-    }
-    # Try with and without apikey header
-    for apikey in [None, "public"]:
+    # Пробуем с ключом, потом без
+    api_keys_to_try = []
+    if KIWI_API_KEY:
+        api_keys_to_try.append(KIWI_API_KEY)
+    api_keys_to_try.append(None)  # без ключа
+
+    for apikey in api_keys_to_try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/json",
+        }
+        if apikey:
+            headers["apikey"] = apikey
         try:
-            if apikey:
-                headers["apikey"] = apikey
             qs = urllib.parse.urlencode(params)
             req = urllib.request.Request(f"{url}?{qs}", headers=headers)
             with urllib.request.urlopen(req, timeout=12) as r:
                 data = json.loads(r.read())
+            flights_raw = data.get("data", [])
+            if not flights_raw and not data.get("data") is None:
+                continue
             out = []
-            for f in data.get("data", []):
+            for f in flights_raw:
                 p = int(f.get("price", 0))
                 if not p or (price_max and p > price_max):
                     continue
-                # Parse departure/arrival
                 dep_ts = f.get("dTime") or f.get("local_departure")
                 arr_ts = f.get("aTime") or f.get("local_arrival")
                 try:
@@ -243,28 +257,26 @@ def _kiwi(origin, dest, date_from, price_max=None, limit=20, max_stops=2):
                     arr = dt_a.strftime("%d.%m %H:%M")
                 except Exception:
                     arr = ""
-                # Airlines
                 airlines = []
                 for route in f.get("route", []):
                     al = route.get("airline") or route.get("operating_carrier", "")
                     if al and al not in airlines:
                         airlines.append(al)
-                code = airlines[0] if airlines else f.get("airlines", [""])[0] if f.get("airlines") else ""
-                # Duration
+                code = airlines[0] if airlines else (f.get("airlines", [""])[0] if f.get("airlines") else "")
                 dur_raw = f.get("duration", {})
                 dur_min = dur_raw.get("total", 0) if isinstance(dur_raw, dict) else 0
                 stops = max(0, len(f.get("route", [])) - 1)
-                # Deep link
                 deep = f.get("deep_link", "")
                 flight = _make(origin, dest, p, code, dep, arr, dur_min, stops, iso)
                 if deep and deep.startswith("http"):
                     flight["link"] = deep
                 out.append(flight)
             out.sort(key=lambda x: x["price"])
-            print(f"[Kiwi] {origin}→{dest}: {len(out)}")
-            return out[:limit]
+            print(f"[Kiwi] {origin}→{dest}: {len(out)} (key={'yes' if apikey else 'no'})")
+            if out:
+                return out[:limit]
         except Exception as e:
-            print(f"[Kiwi] {origin}→{dest} (apikey={apikey}): {e}")
+            print(f"[Kiwi] {origin}→{dest} (key={'yes' if apikey else 'no'}): {e}")
     return []
 
 
@@ -409,9 +421,19 @@ def _fast_flights(origin, dest, date_from, price_max=None, limit=15):
     return out[:limit]
 
 
-# ── Source 5: Aviasales open data ─────────────────────────────────────────────
+# ── Source 5: Aviasales/Travelpayouts (с токеном — реальные цены) ─────────────
 
 def _aviasales_open(origin, dest, date_from, price_max=None, limit=15):
+    """
+    Travelpayouts API.
+    С токеном (AVIASALES_TOKEN) — реальные актуальные цены.
+    Без токена — кэшированные исторические цены (тоже полезно).
+    """
+    try:
+        from config import AVIASALES_TOKEN, AVIASALES_MARKER
+    except Exception:
+        AVIASALES_TOKEN = ""; AVIASALES_MARKER = ""
+
     try:
         d0 = datetime.strptime(date_from, "%d/%m/%Y")
     except Exception:
@@ -420,6 +442,37 @@ def _aviasales_open(origin, dest, date_from, price_max=None, limit=15):
     results = []
     for offset in range(3):
         month = (d0.replace(day=1) + timedelta(days=32 * offset)).replace(day=1).strftime("%Y-%m")
+
+        # С токеном используем v2 API (актуальные цены)
+        if AVIASALES_TOKEN:
+            url = (f"https://api.travelpayouts.com/v2/prices/month-matrix"
+                   f"?origin={origin}&destination={dest}"
+                   f"&month={month}&currency=eur&show_to_affiliates=true"
+                   f"&token={AVIASALES_TOKEN}")
+            if AVIASALES_MARKER:
+                url += f"&marker={AVIASALES_MARKER}"
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "SkyCheapBot/2.0"})
+                with urllib.request.urlopen(req, timeout=8) as r:
+                    data = json.loads(r.read())
+                for item in data.get("data", []):
+                    p = item.get("price", 0)
+                    if not p or (price_max and p > price_max):
+                        continue
+                    dep_raw = item.get("depart_date", "")
+                    try:
+                        dt = datetime.fromisoformat(dep_raw[:10])
+                        dep = dt.strftime("%d.%m")
+                        iso = dt.strftime("%Y-%m-%d")
+                    except Exception:
+                        dep = dep_raw[:10]; iso = dep_raw[:10]
+                    results.append(_make(origin, dest, p, item.get("airline", ""),
+                                         dep, "", 0, 0, iso))
+                continue
+            except Exception as e:
+                print(f"[AviasalesV2] {origin}→{dest} {month}: {e}")
+
+        # Без токена — v1 кэш
         url = (f"https://api.travelpayouts.com/v1/prices/cheap"
                f"?origin={origin}&destination={dest}"
                f"&depart_date={month}&one_way=true&currency=eur&limit=30")
@@ -452,7 +505,7 @@ def _aviasales_open(origin, dest, date_from, price_max=None, limit=15):
         k = f"{f['depart_at']}:{f['price']}"
         if k not in seen:
             seen.add(k); out.append(f)
-    print(f"[AviasalesOpen] {origin}→{dest}: {len(out)}")
+    print(f"[Aviasales] {origin}→{dest}: {len(out)}")
     return out[:limit]
 
 

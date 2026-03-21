@@ -5,9 +5,14 @@ BOT_USERNAME = os.environ.get("BOT_USERNAME", "DDSkyCheapBot")
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8611527220:AAFH5ClovMuUp7h3-rXscWPucEVQwNacYFs")
 
-# Aviasales partner API (optional affiliate links)
+# Aviasales/Travelpayouts partner API
+# Бесплатный токен: https://www.travelpayouts.com/developers/api
 AVIASALES_TOKEN = os.environ.get("AVIASALES_TOKEN", "")
 AVIASALES_MARKER = os.environ.get("AVIASALES_MARKER", "")
+
+# Kiwi.com Tequila API — бесплатный, реальные цены на все маршруты
+# Регистрация: https://tequila.kiwi.com/portal/register
+KIWI_API_KEY = os.environ.get("KIWI_API_KEY", "")
 
 # DB path — Render disk → project dir fallback
 _PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
