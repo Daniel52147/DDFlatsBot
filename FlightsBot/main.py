@@ -10,7 +10,7 @@ from bot.handlers import router
 from bot.middleware import RateLimitMiddleware
 from database.db import (
     init_db, get_stats, get_all_active_alerts, get_all_user_ids,
-    mark_deal_notified, get_unnotified_hot_deals,
+    mark_deal_notified, get_unnotified_hot_deals, get_vip_user_ids,
 )
 from search.kiwi import search_one_way
 from search.hot_deals import scan_hot_deals
@@ -58,11 +58,11 @@ def run_scheduler():
 # ── Async tasks ────────────────────────────────────────────────────────────────
 
 async def _notify_hot_deals(deals: list):
-    """Post new hot deals to channel + notify users with matching alerts."""
+    """Post new hot deals to channel + notify users with matching alerts + VIP."""
     alerts = get_all_active_alerts()
+    vip_ids = get_vip_user_ids()
 
     for deal in deals[:5]:
-        from bot.keyboards import hot_deal_kb
         from bot.handlers import _dest_flag
         flag = _dest_flag(deal.get("destination", ""))
         text = (
@@ -72,15 +72,16 @@ async def _notify_hot_deals(deals: list):
             f"✈️ {deal.get('airline', '')}\n"
             f"📅 {deal.get('depart_at', '')}\n\n"
             f"👉 <a href=\"{deal['link']}\">Купить билет</a>\n\n"
-            f"🤖 @SkyCheapBot"
+            f"🤖 @DDSkyCheapBot"
         )
         try:
             await bot.send_message(CHANNEL_ID, text, parse_mode="HTML")
         except Exception as e:
             print(f"[Channel] {e}")
 
-        # Notify users with matching alerts
         notified: set[int] = set()
+
+        # 1. Alert users
         for alert in alerts:
             if alert["origin"] != deal["origin"] or alert["destination"] != deal["destination"]:
                 continue
@@ -96,6 +97,21 @@ async def _notify_hot_deals(deals: list):
                     await asyncio.sleep(0.05)
                 except Exception:
                     pass
+
+        # 2. VIP users get notified for deals under 50€
+        if deal["price"] <= 50:
+            for uid in vip_ids:
+                if uid not in notified:
+                    try:
+                        await bot.send_message(
+                            uid,
+                            f"⭐ <b>VIP: Горящий до 50€!</b>\n\n{text}",
+                            parse_mode="HTML",
+                        )
+                        notified.add(uid)
+                        await asyncio.sleep(0.05)
+                    except Exception:
+                        pass
 
         mark_deal_notified(deal.get("id", 0))
         await asyncio.sleep(1)
@@ -161,7 +177,7 @@ async def _post_to_channel():
             f"✈️ <b>{deal.get('origin', '?')} → {deal.get('destination', '?')}</b> {flag}\n"
             f"💰 <b>{deal['price']} EUR</b>\n"
             f"✈️ {deal.get('airline', '')}\n\n"
-            f"🤖 @SkyCheapBot — дешёвые билеты из Польши"
+            f"🤖 @DDSkyCheapBot — дешёвые билеты из Польши"
         )
         try:
             await bot.send_message(CHANNEL_ID, text, parse_mode="HTML")
@@ -175,16 +191,17 @@ async def _post_to_channel():
 async def setup_commands():
     from aiogram.types import BotCommand, BotCommandScopeDefault
     commands = [
-        BotCommand(command="start",     description=f"✈️ {BOT_NAME} — главная"),
-        BotCommand(command="search",    description="🔎 Найти билет"),
-        BotCommand(command="hot",       description="🔥 Горящие билеты"),
-        BotCommand(command="popular",   description="🌍 Популярные маршруты"),
-        BotCommand(command="alert",     description="🔔 Создать алерт"),
-        BotCommand(command="alerts",    description="📋 Мои алерты"),
-        BotCommand(command="favorites", description="❤️ Избранное"),
-        BotCommand(command="vip",       description="⭐ VIP подписка"),
-        BotCommand(command="stats",     description="📊 Статистика"),
-        BotCommand(command="help",      description="📖 Помощь"),
+        BotCommand(command="start",      description=f"✈️ {BOT_NAME} — главная"),
+        BotCommand(command="search",     description="🔎 Найти билет"),
+        BotCommand(command="hot",        description="🔥 Горящие билеты"),
+        BotCommand(command="popular",    description="🌍 Популярные маршруты с ценами"),
+        BotCommand(command="cheapdates", description="📅 Самые дешёвые даты"),
+        BotCommand(command="alert",      description="🔔 Создать алерт"),
+        BotCommand(command="alerts",     description="📋 Мои алерты"),
+        BotCommand(command="favorites",  description="❤️ Избранное"),
+        BotCommand(command="vip",        description="⭐ VIP подписка"),
+        BotCommand(command="stats",      description="📊 Статистика"),
+        BotCommand(command="help",       description="📖 Помощь"),
     ]
     await bot.set_my_commands(commands, scope=BotCommandScopeDefault())
     print("[Bot] Commands set")

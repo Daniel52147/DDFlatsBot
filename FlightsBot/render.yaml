@@ -6,17 +6,17 @@ services:
     startCommand: python main.py
     envVars:
       - key: BOT_TOKEN
-        sync: false
+        value: "8611527220:AAFH5ClovMuUp7h3-rXscWPucEVQwNacYFs"
       - key: KIWI_API_KEY
         sync: false
       - key: ADMIN_IDS
         value: "2066158453"
       - key: CHANNEL_ID
-        value: "@skycheapbot"
+        value: "@DDSkyCheapBot"
       - key: CHANNEL_LINK
-        value: "https://t.me/skycheapbot"
+        value: "https://t.me/DDSkyCheapBot"
       - key: BOT_USERNAME
-        value: "SkyCheapBot"
+        value: "DDSkyCheapBot"
     disk:
       name: skycheap-data
       mountPath: /var/data

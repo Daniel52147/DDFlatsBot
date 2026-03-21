@@ -16,14 +16,16 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
     )
     kb.row(
         KeyboardButton(text="🌍 Популярные"),
-        KeyboardButton(text="🔔 Алерты"),
+        KeyboardButton(text="📅 Дешёвые даты"),
     )
     kb.row(
+        KeyboardButton(text="🔔 Алерты"),
         KeyboardButton(text="❤️ Избранное"),
+    )
+    kb.row(
         KeyboardButton(text="⭐ VIP"),
     )
     return kb.as_markup(resize_keyboard=True)
-
 
 # ── Origin selection ───────────────────────────────────────────────────────────
 
@@ -60,15 +62,37 @@ def date_range_kb() -> InlineKeyboardMarkup:
     from datetime import datetime, timedelta
     builder = InlineKeyboardBuilder()
     now = datetime.now()
-    options = [
-        ("⚡ Ближайшие 2 недели", 1,  14),
-        ("📅 Следующий месяц",    1,  30),
-        ("🗓 2–3 месяца",         1,  90),
-        ("🌐 Любые даты",         1, 180),
-    ]
-    for label, offset_from, offset_to in options:
-        d_from = (now + timedelta(days=offset_from)).strftime("%d/%m/%Y")
-        d_to   = (now + timedelta(days=offset_to)).strftime("%d/%m/%Y")
+
+    # Specific month options
+    options = []
+    for offset_months in range(0, 4):
+        # Start of each month
+        month_start = (now.replace(day=1) + timedelta(days=32 * offset_months)).replace(day=1)
+        # End of that month
+        month_end = (month_start + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+        # Don't go before today
+        if month_end < now:
+            continue
+        actual_start = max(now + timedelta(days=1), month_start)
+        label = month_start.strftime("%B %Y")  # e.g. "April 2026"
+        # Russian month names
+        ru_months = {
+            "January": "Январь", "February": "Февраль", "March": "Март",
+            "April": "Апрель", "May": "Май", "June": "Июнь",
+            "July": "Июль", "August": "Август", "September": "Сентябрь",
+            "October": "Октябрь", "November": "Ноябрь", "December": "Декабрь",
+        }
+        for en, ru in ru_months.items():
+            label = label.replace(en, ru)
+        d_from = actual_start.strftime("%d/%m/%Y")
+        d_to = month_end.strftime("%d/%m/%Y")
+        options.append((f"📅 {label}", d_from, d_to))
+
+    # Add "any dates" option
+    options.append(("🌐 Любые даты (6 мес)", (now + timedelta(days=1)).strftime("%d/%m/%Y"),
+                    (now + timedelta(days=180)).strftime("%d/%m/%Y")))
+
+    for label, d_from, d_to in options:
         builder.button(text=label, callback_data=f"dates:{d_from}:{d_to}")
     builder.adjust(1)
     return builder.as_markup()

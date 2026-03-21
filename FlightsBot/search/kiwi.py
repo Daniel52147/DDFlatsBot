@@ -18,24 +18,21 @@ def _headers():
 def search_flights(
     origin: str,
     destination: str,
-    date_from: str = None,       # "dd/mm/yyyy"
-    date_to: str = None,         # "dd/mm/yyyy"
-    nights_min: int = 2,
-    nights_max: int = 14,
+    date_from: str = None,   # "dd/mm/yyyy"
+    date_to: str = None,     # "dd/mm/yyyy"
     price_max: int = None,
     adults: int = 1,
     limit: int = 10,
-    sort: str = "price",         # price | duration | quality
+    sort: str = "price",     # price | duration | quality
 ) -> list:
     """
-    Search one-way or return flights.
+    Search one-way flights sorted by price.
     Returns list of flight dicts.
     """
     if not KIWI_API_KEY:
         print("[Kiwi] No API key — returning mock data")
         return _mock_results(origin, destination)
 
-    # Default: next 3 months
     if not date_from:
         date_from = datetime.now().strftime("%d/%m/%Y")
     if not date_to:
@@ -46,14 +43,13 @@ def search_flights(
         "fly_to": destination,
         "date_from": date_from,
         "date_to": date_to,
-        "nights_in_dst_from": nights_min,
-        "nights_in_dst_to": nights_max,
+        "flight_type": "oneway",
         "adults": adults,
         "limit": limit,
         "sort": sort,
         "curr": "EUR",
-        "locale": "ru",
         "partner": "picky",
+        "max_stopovers": 2,
     }
     if price_max:
         params["price_to"] = price_max
@@ -62,7 +58,9 @@ def search_flights(
         r = requests.get(f"{TEQUILA_BASE}/search", headers=_headers(), params=params, timeout=15)
         r.raise_for_status()
         data = r.json()
-        return [_parse_flight(f) for f in data.get("data", [])]
+        results = [_parse_flight(f) for f in data.get("data", [])]
+        print(f"[Kiwi] {origin}→{destination}: {len(results)} flights found")
+        return results
     except Exception as e:
         print(f"[Kiwi] Search error: {e}")
         return []

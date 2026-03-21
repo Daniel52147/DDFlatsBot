@@ -1,9 +1,9 @@
 import os
 
 BOT_NAME = "SkyCheap"
-BOT_USERNAME = os.environ.get("BOT_USERNAME", "SkyCheapBot")
+BOT_USERNAME = os.environ.get("BOT_USERNAME", "DDSkyCheapBot")
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8611527220:AAFH5ClovMuUp7h3-rXscWPucEVQwNacYFs")
 
 # Kiwi.com Tequila API — free, no approval needed
 # Register at: https://tequila.kiwi.com/
@@ -19,15 +19,18 @@ _RENDER_DISK = "/var/data"
 
 
 def _find_db_path() -> str:
-    try:
-        os.makedirs(_RENDER_DISK, exist_ok=True)
-        test = os.path.join(_RENDER_DISK, ".write_test")
-        with open(test, "w") as f:
-            f.write("ok")
-        os.remove(test)
-        return os.path.join(_RENDER_DISK, "skycheap.db")
-    except Exception:
-        pass
+    # On Render: /var/data is the persistent disk
+    if os.path.exists(_RENDER_DISK) or os.environ.get("RENDER"):
+        try:
+            os.makedirs(_RENDER_DISK, exist_ok=True)
+            test = os.path.join(_RENDER_DISK, ".write_test")
+            with open(test, "w") as f:
+                f.write("ok")
+            os.remove(test)
+            return os.path.join(_RENDER_DISK, "skycheap.db")
+        except Exception:
+            pass
+    # DATA_DIR env override
     data_dir = os.environ.get("DATA_DIR", "")
     if data_dir:
         try:
@@ -35,8 +38,8 @@ def _find_db_path() -> str:
             return os.path.join(data_dir, "skycheap.db")
         except Exception:
             pass
+    # Local dev: same folder as config.py
     return os.path.join(_PROJECT_DIR, "skycheap.db")
-
 
 DB_PATH = _find_db_path()
 print(f"[Config] DB_PATH = {DB_PATH}")
@@ -47,8 +50,8 @@ FREE_SEARCHES = 5       # free searches per day
 VIP_PRICE_PLN = 19      # zł/month
 VIP_PRICE_STARS = 50    # Telegram Stars
 
-CHANNEL_ID = os.environ.get("CHANNEL_ID", "@skycheapbot")
-CHANNEL_LINK = os.environ.get("CHANNEL_LINK", "https://t.me/skycheapbot")
+CHANNEL_ID = os.environ.get("CHANNEL_ID", "@DDSkyCheapBot")
+CHANNEL_LINK = os.environ.get("CHANNEL_LINK", "https://t.me/DDSkyCheapBot")
 
 # Popular departure airports (IATA)
 POPULAR_ORIGINS = ["WAW", "KRK", "WRO", "GDN", "KTW", "POZ"]

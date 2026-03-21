@@ -288,3 +288,28 @@ def save_search(user_id: int, origin: str, destination: str,
     )
     conn.commit()
     conn.close()
+
+
+def get_top_routes(limit: int = 5) -> list:
+    """Most searched routes in last 7 days."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT origin, destination, COUNT(*) as cnt
+        FROM searches
+        WHERE created_at >= datetime('now', '-7 days')
+        GROUP BY origin, destination
+        ORDER BY cnt DESC
+        LIMIT ?
+    """, (limit,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_vip_user_ids() -> list:
+    """Get all active VIP user IDs."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT user_id FROM users WHERE vip=1 AND (vip_until IS NULL OR vip_until > datetime('now'))"
+    ).fetchall()
+    conn.close()
+    return [r[0] for r in rows]
