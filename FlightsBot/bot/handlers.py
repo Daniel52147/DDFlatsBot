@@ -13,7 +13,7 @@ from database.db import (
     get_full_stats, get_recent_users, get_top_users, get_early_adopters,
     get_user_info, revoke_vip, ban_user, unban_user, is_banned,
 )
-from search.flights import search_flights, get_cheapest_dates, search_round_trip
+from search.flights import search_flights, get_cheapest_dates, search_round_trip, get_week_prices
 from bot.keyboards import (
     main_menu_kb, origins_kb, destinations_kb, date_range_kb,
     flight_card_kb, hot_deal_kb, alerts_list_kb, favorites_kb,
@@ -170,6 +170,7 @@ async def cmd_help(msg: Message):
         "/search — 🔎 найти билет (туда)\n"
         "/roundtrip — 🔄 туда-обратно\n"
         "/price — 💰 быстрая проверка цены (/price WAW BCN)\n"
+        "/week — 📆 цены на неделю (/week WAW BCN)\n"
         "/hot — 🔥 горящие билеты\n"
         "/popular — 🌍 популярные маршруты\n"
         "/cheapdates — 📅 самые дешёвые даты\n"
@@ -234,6 +235,53 @@ async def cmd_price(msg: Message):
     )
 
 
+
+
+# ── /week — prices for next 7 days ────────────────────────────────────────────
+
+@router.message(Command("week"))
+async def cmd_week(msg: Message):
+    parts = msg.text.split()
+    if len(parts) < 3:
+        await msg.answer(
+            "📆 <b>Цены на неделю</b>\n\n"
+            "Использование: <code>/week WAW BCN</code>\n"
+            "Показывает минимальную цену на каждый день следующих 7 дней."
+        )
+        return
+    origin = parts[1].upper()
+    dest   = parts[2].upper()
+    wait   = await msg.answer(f"📆 Загружаю цены на неделю <b>{origin} → {dest}</b>...")
+    loop   = asyncio.get_event_loop()
+    days   = await loop.run_in_executor(None, lambda: get_week_prices(origin, dest))
+    try:
+        await wait.delete()
+    except Exception:
+        pass
+
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    from aiogram.types import InlineKeyboardButton
+    flag = _dest_flag(dest)
+    lines = [f"📆 <b>{origin} → {dest}</b> {flag}  — цены на 7 дней:\n"]
+    builder = InlineKeyboardBuilder()
+    min_price = min((d["price"] for d in days if d.get("price")), default=None)
+
+    for d in days:
+        price = d.get("price")
+        if price is None:
+            lines.append(f"  {d['weekday']} {d['date']}  —  нет рейсов")
+        else:
+            badge = " 🔥" if min_price and price == min_price else ""
+            lines.append(f"  {d['weekday']} {d['date']}  💰 <b>{price}€</b>{badge}")
+            builder.button(
+                text=f"{d['weekday']} {d['date']} — {price}€{badge}",
+                url=d["link"],
+            )
+
+    builder.button(text="✈️ Aviasales", url=days[0]["link_aviasales"] if days else "https://aviasales.ru")
+    builder.button(text="🔎 Полный поиск", callback_data="search:new")
+    builder.adjust(1)
+    await msg.answer("\n".join(lines), reply_markup=builder.as_markup())
 
 
 @router.message(F.text == "🔎 Найти билет")

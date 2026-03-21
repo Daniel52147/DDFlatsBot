@@ -195,6 +195,7 @@ async def setup_commands():
         BotCommand(command="search",     description="🔎 Найти билет (туда)"),
         BotCommand(command="roundtrip",  description="🔄 Туда-обратно"),
         BotCommand(command="price",      description="💰 Быстрая цена: /price WAW BCN"),
+        BotCommand(command="week",       description="📆 Цены на 7 дней: /week WAW BCN"),
         BotCommand(command="hot",        description="🔥 Горящие билеты"),
         BotCommand(command="popular",    description="🌍 Популярные маршруты с ценами"),
         BotCommand(command="cheapdates", description="📅 Самые дешёвые даты"),
