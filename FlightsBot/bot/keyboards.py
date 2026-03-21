@@ -1,3 +1,4 @@
+import urllib.parse
 from aiogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton,
     ReplyKeyboardMarkup, KeyboardButton,
@@ -10,31 +11,42 @@ from config import POPULAR_DESTINATIONS, CHANNEL_LINK, VIP_PRICE_PLN, VIP_PRICE_
 
 def main_menu_kb() -> ReplyKeyboardMarkup:
     kb = ReplyKeyboardBuilder()
-    kb.row(
-        KeyboardButton(text="🔎 Найти билет"),
-        KeyboardButton(text="🔥 Горящие"),
-    )
-    kb.row(
-        KeyboardButton(text="🌍 Популярные"),
-        KeyboardButton(text="🔔 Алерты"),
-    )
-    kb.row(
-        KeyboardButton(text="❤️ Избранное"),
-        KeyboardButton(text="⭐ VIP"),
-    )
+    kb.row(KeyboardButton(text="🔎 Найти билет"), KeyboardButton(text="🔄 Туда-обратно"))
+    kb.row(KeyboardButton(text="🔥 Горящие"),     KeyboardButton(text="🌍 Популярные"))
+    kb.row(KeyboardButton(text="📅 Дешёвые даты"), KeyboardButton(text="🔔 Алерты"))
+    kb.row(KeyboardButton(text="❤️ Избранное"),   KeyboardButton(text="⭐ VIP"))
     return kb.as_markup(resize_keyboard=True)
+
+
+# ── Trip type ──────────────────────────────────────────────────────────────────
+
+def trip_type_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="➡️ Только туда", callback_data="trip:oneway")
+    builder.button(text="🔄 Туда-обратно", callback_data="trip:roundtrip")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+# ── Filters ────────────────────────────────────────────────────────────────────
+
+def filters_kb(direct_only: bool = False) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    direct_label = "✅ Только прямые" if direct_only else "🔀 Только прямые"
+    builder.button(text=direct_label, callback_data=f"filter:direct:{int(not direct_only)}")
+    builder.button(text="✅ Применить", callback_data="filter:apply")
+    builder.adjust(1)
+    return builder.as_markup()
+
 
 # ── Origin selection ───────────────────────────────────────────────────────────
 
 def origins_kb(callback_prefix: str = "origin") -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     airports = [
-        ("WAW", "🏙 Варшава"),
-        ("KRK", "🏰 Краков"),
-        ("WRO", "🌉 Вроцлав"),
-        ("GDN", "⚓ Гданьск"),
-        ("KTW", "🏭 Катовице"),
-        ("POZ", "🎓 Познань"),
+        ("WAW", "🏙 Варшава"), ("KRK", "🏰 Краков"),
+        ("WRO", "🌉 Вроцлав"), ("GDN", "⚓ Гданьск"),
+        ("KTW", "🏭 Катовице"), ("POZ", "🎓 Познань"),
     ]
     for code, label in airports:
         builder.button(text=f"{label} ({code})", callback_data=f"{callback_prefix}:{code}")
@@ -55,24 +67,23 @@ def destinations_kb(callback_prefix: str = "dest") -> InlineKeyboardMarkup:
 
 # ── Date selection ─────────────────────────────────────────────────────────────
 
-def date_range_kb() -> InlineKeyboardMarkup:
+def date_range_kb(label_prefix: str = "dates") -> InlineKeyboardMarkup:
+    """
+    label_prefix='dates'  → callback_data = 'dates:dd/mm/yyyy:dd/mm/yyyy'
+    label_prefix='return' → callback_data = 'return:dd/mm/yyyy:dd/mm/yyyy'
+    """
     from datetime import datetime, timedelta
     builder = InlineKeyboardBuilder()
     now = datetime.now()
-
-    # Specific month options
     options = []
-    for offset_months in range(0, 4):
-        # Start of each month
+
+    for offset_months in range(0, 5):
         month_start = (now.replace(day=1) + timedelta(days=32 * offset_months)).replace(day=1)
-        # End of that month
         month_end = (month_start + timedelta(days=32)).replace(day=1) - timedelta(days=1)
-        # Don't go before today
         if month_end < now:
             continue
         actual_start = max(now + timedelta(days=1), month_start)
-        label = month_start.strftime("%B %Y")  # e.g. "April 2026"
-        # Russian month names
+        label = month_start.strftime("%B %Y")
         ru_months = {
             "January": "Январь", "February": "Февраль", "March": "Март",
             "April": "Апрель", "May": "Май", "June": "Июнь",
@@ -85,12 +96,14 @@ def date_range_kb() -> InlineKeyboardMarkup:
         d_to = month_end.strftime("%d/%m/%Y")
         options.append((f"📅 {label}", d_from, d_to))
 
-    # Add "any dates" option
-    options.append(("🌐 Любые даты (6 мес)", (now + timedelta(days=1)).strftime("%d/%m/%Y"),
-                    (now + timedelta(days=180)).strftime("%d/%m/%Y")))
+    options.append((
+        "🌐 Любые даты (6 мес)",
+        (now + timedelta(days=1)).strftime("%d/%m/%Y"),
+        (now + timedelta(days=180)).strftime("%d/%m/%Y"),
+    ))
 
     for label, d_from, d_to in options:
-        builder.button(text=label, callback_data=f"dates:{d_from}:{d_to}")
+        builder.button(text=label, callback_data=f"{label_prefix}:{d_from}:{d_to}")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -99,12 +112,10 @@ def date_range_kb() -> InlineKeyboardMarkup:
 
 def flight_card_kb(flight: dict, idx: int, total: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    # Row 1: buy + save
     builder.row(
         InlineKeyboardButton(text="🛒 Купить билет", url=flight["link"]),
         InlineKeyboardButton(text="❤️ Сохранить", callback_data=f"fav:save:{idx}"),
     )
-    # Row 2: navigation
     if total > 1:
         nav = []
         if idx > 0:
@@ -113,9 +124,9 @@ def flight_card_kb(flight: dict, idx: int, total: int) -> InlineKeyboardMarkup:
         if idx < total - 1:
             nav.append(InlineKeyboardButton(text="Дороже ▶️", callback_data=f"flight:next:{idx}"))
         builder.row(*nav)
-    # Row 3: alert + new search
     builder.row(
-        InlineKeyboardButton(text="🔔 Алерт на маршрут", callback_data=f"alert:route:{flight['origin']}:{flight['destination']}"),
+        InlineKeyboardButton(text="🔔 Алерт на маршрут",
+                             callback_data=f"alert:route:{flight['origin']}:{flight['destination']}"),
         InlineKeyboardButton(text="🔎 Новый поиск", callback_data="search:new"),
     )
     return builder.as_markup()
@@ -125,7 +136,7 @@ def flight_card_kb(flight: dict, idx: int, total: int) -> InlineKeyboardMarkup:
 
 def hot_deal_kb(deal: dict) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    link = deal.get("link", "https://www.kiwi.com")
+    link = deal.get("link", "https://www.google.com/travel/flights")
     builder.row(
         InlineKeyboardButton(text="🛒 Купить билет", url=link),
         InlineKeyboardButton(text="❤️ Сохранить", callback_data=f"fav:hotdeal:{deal.get('id', 0)}"),
@@ -147,13 +158,9 @@ def alerts_list_kb(alerts: list) -> InlineKeyboardMarkup:
         if a.get("price_max"):
             label += f"  до {a['price_max']}€"
         builder.button(text=label, callback_data=f"alert:del:{a['id']}")
-    builder.row(
-        InlineKeyboardButton(text="➕ Добавить алерт", callback_data="alert:new"),
-    )
+    builder.row(InlineKeyboardButton(text="➕ Добавить алерт", callback_data="alert:new"))
     if alerts:
-        builder.row(
-            InlineKeyboardButton(text="🗑 Удалить все", callback_data="alert:delall"),
-        )
+        builder.row(InlineKeyboardButton(text="🗑 Удалить все", callback_data="alert:delall"))
     builder.adjust(1)
     return builder.as_markup()
 
@@ -201,15 +208,17 @@ def cancel_kb() -> InlineKeyboardMarkup:
 
 # ── Share ──────────────────────────────────────────────────────────────────────
 
-def share_kb(flight: dict) -> InlineKeyboardMarkup:
+def share_kb(flight: dict, bot_username: str = "DDSkyCheapBot") -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="🛒 Купить билет", url=flight["link"])
     share_text = (
-        f"✈️ Нашёл билет {flight['origin_city']} → {flight['dest_city']} "
-        f"за {flight['price']}€! Смотри в @SkyCheapBot"
+        f"✈️ Нашёл билет {flight.get('origin_city','?')} → {flight.get('dest_city','?')} "
+        f"за {flight['price']}€! Смотри в @{bot_username}"
     )
-    import urllib.parse
-    share_url = f"https://t.me/share/url?url={urllib.parse.quote(flight['link'])}&text={urllib.parse.quote(share_text)}"
+    share_url = (
+        f"https://t.me/share/url?url={urllib.parse.quote(flight['link'])}"
+        f"&text={urllib.parse.quote(share_text)}"
+    )
     builder.button(text="📤 Поделиться", url=share_url)
     builder.adjust(2)
     return builder.as_markup()

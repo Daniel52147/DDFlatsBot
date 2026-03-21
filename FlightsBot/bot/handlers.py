@@ -11,11 +11,11 @@ from database.db import (
     save_favorite, get_favorites, delete_favorite,
     get_recent_hot_deals, get_stats, save_search,
 )
-from search.flights import search_flights, get_cheapest_dates
+from search.flights import search_flights, get_cheapest_dates, search_round_trip
 from bot.keyboards import (
     main_menu_kb, origins_kb, destinations_kb, date_range_kb,
     flight_card_kb, hot_deal_kb, alerts_list_kb, favorites_kb,
-    vip_kb, vip_manual_kb, cancel_kb, share_kb,
+    vip_kb, vip_manual_kb, cancel_kb, trip_type_kb, filters_kb,
 )
 from config import (
     ADMIN_IDS, VIP_PRICE_PLN, VIP_PRICE_STARS,
@@ -28,10 +28,12 @@ router = Router()
 # ── FSM States ─────────────────────────────────────────────────────────────────
 
 class SearchFlight(StatesGroup):
+    trip_type   = State()
     origin      = State()
     destination = State()
     dest_manual = State()
     dates       = State()
+    return_date = State()
 
 
 class SetAlert(StatesGroup):
@@ -43,21 +45,10 @@ class SetAlert(StatesGroup):
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 AIRLINE_ICONS = {
-    "FR": "🟡",  # Ryanair
-    "W6": "🟣",  # Wizz Air
-    "VY": "🟠",  # Vueling
-    "U2": "🟠",  # easyJet
-    "LO": "🔵",  # LOT Polish
-    "LH": "🟡",  # Lufthansa
-    "BA": "🔵",  # British Airways
-    "AF": "🔵",  # Air France
-    "KL": "🔵",  # KLM
-    "TP": "🟢",  # TAP Portugal
-    "EK": "🔴",  # Emirates
-    "QR": "🟤",  # Qatar Airways
-    "TK": "🔴",  # Turkish Airlines
-    "SU": "🔴",  # Aeroflot
-    "PS": "🔵",  # Ukraine International
+    "FR": "🟡", "W6": "🟣", "VY": "🟠", "U2": "🟠",
+    "LO": "🔵", "LH": "🟡", "BA": "🔵", "AF": "🔵",
+    "KL": "🔵", "TP": "🟢", "EK": "🔴", "QR": "🟤",
+    "TK": "🔴", "SU": "🔴", "PS": "🔵",
 }
 
 def _airline_icon(airline: str) -> str:
@@ -71,16 +62,14 @@ def _flight_text(f: dict, idx: int = None, total: int = None) -> str:
     header = f"✈️ <b>{f['origin_city']} → {f['dest_city']}</b> {flag}"
     if idx is not None and total:
         header += f"  <i>({idx+1}/{total})</i>"
-    lines = [
-        header,
-        f"💰 <b>{f['price']} {f['currency']}</b>",
-        f"{icon} {f['airline']}",
-    ]
+    lines = [header, f"💰 <b>{f['price']} {f['currency']}</b>", f"{icon} {f['airline']}"]
     if f.get("depart_at"):
         dep = f"📅 {f['depart_at']}"
         if f.get("arrive_at"):
             dep += f" → {f['arrive_at']}"
         lines.append(dep)
+    if f.get("return_at"):
+        lines.append(f"🔄 Обратно: {f['return_at']}")
     details = []
     if f.get("duration"):
         details.append(f"⏱ {f['duration']}")
@@ -115,21 +104,17 @@ def _dest_flag(iata: str) -> str:
 @router.message(CommandStart())
 async def cmd_start(msg: Message, state: FSMContext):
     await state.clear()
-    user = get_or_create_user(
-        msg.from_user.id,
-        msg.from_user.username or "",
-        msg.from_user.first_name or "",
-    )
+    get_or_create_user(msg.from_user.id, msg.from_user.username or "", msg.from_user.first_name or "")
     vip_badge = " ⭐" if is_vip(msg.from_user.id) else ""
     left = searches_left(msg.from_user.id)
     left_str = "∞" if left >= 999 else str(left)
-
     name = msg.from_user.first_name or "друг"
     await msg.answer(
         f"✈️ <b>{BOT_NAME}{vip_badge}</b>\n\n"
         f"Привет, {name}! Нахожу самые дешёвые авиабилеты из Польши.\n\n"
         f"🔎 Поисков сегодня: <b>{left_str}</b> из {FREE_SEARCHES}\n"
-        f"🔥 Горящие билеты обновляются каждые 2 часа\n\n"
+        f"🔥 Горящие билеты обновляются каждые 2 часа\n"
+        f"📢 Канал: {CHANNEL_LINK}\n\n"
         f"Выбери действие 👇",
         reply_markup=main_menu_kb(),
     )
@@ -141,9 +126,11 @@ async def cmd_start(msg: Message, state: FSMContext):
 async def cmd_help(msg: Message):
     await msg.answer(
         f"✈️ <b>{BOT_NAME} — команды:</b>\n\n"
-        "/search — 🔎 найти билет\n"
+        "/search — 🔎 найти билет (туда)\n"
+        "/roundtrip — 🔄 туда-обратно\n"
         "/hot — 🔥 горящие билеты\n"
         "/popular — 🌍 популярные маршруты\n"
+        "/cheapdates — 📅 самые дешёвые даты\n"
         "/alert — 🔔 создать алерт на маршрут\n"
         "/alerts — 📋 мои алерты\n"
         "/favorites — ❤️ избранное\n"
@@ -163,13 +150,28 @@ async def start_search(msg: Message, state: FSMContext):
         await msg.answer(
             f"⚠️ <b>Лимит поисков исчерпан</b> ({FREE_SEARCHES}/день).\n\n"
             f"⭐ <b>VIP</b> — безлимитный поиск + алерты\n"
-            f"💰 Всего {VIP_PRICE_PLN} zł/мес\n\n"
-            f"👉 /vip",
+            f"💰 Всего {VIP_PRICE_PLN} zł/мес\n\n👉 /vip",
             reply_markup=vip_kb(),
         )
         return
+    await state.update_data(mode="oneway")
     await state.set_state(SearchFlight.origin)
     await msg.answer("🛫 <b>Откуда летим?</b>", reply_markup=origins_kb())
+
+
+@router.message(Command("roundtrip"))
+@router.message(F.text == "🔄 Туда-обратно")
+async def start_roundtrip(msg: Message, state: FSMContext):
+    await state.clear()
+    if not can_search(msg.from_user.id):
+        await msg.answer(
+            f"⚠️ Лимит поисков исчерпан ({FREE_SEARCHES}/день). /vip",
+            reply_markup=vip_kb(),
+        )
+        return
+    await state.update_data(mode="roundtrip")
+    await state.set_state(SearchFlight.origin)
+    await msg.answer("🔄 <b>Туда-обратно</b>\n\n🛫 Откуда летим?", reply_markup=origins_kb())
 
 
 @router.callback_query(SearchFlight.origin, F.data.startswith("origin:"))
@@ -205,10 +207,7 @@ async def pick_destination(call: CallbackQuery, state: FSMContext):
 async def manual_destination(msg: Message, state: FSMContext):
     code = msg.text.strip().upper()
     if len(code) != 3 or not code.isalpha():
-        await msg.answer(
-            "❌ Нужен 3-буквенный IATA-код.\n"
-            "Например: <code>BCN</code>, <code>DXB</code>, <code>BKK</code>"
-        )
+        await msg.answer("❌ Нужен 3-буквенный IATA-код.\nНапример: <code>BCN</code>, <code>DXB</code>")
         return
     await state.update_data(destination=code, dest_city=code)
     await state.set_state(SearchFlight.dates)
@@ -220,44 +219,115 @@ async def pick_dates(call: CallbackQuery, state: FSMContext):
     parts = call.data.split(":")
     date_from, date_to = parts[1], parts[2]
     data = await state.get_data()
-    await state.clear()
+    mode = data.get("mode", "oneway")
 
     origin = data.get("origin", "WAW")
     destination = data.get("destination", "BCN")
     dest_city = data.get("dest_city", destination)
 
-    await call.message.edit_text(
-        f"🔍 Ищу билеты <b>{origin} → {dest_city}</b>...\n⏳ Обычно 3–5 секунд"
-    )
     await call.answer()
 
-    loop = asyncio.get_event_loop()
-    flights = await loop.run_in_executor(
-        None,
-        lambda: search_flights(origin, destination, date_from, date_to, limit=10),
-    )
-
-    # Save search to DB
-    save_search(call.from_user.id, origin, destination, date_from, date_to, len(flights))
-    increment_searches(call.from_user.id)
-
-    if not flights:
+    # ── Round-trip: ask for return date ───────────────────────────────────────
+    if mode == "roundtrip":
+        await state.update_data(date_from=date_from, date_to=date_to)
+        await state.set_state(SearchFlight.return_date)
         await call.message.edit_text(
-            f"😔 Билеты <b>{origin} → {dest_city}</b> не найдены.\n\n"
-            f"Попробуй:\n"
-            f"• Другие даты\n"
-            f"• Другой аэропорт вылета\n"
-            f"• Соседний аэропорт назначения",
-            reply_markup=cancel_kb(),
+            f"🔄 <b>Туда-обратно: {origin} → {dest_city}</b>\n\n"
+            f"📅 Вылет: {date_from} — {date_to}\n\n"
+            f"🔙 Когда возвращаемся?",
+            reply_markup=date_range_kb(label_prefix="return"),
         )
         return
 
+    # ── Cheapest dates mode ───────────────────────────────────────────────────
+    if mode == "cheapdates":
+        await state.clear()
+        await call.message.edit_text(
+            f"📅 Ищу самые дешёвые даты <b>{origin} → {dest_city}</b>...\n⏳ Секунду"
+        )
+        loop = asyncio.get_event_loop()
+        flights = await loop.run_in_executor(None, lambda: get_cheapest_dates(origin, destination, months=3))
+        save_search(call.from_user.id, origin, destination, date_from, date_to, len(flights))
+        increment_searches(call.from_user.id)
+        if not flights:
+            await call.message.edit_text(
+                f"😔 Не нашёл дешёвых дат для <b>{origin} → {dest_city}</b>.\nПопробуй другой маршрут.",
+                reply_markup=cancel_kb(),
+            )
+            return
+        flag = _dest_flag(destination)
+        lines = [f"📅 <b>Топ-{len(flights)} дешёвых дат: {origin} → {dest_city}</b> {flag}\n"]
+        for i, f in enumerate(flights, 1):
+            icon = _airline_icon(f.get("airline", ""))
+            lines.append(
+                f"{i}. 💰 <b>{f['price']} EUR</b>  {icon} {f['airline']}\n"
+                f"   📅 {f['depart_at']}  ⏱ {f.get('duration', '')}\n"
+                f"   🔀 {f.get('stops', '')}"
+            )
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        from aiogram.types import InlineKeyboardButton
+        builder = InlineKeyboardBuilder()
+        for i, f in enumerate(flights):
+            builder.button(text=f"#{i+1} {f['price']}€ — {f['depart_at'][:5]}", url=f["link"])
+        builder.button(text="🔎 Обычный поиск", callback_data="search:new")
+        builder.adjust(1)
+        await call.message.edit_text("\n".join(lines), reply_markup=builder.as_markup())
+        return
+
+    # ── Normal one-way search ─────────────────────────────────────────────────
+    await state.clear()
+    await call.message.edit_text(f"🔍 Ищу билеты <b>{origin} → {dest_city}</b>...\n⏳ Обычно 5–10 секунд")
+    loop = asyncio.get_event_loop()
+    flights = await loop.run_in_executor(
+        None, lambda: search_flights(origin, destination, date_from, date_to, limit=10)
+    )
+    save_search(call.from_user.id, origin, destination, date_from, date_to, len(flights))
+    increment_searches(call.from_user.id)
+    if not flights:
+        await call.message.edit_text(
+            f"😔 Билеты <b>{origin} → {dest_city}</b> не найдены.\n\n"
+            f"Попробуй:\n• Другие даты\n• Другой аэропорт вылета\n• Соседний аэропорт",
+            reply_markup=cancel_kb(),
+        )
+        return
     await state.update_data(flights=flights, idx=0, origin=origin, destination=destination)
     f = flights[0]
+    await call.message.edit_text(_flight_text(f, 0, len(flights)), reply_markup=flight_card_kb(f, 0, len(flights)))
+
+
+@router.callback_query(SearchFlight.return_date, F.data.startswith("return:"))
+async def pick_return_date(call: CallbackQuery, state: FSMContext):
+    parts = call.data.split(":")
+    ret_from, ret_to = parts[1], parts[2]
+    data = await state.get_data()
+    await state.clear()
+
+    origin = data.get("origin", "WAW")
+    destination = data.get("destination", "BCN")
+    dest_city = data.get("dest_city", destination)
+    date_from = data.get("date_from")
+    date_to = data.get("date_to")
+
+    await call.answer()
     await call.message.edit_text(
-        _flight_text(f, 0, len(flights)),
-        reply_markup=flight_card_kb(f, 0, len(flights)),
+        f"🔄 Ищу билеты туда-обратно\n"
+        f"<b>{origin} → {dest_city} → {origin}</b>...\n⏳ Секунду"
     )
+    loop = asyncio.get_event_loop()
+    flights = await loop.run_in_executor(
+        None, lambda: search_round_trip(origin, destination, date_from, date_to, ret_from, ret_to, limit=8)
+    )
+    save_search(call.from_user.id, origin, destination, date_from, ret_to, len(flights))
+    increment_searches(call.from_user.id)
+    if not flights:
+        await call.message.edit_text(
+            f"😔 Рейсы туда-обратно <b>{origin} ↔ {dest_city}</b> не найдены.\nПопробуй другие даты.",
+            reply_markup=cancel_kb(),
+        )
+        return
+    await state.update_data(flights=flights, idx=0, origin=origin, destination=destination)
+    f = flights[0]
+    await call.message.edit_text(_flight_text(f, 0, len(flights)), reply_markup=flight_card_kb(f, 0, len(flights)))
 
 
 # ── Flight navigation ──────────────────────────────────────────────────────────
@@ -282,7 +352,7 @@ async def navigate_flights(call: CallbackQuery, state: FSMContext):
             reply_markup=flight_card_kb(f, new_idx, len(flights)),
         )
     except Exception:
-        pass  # MessageNotModified — ignore
+        pass
     await call.answer()
 
 
@@ -292,6 +362,7 @@ async def new_search_cb(call: CallbackQuery, state: FSMContext):
     if not can_search(call.from_user.id):
         await call.answer("Лимит поисков исчерпан. Попробуй завтра или купи VIP.", show_alert=True)
         return
+    await state.update_data(mode="oneway")
     await state.set_state(SearchFlight.origin)
     await call.message.edit_text("🛫 <b>Откуда летим?</b>", reply_markup=origins_kb())
     await call.answer()
@@ -304,39 +375,28 @@ async def new_search_cb(call: CallbackQuery, state: FSMContext):
 async def cmd_popular(msg: Message, state: FSMContext):
     from config import POPULAR_DESTINATIONS
     from aiogram.utils.keyboard import InlineKeyboardBuilder
+    from datetime import datetime, timedelta
 
     wait = await msg.answer("🌍 <b>Загружаю популярные маршруты...</b>\n⏳ Ищу актуальные цены")
-
-    # Build quick-search keyboard
     builder = InlineKeyboardBuilder()
     lines = ["🌍 <b>Популярные маршруты из Варшавы (WAW):</b>\n"]
-
     loop = asyncio.get_event_loop()
+
     for city, code in POPULAR_DESTINATIONS[:6]:
-        # Quick price check — cheapest in next 30 days
         try:
-            from datetime import datetime, timedelta
             d_from = (datetime.now() + timedelta(days=1)).strftime("%d/%m/%Y")
             d_to = (datetime.now() + timedelta(days=30)).strftime("%d/%m/%Y")
             from search.flights import search_flights as _sf
-            flights = await loop.run_in_executor(
-                None,
-                lambda c=code, df=d_from, dt=d_to: _sf("WAW", c, df, dt, limit=1)
-            )
-            price_str = f"от {flights[0]['price']}€" if flights else "цена не найдена"
+            flights = await loop.run_in_executor(None, lambda c=code, df=d_from, dt=d_to: _sf("WAW", c, df, dt, limit=1))
+            price_str = f"от {flights[0]['price']}€" if flights else "—"
         except Exception:
-            price_str = ""
-
+            price_str = "—"
         flag = _dest_flag(code)
         lines.append(f"✈️ WAW → {code} {flag}  {city}  <b>{price_str}</b>")
-        builder.button(
-            text=f"{city.split()[0]} {price_str}",
-            callback_data=f"popular:WAW:{code}:{city.split()[0]}"
-        )
+        builder.button(text=f"{city.split()[0]} {price_str}", callback_data=f"popular:WAW:{code}:{city.split()[0]}")
 
     lines.append("\n💡 Нажми на направление чтобы найти билеты:")
     builder.adjust(2)
-
     try:
         await wait.delete()
     except Exception:
@@ -352,25 +412,22 @@ async def popular_search(call: CallbackQuery, state: FSMContext):
     if not can_search(call.from_user.id):
         await call.answer("Лимит поисков исчерпан. Купи VIP.", show_alert=True)
         return
-    await state.update_data(origin=origin, destination=dest, dest_city=city)
+    await state.update_data(origin=origin, destination=dest, dest_city=city, mode="oneway")
     await state.set_state(SearchFlight.dates)
-    await call.message.answer(
-        f"📅 <b>Когда летим в {city}?</b>",
-        reply_markup=date_range_kb(),
-    )
+    await call.message.answer(f"📅 <b>Когда летим в {city}?</b>", reply_markup=date_range_kb())
 
 
 # ── Cheapest dates ─────────────────────────────────────────────────────────────
 
 @router.message(Command("cheapdates"))
+@router.message(F.text == "📅 Дешёвые даты")
 async def cmd_cheapdates(msg: Message, state: FSMContext):
-    """Find cheapest dates for a route."""
     await state.clear()
-    await state.set_state(SearchFlight.origin)
     await state.update_data(mode="cheapdates")
+    await state.set_state(SearchFlight.origin)
     await msg.answer(
         "📅 <b>Самые дешёвые даты</b>\n\n"
-        "Найду топ-5 самых дешёвых дат для маршрута.\n\n"
+        "Найду топ-5 самых дешёвых дат вылета для маршрута.\n\n"
         "🛫 Откуда летим?",
         reply_markup=origins_kb(),
     )
@@ -416,8 +473,7 @@ async def hot_more(call: CallbackQuery):
         flag = _dest_flag(deal.get("destination", ""))
         text = (
             f"🔥 <b>{deal.get('origin', '?')} → {deal.get('destination', '?')}</b> {flag}\n"
-            f"💰 <b>{deal['price']} EUR</b>\n"
-            f"✈️ {deal.get('airline', '')}"
+            f"💰 <b>{deal['price']} EUR</b>\n✈️ {deal.get('airline', '')}"
         )
         await call.message.answer(text, reply_markup=hot_deal_kb(deal))
         await asyncio.sleep(0.2)
@@ -431,8 +487,7 @@ async def cmd_alerts(msg: Message):
     alerts = get_user_alerts(msg.from_user.id)
     if not alerts:
         await msg.answer(
-            "🔔 <b>Алерты</b>\n\n"
-            "Нет активных алертов.\n\n"
+            "🔔 <b>Алерты</b>\n\nНет активных алертов.\n\n"
             "Алерт — уведомление когда цена на маршрут упадёт ниже нужной суммы.\n\n"
             "Нажми ➕ чтобы добавить:",
             reply_markup=alerts_list_kb([]),
@@ -502,9 +557,7 @@ async def alert_set_price(msg: Message, state: FSMContext):
     save_alert(msg.from_user.id, origin, destination, price_max or None)
     price_str = f"до {price_max}€" if price_max else "любая цена"
     await msg.answer(
-        f"✅ <b>Алерт создан!</b>\n\n"
-        f"✈️ {origin} → {destination}\n"
-        f"💰 {price_str}\n\n"
+        f"✅ <b>Алерт создан!</b>\n\n✈️ {origin} → {destination}\n💰 {price_str}\n\n"
         f"Уведомлю как только найду подходящий билет 🔔",
         reply_markup=main_menu_kb(),
     )
@@ -549,10 +602,7 @@ async def alert_from_route(call: CallbackQuery, state: FSMContext):
 async def cmd_favorites(msg: Message):
     favs = get_favorites(msg.from_user.id)
     if not favs:
-        await msg.answer(
-            "❤️ <b>Избранное пусто</b>\n\n"
-            "Сохраняй билеты кнопкой ❤️ при поиске или в горящих."
-        )
+        await msg.answer("❤️ <b>Избранное пусто</b>\n\nСохраняй билеты кнопкой ❤️ при поиске или в горящих.")
         return
     await msg.answer(f"❤️ <b>Избранное ({len(favs)}):</b>", reply_markup=favorites_kb(favs))
 
@@ -571,7 +621,6 @@ async def save_fav_cb(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("fav:hotdeal:"))
 async def save_hotdeal_fav(call: CallbackQuery):
-    """Save a hot deal to favorites."""
     deal_id = int(call.data.split(":")[2])
     deals = get_recent_hot_deals(limit=20)
     deal = next((d for d in deals if d.get("id") == deal_id), None)
@@ -579,13 +628,9 @@ async def save_hotdeal_fav(call: CallbackQuery):
         await call.answer("Предложение устарело", show_alert=True)
         return
     flight = {
-        "origin": deal.get("origin", ""),
-        "destination": deal.get("destination", ""),
-        "price": deal.get("price", 0),
-        "airline": deal.get("airline", ""),
-        "depart_at": deal.get("depart_at", ""),
-        "arrive_at": "",
-        "link": deal.get("link", ""),
+        "origin": deal.get("origin", ""), "destination": deal.get("destination", ""),
+        "price": deal.get("price", 0), "airline": deal.get("airline", ""),
+        "depart_at": deal.get("depart_at", ""), "arrive_at": "", "link": deal.get("link", ""),
     }
     saved = save_favorite(call.from_user.id, flight)
     await call.answer("❤️ Сохранено!" if saved else "Уже в избранном")
@@ -611,9 +656,7 @@ async def open_fav_cb(call: CallbackQuery):
     flag = _dest_flag(fav.get("destination", ""))
     await call.message.edit_text(
         f"✈️ <b>{fav['origin']} → {fav['destination']}</b> {flag}\n"
-        f"💰 {fav['price']} EUR\n"
-        f"✈️ {fav.get('airline', '')}\n"
-        f"📅 {fav.get('depart_at', '')}",
+        f"💰 {fav['price']} EUR\n✈️ {fav.get('airline', '')}\n📅 {fav.get('depart_at', '')}",
         reply_markup=builder.as_markup(),
     )
     await call.answer()
@@ -654,17 +697,15 @@ async def cmd_vip(msg: Message):
     if is_vip(msg.from_user.id):
         await msg.answer(
             f"⭐ <b>У тебя уже есть VIP!</b>\n\n"
-            f"✅ Безлимитный поиск\n"
-            f"✅ Алерты на маршруты\n"
-            f"✅ Уведомления о горящих билетах\n"
-            f"✅ Ранний доступ к акциям\n\n"
+            f"✅ Безлимитный поиск\n✅ Алерты на маршруты\n"
+            f"✅ Уведомления о горящих билетах\n✅ Поиск туда-обратно\n\n"
             f"Спасибо за поддержку! 🙏"
         )
         return
     await msg.answer(
         f"⭐ <b>VIP — {BOT_NAME}</b>\n\n"
         f"🆓 Бесплатно: {FREE_SEARCHES} поисков/день\n"
-        f"⭐ VIP: безлимитный поиск + алерты\n\n"
+        f"⭐ VIP: безлимитный поиск + алерты + туда-обратно\n\n"
         f"💰 <b>{VIP_PRICE_PLN} zł/мес</b> или <b>{VIP_PRICE_STARS} Telegram Stars</b>\n\n"
         f"Выбери способ оплаты:",
         reply_markup=vip_kb(),
@@ -676,7 +717,7 @@ async def vip_pay_stars(call: CallbackQuery):
     await call.answer()
     await call.message.answer_invoice(
         title=f"⭐ VIP {BOT_NAME} — 30 дней",
-        description="Безлимитный поиск + алерты на маршруты + уведомления о горящих",
+        description="Безлимитный поиск + алерты + туда-обратно + уведомления о горящих",
         payload="vip_30d",
         currency="XTR",
         prices=[LabeledPrice(label="VIP 30 дней", amount=VIP_PRICE_STARS)],
@@ -699,7 +740,6 @@ async def vip_pay_manual(call: CallbackQuery):
 @router.callback_query(F.data == "vip:paid:manual")
 async def vip_paid_manual(call: CallbackQuery):
     await call.answer("✅ Заявка отправлена!")
-    # Notify admin
     from bot.bot import bot as _bot
     for admin_id in ADMIN_IDS:
         try:
@@ -742,8 +782,7 @@ async def successful_payment(msg: Message):
         set_vip(msg.from_user.id, days=30)
         await msg.answer(
             f"🎉 <b>VIP активирован на 30 дней!</b>\n\n"
-            f"✅ Безлимитный поиск\n"
-            f"✅ Алерты на маршруты\n\n"
+            f"✅ Безлимитный поиск\n✅ Алерты\n✅ Туда-обратно\n\n"
             f"Начни поиск: /search",
             reply_markup=main_menu_kb(),
         )
@@ -799,8 +838,8 @@ async def cmd_givevip(msg: Message):
         days = int(parts[2]) if len(parts) > 2 else 30
         set_vip(uid, days)
         await msg.answer(f"✅ VIP выдан пользователю {uid} на {days} дней")
+        from bot.bot import bot as _bot
         try:
-            from bot.bot import bot as _bot
             await _bot.send_message(
                 uid,
                 f"🎉 <b>VIP активирован на {days} дней!</b>\n\n"
@@ -841,7 +880,10 @@ async def cmd_broadcast(msg: Message):
 async def cancel_cb(call: CallbackQuery, state: FSMContext):
     await state.clear()
     await call.answer("Отменено")
-    await call.message.edit_text("❌ Отменено.")
+    try:
+        await call.message.edit_text("❌ Отменено.")
+    except Exception:
+        pass
     await call.message.answer("Главное меню:", reply_markup=main_menu_kb())
 
 
@@ -856,8 +898,5 @@ async def noop_cb(call: CallbackQuery):
 async def fallback(msg: Message, state: FSMContext):
     current = await state.get_state()
     if current:
-        return  # Let FSM handle it
-    await msg.answer(
-        "Не понял команду. Используй кнопки меню или /help",
-        reply_markup=main_menu_kb(),
-    )
+        return
+    await msg.answer("Не понял команду. Используй кнопки меню или /help", reply_markup=main_menu_kb())

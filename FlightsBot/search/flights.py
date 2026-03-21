@@ -206,6 +206,67 @@ def search_one_way(
     return search_flights(origin, destination, date_from, date_to, price_max, limit)
 
 
+def search_round_trip(
+    origin: str,
+    destination: str,
+    date_from: str = None,
+    date_to: str = None,
+    return_from: str = None,
+    return_to: str = None,
+    limit: int = 8,
+) -> list:
+    """
+    Search round-trip flights using fast-flights.
+    Returns combined outbound+return results sorted by total price.
+    """
+    if not FAST_FLIGHTS_OK:
+        return _mock_results(origin, destination)
+
+    if not date_from:
+        date_from = (datetime.now() + timedelta(days=1)).strftime("%d/%m/%Y")
+    if not date_to:
+        date_to = (datetime.now() + timedelta(days=30)).strftime("%d/%m/%Y")
+    if not return_from:
+        return_from = (datetime.now() + timedelta(days=7)).strftime("%d/%m/%Y")
+    if not return_to:
+        return_to = (datetime.now() + timedelta(days=37)).strftime("%d/%m/%Y")
+
+    out_dates = _date_from_range(date_from, date_to)[:3]
+    ret_dates = _date_from_range(return_from, return_to)[:2]
+
+    all_flights = []
+    seen_keys = set()
+
+    for out_date in out_dates:
+        for ret_date in ret_dates:
+            try:
+                q = create_query(
+                    flights=[
+                        FlightQuery(date=out_date, from_airport=origin, to_airport=destination),
+                        FlightQuery(date=ret_date, from_airport=destination, to_airport=origin),
+                    ],
+                    trip="round-trip",
+                    seat="economy",
+                    passengers=Passengers(adults=1),
+                    currency="EUR",
+                )
+                result = _gf(q)
+                parsed = _parse_result(result, origin, destination, out_date)
+                for f in parsed:
+                    f["return_at"] = ret_date
+                    key = f"{f['depart_at']}:{f['airline']}:{f['price']}:{ret_date}"
+                    if key not in seen_keys:
+                        seen_keys.add(key)
+                        all_flights.append(f)
+            except Exception as e:
+                print(f"[RoundTrip] {origin}↔{destination} {out_date}/{ret_date}: {e}")
+            import time
+            time.sleep(0.3)
+
+    all_flights.sort(key=lambda x: x["price"])
+    return all_flights[:limit]
+
+
 def get_hot_deals(origins: list, price_max: int = 80, limit: int = 20) -> list:
     """
     Find cheap flights from given airports in next 14 days.

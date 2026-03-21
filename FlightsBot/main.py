@@ -16,7 +16,7 @@ from search.flights import search_one_way
 from search.hot_deals import scan_hot_deals
 from config import (
     ADMIN_IDS, CHANNEL_ID, WEBHOOK_URL, WEBHOOK_PATH, WEBAPP_PORT, BOT_NAME,
-    RATE_LIMIT_REQUESTS, RATE_LIMIT_WINDOW,
+    RATE_LIMIT_REQUESTS, RATE_LIMIT_WINDOW, BOT_USERNAME,
 )
 
 _loop: asyncio.AbstractEventLoop | None = None
@@ -72,7 +72,7 @@ async def _notify_hot_deals(deals: list):
             f"✈️ {deal.get('airline', '')}\n"
             f"📅 {deal.get('depart_at', '')}\n\n"
             f"👉 <a href=\"{deal['link']}\">Купить билет</a>\n\n"
-            f"🤖 @DDSkyCheapBot"
+            f"🤖 @{BOT_USERNAME}"
         )
         try:
             await bot.send_message(CHANNEL_ID, text, parse_mode="HTML")
@@ -124,7 +124,7 @@ async def _check_alerts():
         return
     print(f"[Alerts] Checking {len(alerts)} alerts...")
     checked: set[str] = set()
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     for alert in alerts:
         route_key = f"{alert['origin']}:{alert['destination']}"
@@ -177,7 +177,7 @@ async def _post_to_channel():
             f"✈️ <b>{deal.get('origin', '?')} → {deal.get('destination', '?')}</b> {flag}\n"
             f"💰 <b>{deal['price']} EUR</b>\n"
             f"✈️ {deal.get('airline', '')}\n\n"
-            f"🤖 @DDSkyCheapBot — дешёвые билеты из Польши"
+            f"🤖 @{BOT_USERNAME} — дешёвые билеты из Польши"
         )
         try:
             await bot.send_message(CHANNEL_ID, text, parse_mode="HTML")
@@ -192,7 +192,8 @@ async def setup_commands():
     from aiogram.types import BotCommand, BotCommandScopeDefault
     commands = [
         BotCommand(command="start",      description=f"✈️ {BOT_NAME} — главная"),
-        BotCommand(command="search",     description="🔎 Найти билет"),
+        BotCommand(command="search",     description="🔎 Найти билет (туда)"),
+        BotCommand(command="roundtrip",  description="🔄 Туда-обратно"),
         BotCommand(command="hot",        description="🔥 Горящие билеты"),
         BotCommand(command="popular",    description="🌍 Популярные маршруты с ценами"),
         BotCommand(command="cheapdates", description="📅 Самые дешёвые даты"),

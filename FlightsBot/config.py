@@ -46,8 +46,8 @@ FREE_SEARCHES = 5       # free searches per day
 VIP_PRICE_PLN = 19      # zł/month
 VIP_PRICE_STARS = 50    # Telegram Stars
 
-CHANNEL_ID = os.environ.get("CHANNEL_ID", "@DDSkyCheapBot")
-CHANNEL_LINK = os.environ.get("CHANNEL_LINK", "https://t.me/DDSkyCheapBot")
+CHANNEL_ID = os.environ.get("CHANNEL_ID", "@DDfrets")
+CHANNEL_LINK = os.environ.get("CHANNEL_LINK", "https://t.me/DDfrets")
 
 # Popular departure airports (IATA)
 POPULAR_ORIGINS = ["WAW", "KRK", "WRO", "GDN", "KTW", "POZ"]

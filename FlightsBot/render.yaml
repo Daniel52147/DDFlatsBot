@@ -10,9 +10,9 @@ services:
       - key: ADMIN_IDS
         value: "2066158453"
       - key: CHANNEL_ID
-        value: "@DDSkyCheapBot"
+        value: "@DDfrets"
       - key: CHANNEL_LINK
-        value: "https://t.me/DDSkyCheapBot"
+        value: "https://t.me/DDfrets"
       - key: BOT_USERNAME
         value: "DDSkyCheapBot"
     disk:
