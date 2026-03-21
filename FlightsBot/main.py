@@ -12,7 +12,7 @@ from database.db import (
     init_db, get_stats, get_all_active_alerts, get_all_user_ids,
     mark_deal_notified, get_unnotified_hot_deals, get_vip_user_ids,
 )
-from search.kiwi import search_one_way
+from search.flights import search_one_way
 from search.hot_deals import scan_hot_deals
 from config import (
     ADMIN_IDS, CHANNEL_ID, WEBHOOK_URL, WEBHOOK_PATH, WEBAPP_PORT, BOT_NAME,

@@ -11,11 +11,11 @@ from database.db import (
     save_favorite, get_favorites, delete_favorite,
     get_recent_hot_deals, get_stats, save_search,
 )
-from search.kiwi import search_flights, get_cheapest_dates
+from search.flights import search_flights, get_cheapest_dates
 from bot.keyboards import (
     main_menu_kb, origins_kb, destinations_kb, date_range_kb,
     flight_card_kb, hot_deal_kb, alerts_list_kb, favorites_kb,
-    vip_kb, vip_manual_kb, cancel_kb,
+    vip_kb, vip_manual_kb, cancel_kb, share_kb,
 )
 from config import (
     ADMIN_IDS, VIP_PRICE_PLN, VIP_PRICE_STARS,
@@ -220,64 +220,16 @@ async def pick_dates(call: CallbackQuery, state: FSMContext):
     parts = call.data.split(":")
     date_from, date_to = parts[1], parts[2]
     data = await state.get_data()
-    mode = data.get("mode", "search")
     await state.clear()
 
     origin = data.get("origin", "WAW")
     destination = data.get("destination", "BCN")
     dest_city = data.get("dest_city", destination)
 
-    await call.answer()
-
-    # ── Cheapest dates mode ────────────────────────────────────────────────────
-    if mode == "cheapdates":
-        await call.message.edit_text(
-            f"📅 Ищу самые дешёвые даты <b>{origin} → {dest_city}</b>...\n⏳ Секунду"
-        )
-        loop = asyncio.get_event_loop()
-        flights = await loop.run_in_executor(
-            None,
-            lambda: get_cheapest_dates(origin, destination, months=3),
-        )
-        save_search(call.from_user.id, origin, destination, date_from, date_to, len(flights))
-        increment_searches(call.from_user.id)
-
-        if not flights:
-            await call.message.edit_text(
-                f"😔 Не нашёл дешёвых дат для <b>{origin} → {dest_city}</b>.\n\n"
-                f"Попробуй другой маршрут.",
-                reply_markup=cancel_kb(),
-            )
-            return
-
-        flag = _dest_flag(destination)
-        lines = [f"📅 <b>Топ-{len(flights)} дешёвых дат: {origin} → {dest_city}</b> {flag}\n"]
-        for i, f in enumerate(flights, 1):
-            icon = _airline_icon(f.get("airline", ""))
-            lines.append(
-                f"{i}. 💰 <b>{f['price']} EUR</b>  {icon} {f['airline']}\n"
-                f"   📅 {f['depart_at']}  ⏱ {f.get('duration', '')}\n"
-                f"   🔀 {f.get('stops', '')}"
-            )
-
-        from aiogram.utils.keyboard import InlineKeyboardBuilder
-        from aiogram.types import InlineKeyboardButton
-        builder = InlineKeyboardBuilder()
-        for i, f in enumerate(flights):
-            builder.button(
-                text=f"#{i+1} {f['price']}€ — {f['depart_at'][:5]}",
-                url=f["link"],
-            )
-        builder.button(text="🔎 Обычный поиск", callback_data="search:new")
-        builder.adjust(1)
-
-        await call.message.edit_text("\n".join(lines), reply_markup=builder.as_markup())
-        return
-
-    # ── Normal search mode ─────────────────────────────────────────────────────
     await call.message.edit_text(
         f"🔍 Ищу билеты <b>{origin} → {dest_city}</b>...\n⏳ Обычно 3–5 секунд"
     )
+    await call.answer()
 
     loop = asyncio.get_event_loop()
     flights = await loop.run_in_executor(
@@ -364,13 +316,12 @@ async def cmd_popular(msg: Message, state: FSMContext):
         # Quick price check — cheapest in next 30 days
         try:
             from datetime import datetime, timedelta
-            d_from = datetime.now().strftime("%d/%m/%Y")
+            d_from = (datetime.now() + timedelta(days=1)).strftime("%d/%m/%Y")
             d_to = (datetime.now() + timedelta(days=30)).strftime("%d/%m/%Y")
+            from search.flights import search_flights as _sf
             flights = await loop.run_in_executor(
                 None,
-                lambda c=code, df=d_from, dt=d_to: __import__('search.kiwi', fromlist=['search_flights']).search_flights(
-                    "WAW", c, df, dt, limit=1
-                )
+                lambda c=code, df=d_from, dt=d_to: _sf("WAW", c, df, dt, limit=1)
             )
             price_str = f"от {flights[0]['price']}€" if flights else "цена не найдена"
         except Exception:
@@ -412,15 +363,14 @@ async def popular_search(call: CallbackQuery, state: FSMContext):
 # ── Cheapest dates ─────────────────────────────────────────────────────────────
 
 @router.message(Command("cheapdates"))
-@router.message(F.text == "📅 Дешёвые даты")
 async def cmd_cheapdates(msg: Message, state: FSMContext):
     """Find cheapest dates for a route."""
     await state.clear()
-    await state.update_data(mode="cheapdates")
     await state.set_state(SearchFlight.origin)
+    await state.update_data(mode="cheapdates")
     await msg.answer(
         "📅 <b>Самые дешёвые даты</b>\n\n"
-        "Найду топ-5 самых дешёвых дат вылета для маршрута.\n\n"
+        "Найду топ-5 самых дешёвых дат для маршрута.\n\n"
         "🛫 Откуда летим?",
         reply_markup=origins_kb(),
     )

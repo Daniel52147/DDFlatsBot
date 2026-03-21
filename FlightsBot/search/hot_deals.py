@@ -2,7 +2,7 @@
 Hot deals scanner — runs on schedule, finds flights under HOT_DEAL_MAX_PRICE EUR.
 """
 from config import POPULAR_ORIGINS, HOT_DEAL_MAX_PRICE
-from search.kiwi import get_hot_deals
+from search.flights import get_hot_deals
 from database.db import save_hot_deal
 
 

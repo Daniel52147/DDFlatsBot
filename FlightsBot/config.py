@@ -5,11 +5,7 @@ BOT_USERNAME = os.environ.get("BOT_USERNAME", "DDSkyCheapBot")
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8611527220:AAFH5ClovMuUp7h3-rXscWPucEVQwNacYFs")
 
-# Kiwi.com Tequila API — free, no approval needed
-# Register at: https://tequila.kiwi.com/
-KIWI_API_KEY = os.environ.get("KIWI_API_KEY", "")
-
-# Aviasales partner API (optional)
+# Aviasales partner API (optional affiliate links)
 AVIASALES_TOKEN = os.environ.get("AVIASALES_TOKEN", "")
 AVIASALES_MARKER = os.environ.get("AVIASALES_MARKER", "")
 

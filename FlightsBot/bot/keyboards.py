@@ -16,13 +16,10 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
     )
     kb.row(
         KeyboardButton(text="🌍 Популярные"),
-        KeyboardButton(text="📅 Дешёвые даты"),
-    )
-    kb.row(
         KeyboardButton(text="🔔 Алерты"),
-        KeyboardButton(text="❤️ Избранное"),
     )
     kb.row(
+        KeyboardButton(text="❤️ Избранное"),
         KeyboardButton(text="⭐ VIP"),
     )
     return kb.as_markup(resize_keyboard=True)

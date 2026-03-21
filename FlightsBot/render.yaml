@@ -7,8 +7,6 @@ services:
     envVars:
       - key: BOT_TOKEN
         value: "8611527220:AAFH5ClovMuUp7h3-rXscWPucEVQwNacYFs"
-      - key: KIWI_API_KEY
-        sync: false
       - key: ADMIN_IDS
         value: "2066158453"
       - key: CHANNEL_ID
