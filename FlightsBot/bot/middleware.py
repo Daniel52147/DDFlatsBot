@@ -42,4 +42,17 @@ class RateLimitMiddleware(BaseMiddleware):
             return
 
         self._buckets[uid].append(now)
+
+        # Ban check
+        try:
+            from database.db import is_banned
+            if is_banned(uid):
+                if isinstance(event, Message):
+                    await event.answer("🚫 Ваш аккаунт заблокирован.")
+                elif isinstance(event, CallbackQuery):
+                    await event.answer("🚫 Заблокирован.", show_alert=True)
+                return
+        except Exception:
+            pass
+
         return await handler(event, data)

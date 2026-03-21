@@ -10,12 +10,15 @@ from database.db import (
     searches_left, save_alert, get_user_alerts, delete_alert,
     save_favorite, get_favorites, delete_favorite,
     get_recent_hot_deals, get_stats, save_search,
+    get_full_stats, get_recent_users, get_top_users, get_early_adopters,
+    get_user_info, revoke_vip, ban_user, unban_user, is_banned,
 )
 from search.flights import search_flights, get_cheapest_dates, search_round_trip
 from bot.keyboards import (
     main_menu_kb, origins_kb, destinations_kb, date_range_kb,
     flight_card_kb, hot_deal_kb, alerts_list_kb, favorites_kb,
     vip_kb, vip_manual_kb, cancel_kb, trip_type_kb, filters_kb,
+    admin_kb, admin_user_kb,
 )
 from config import (
     ADMIN_IDS, VIP_PRICE_PLN, VIP_PRICE_STARS,
@@ -40,6 +43,13 @@ class SetAlert(StatesGroup):
     origin      = State()
     destination = State()
     price_max   = State()
+
+
+class AdminState(StatesGroup):
+    broadcast   = State()
+    find_user   = State()
+    msg_user    = State()
+    msg_user_id = State()
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -104,17 +114,33 @@ def _dest_flag(iata: str) -> str:
 @router.message(CommandStart())
 async def cmd_start(msg: Message, state: FSMContext):
     await state.clear()
-    get_or_create_user(msg.from_user.id, msg.from_user.username or "", msg.from_user.first_name or "")
-    vip_badge = " ⭐" if is_vip(msg.from_user.id) else ""
+    if is_banned(msg.from_user.id):
+        await msg.answer("🚫 Ваш аккаунт заблокирован.")
+        return
+    user = get_or_create_user(msg.from_user.id, msg.from_user.username or "", msg.from_user.first_name or "")
+    vip_status = is_vip(msg.from_user.id)
+    early = user.get("is_early_adopter", 0)
+    if early:
+        badge = " 🌟"  # early adopter
+    elif vip_status:
+        badge = " ⭐"
+    else:
+        badge = ""
     left = searches_left(msg.from_user.id)
     left_str = "∞" if left >= 999 else str(left)
     name = msg.from_user.first_name or "друг"
+
+    welcome_extra = ""
+    if early and user.get("total_searches", 0) == 0:
+        welcome_extra = "\n\n🌟 <b>Ты один из первых 50 пользователей!</b>\nVIP навсегда — бесплатно. Спасибо что с нами с самого начала!"
+
     await msg.answer(
-        f"✈️ <b>{BOT_NAME}{vip_badge}</b>\n\n"
+        f"✈️ <b>{BOT_NAME}{badge}</b>\n\n"
         f"Привет, {name}! Нахожу самые дешёвые авиабилеты из Польши.\n\n"
-        f"🔎 Поисков сегодня: <b>{left_str}</b> из {FREE_SEARCHES}\n"
+        f"🔎 Поисков сегодня: <b>{left_str}</b> {'(∞ VIP)' if vip_status else f'из {FREE_SEARCHES}'}\n"
         f"🔥 Горящие билеты обновляются каждые 2 часа\n"
-        f"📢 Канал: {CHANNEL_LINK}\n\n"
+        f"📢 Канал: {CHANNEL_LINK}"
+        f"{welcome_extra}\n\n"
         f"Выбери действие 👇",
         reply_markup=main_menu_kb(),
     )
@@ -806,28 +832,311 @@ async def cmd_stats(msg: Message):
     )
 
 
-# ── Admin ──────────────────────────────────────────────────────────────────────
+# ── Admin panel ────────────────────────────────────────────────────────────────
+
+def _is_admin(user_id: int) -> bool:
+    return user_id in ADMIN_IDS
+
 
 @router.message(Command("admin"))
-async def cmd_admin(msg: Message):
-    if msg.from_user.id not in ADMIN_IDS:
+async def cmd_admin(msg: Message, state: FSMContext):
+    if not _is_admin(msg.from_user.id):
         return
-    stats = get_stats()
+    await state.clear()
+    stats = get_full_stats()
+    from config import EARLY_ADOPTERS_LIMIT
+    slots_left = max(0, EARLY_ADOPTERS_LIMIT - stats["early"])
     await msg.answer(
         f"🔧 <b>Админ-панель {BOT_NAME}</b>\n\n"
-        f"👥 Пользователей: <b>{stats['users']}</b>\n"
+        f"👥 Всего пользователей: <b>{stats['users']}</b>\n"
+        f"📅 Сегодня активных: <b>{stats['today_users']}</b>\n"
         f"⭐ VIP: <b>{stats['vip']}</b>\n"
+        f"🌟 Early adopters: <b>{stats['early']}</b> / 50  (осталось мест: {slots_left})\n"
+        f"🚫 Забанено: <b>{stats['banned']}</b>\n\n"
         f"🔎 Поисков всего: <b>{stats['searches']}</b>\n"
-        f"🔔 Активных алертов: <b>{stats['alerts']}</b>\n\n"
-        f"Команды:\n"
-        f"/givevip &lt;id&gt; [days] — выдать VIP\n"
-        f"/broadcast &lt;текст&gt; — рассылка всем"
+        f"📅 Поисков сегодня: <b>{stats['today_searches']}</b>\n"
+        f"🔔 Активных алертов: <b>{stats['alerts']}</b>\n"
+        f"🔥 Горящих в базе: <b>{stats['deals']}</b>",
+        reply_markup=admin_kb(),
     )
+
+
+@router.callback_query(F.data == "adm:stats")
+async def adm_stats(call: CallbackQuery):
+    if not _is_admin(call.from_user.id):
+        return
+    stats = get_full_stats()
+    from config import EARLY_ADOPTERS_LIMIT
+    slots_left = max(0, EARLY_ADOPTERS_LIMIT - stats["early"])
+    await call.message.edit_text(
+        f"📊 <b>Статистика {BOT_NAME}</b>\n\n"
+        f"👥 Всего: <b>{stats['users']}</b>  |  Сегодня: <b>{stats['today_users']}</b>\n"
+        f"⭐ VIP: <b>{stats['vip']}</b>  |  🌟 Early: <b>{stats['early']}</b>/50 (мест: {slots_left})\n"
+        f"🚫 Бан: <b>{stats['banned']}</b>\n\n"
+        f"🔎 Поисков: <b>{stats['searches']}</b>  |  Сегодня: <b>{stats['today_searches']}</b>\n"
+        f"🔔 Алертов: <b>{stats['alerts']}</b>  |  🔥 Горящих: <b>{stats['deals']}</b>",
+        reply_markup=admin_kb(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "adm:recent")
+async def adm_recent(call: CallbackQuery):
+    if not _is_admin(call.from_user.id):
+        return
+    users = get_recent_users(10)
+    lines = ["👥 <b>Последние 10 пользователей:</b>\n"]
+    for u in users:
+        vip_mark = "⭐" if u.get("vip") else ""
+        early_mark = "🌟" if u.get("is_early_adopter") else ""
+        ban_mark = "🚫" if u.get("banned") else ""
+        name = u.get("first_name") or u.get("username") or "—"
+        lines.append(
+            f"{early_mark}{vip_mark}{ban_mark} <b>{name}</b> "
+            f"(<code>{u['user_id']}</code>)  🔎{u.get('total_searches',0)}\n"
+            f"   📅 {u.get('created_at','')[:10]}"
+        )
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    from aiogram.types import InlineKeyboardButton
+    builder = InlineKeyboardBuilder()
+    builder.button(text="◀️ Назад", callback_data="adm:back")
+    await call.message.edit_text("\n".join(lines), reply_markup=builder.as_markup())
+    await call.answer()
+
+
+@router.callback_query(F.data == "adm:top")
+async def adm_top(call: CallbackQuery):
+    if not _is_admin(call.from_user.id):
+        return
+    users = get_top_users(10)
+    lines = ["🏆 <b>Топ-10 по поискам:</b>\n"]
+    for i, u in enumerate(users, 1):
+        vip_mark = "⭐" if u.get("vip") else ""
+        name = u.get("first_name") or u.get("username") or "—"
+        lines.append(f"{i}. {vip_mark} <b>{name}</b> (<code>{u['user_id']}</code>) — {u.get('total_searches',0)} поисков")
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    builder = InlineKeyboardBuilder()
+    builder.button(text="◀️ Назад", callback_data="adm:back")
+    await call.message.edit_text("\n".join(lines), reply_markup=builder.as_markup())
+    await call.answer()
+
+
+@router.callback_query(F.data == "adm:early")
+async def adm_early(call: CallbackQuery):
+    if not _is_admin(call.from_user.id):
+        return
+    users = get_early_adopters()
+    lines = [f"🌟 <b>Early adopters ({len(users)}/50):</b>\n"]
+    for i, u in enumerate(users, 1):
+        name = u.get("first_name") or u.get("username") or "—"
+        lines.append(f"{i}. <b>{name}</b> (<code>{u['user_id']}</code>)  📅 {u.get('created_at','')[:10]}")
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    builder = InlineKeyboardBuilder()
+    builder.button(text="◀️ Назад", callback_data="adm:back")
+    await call.message.edit_text("\n".join(lines) if lines else "Нет early adopters.", reply_markup=builder.as_markup())
+    await call.answer()
+
+
+@router.callback_query(F.data == "adm:find")
+async def adm_find_start(call: CallbackQuery, state: FSMContext):
+    if not _is_admin(call.from_user.id):
+        return
+    await state.set_state(AdminState.find_user)
+    await call.message.edit_text(
+        "🔍 <b>Найти пользователя</b>\n\nВведи user_id или @username:",
+        reply_markup=cancel_kb(),
+    )
+    await call.answer()
+
+
+@router.message(AdminState.find_user)
+async def adm_find_user(msg: Message, state: FSMContext):
+    if not _is_admin(msg.from_user.id):
+        return
+    await state.clear()
+    query = msg.text.strip().lstrip("@")
+    # Try by ID first
+    user = None
+    try:
+        user = get_user_info(int(query))
+    except ValueError:
+        # Search by username
+        conn = __import__('database.db', fromlist=['get_conn']).get_conn()
+        row = conn.execute("SELECT * FROM users WHERE username=?", (query,)).fetchone()
+        conn.close()
+        user = dict(row) if row else None
+
+    if not user:
+        await msg.answer("❌ Пользователь не найден.", reply_markup=admin_kb())
+        return
+    await _show_user_card(msg, user)
+
+
+async def _show_user_card(msg_or_call, user: dict):
+    uid = user["user_id"]
+    vip_status = is_vip(uid)
+    ban_status = bool(user.get("banned"))
+    early = bool(user.get("is_early_adopter"))
+    name = user.get("first_name") or "—"
+    username = f"@{user['username']}" if user.get("username") else "нет"
+    vip_until = user.get("vip_until", "")[:10] if user.get("vip_until") else ("∞" if early else "нет")
+
+    text = (
+        f"👤 <b>{name}</b>  {username}\n"
+        f"🆔 <code>{uid}</code>\n\n"
+        f"{'🌟 Early adopter  ' if early else ''}"
+        f"{'⭐ VIP' if vip_status else '🆓 Free'}  {'🚫 БАН' if ban_status else ''}\n"
+        f"VIP до: <b>{vip_until}</b>\n\n"
+        f"🔎 Поисков всего: <b>{user.get('total_searches', 0)}</b>\n"
+        f"📅 Зарегистрирован: <b>{user.get('created_at','')[:10]}</b>\n"
+        f"👁 Последний визит: <b>{user.get('last_seen','')[:10]}</b>"
+    )
+    kb = admin_user_kb(uid, vip_status, ban_status)
+    if hasattr(msg_or_call, "edit_text"):
+        await msg_or_call.edit_text(text, reply_markup=kb)
+    else:
+        await msg_or_call.answer(text, reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("adm:givevip:"))
+async def adm_givevip(call: CallbackQuery):
+    if not _is_admin(call.from_user.id):
+        return
+    uid = int(call.data.split(":")[2])
+    set_vip(uid, days=30)
+    await call.answer("✅ VIP выдан на 30 дней")
+    user = get_user_info(uid)
+    if user:
+        await _show_user_card(call.message, user)
+    from bot.bot import bot as _bot
+    try:
+        await _bot.send_message(uid, f"🎉 <b>VIP активирован на 30 дней!</b>\n\n✅ Безлимитный поиск\n✅ Алерты\n\n/search", parse_mode="HTML")
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data.startswith("adm:revokevip:"))
+async def adm_revokevip(call: CallbackQuery):
+    if not _is_admin(call.from_user.id):
+        return
+    uid = int(call.data.split(":")[2])
+    revoke_vip(uid)
+    await call.answer("❌ VIP отозван")
+    user = get_user_info(uid)
+    if user:
+        await _show_user_card(call.message, user)
+
+
+@router.callback_query(F.data.startswith("adm:ban:"))
+async def adm_ban(call: CallbackQuery):
+    if not _is_admin(call.from_user.id):
+        return
+    uid = int(call.data.split(":")[2])
+    ban_user(uid)
+    await call.answer("🚫 Пользователь забанен")
+    user = get_user_info(uid)
+    if user:
+        await _show_user_card(call.message, user)
+
+
+@router.callback_query(F.data.startswith("adm:unban:"))
+async def adm_unban(call: CallbackQuery):
+    if not _is_admin(call.from_user.id):
+        return
+    uid = int(call.data.split(":")[2])
+    unban_user(uid)
+    await call.answer("✅ Разбанен")
+    user = get_user_info(uid)
+    if user:
+        await _show_user_card(call.message, user)
+
+
+@router.callback_query(F.data.startswith("adm:msg:"))
+async def adm_msg_start(call: CallbackQuery, state: FSMContext):
+    if not _is_admin(call.from_user.id):
+        return
+    uid = int(call.data.split(":")[2])
+    await state.set_state(AdminState.msg_user)
+    await state.update_data(msg_target=uid)
+    await call.message.edit_text(
+        f"📢 Напиши сообщение для пользователя <code>{uid}</code>:",
+        reply_markup=cancel_kb(),
+    )
+    await call.answer()
+
+
+@router.message(AdminState.msg_user)
+async def adm_msg_send(msg: Message, state: FSMContext):
+    if not _is_admin(msg.from_user.id):
+        return
+    data = await state.get_data()
+    uid = data.get("msg_target")
+    await state.clear()
+    from bot.bot import bot as _bot
+    try:
+        await _bot.send_message(uid, msg.text, parse_mode="HTML")
+        await msg.answer(f"✅ Сообщение отправлено пользователю {uid}", reply_markup=admin_kb())
+    except Exception as e:
+        await msg.answer(f"❌ Ошибка: {e}", reply_markup=admin_kb())
+
+
+@router.callback_query(F.data == "adm:broadcast")
+async def adm_broadcast_start(call: CallbackQuery, state: FSMContext):
+    if not _is_admin(call.from_user.id):
+        return
+    await state.set_state(AdminState.broadcast)
+    await call.message.edit_text(
+        "📢 <b>Рассылка всем пользователям</b>\n\nНапиши текст (поддерживается HTML):",
+        reply_markup=cancel_kb(),
+    )
+    await call.answer()
+
+
+@router.message(AdminState.broadcast)
+async def adm_broadcast_send(msg: Message, state: FSMContext):
+    if not _is_admin(msg.from_user.id):
+        return
+    await state.clear()
+    from database.db import get_all_user_ids
+    from bot.bot import bot as _bot
+    user_ids = get_all_user_ids()
+    sent, failed = 0, 0
+    status_msg = await msg.answer(f"📢 Рассылка... 0/{len(user_ids)}")
+    for i, uid in enumerate(user_ids):
+        try:
+            await _bot.send_message(uid, msg.text, parse_mode="HTML")
+            sent += 1
+        except Exception:
+            failed += 1
+        if i % 20 == 0:
+            try:
+                await status_msg.edit_text(f"📢 Рассылка... {i}/{len(user_ids)}")
+            except Exception:
+                pass
+        await asyncio.sleep(0.05)
+    await status_msg.edit_text(f"📢 Рассылка завершена:\n✅ Доставлено: {sent}\n❌ Ошибок: {failed}")
+
+
+@router.callback_query(F.data == "adm:back")
+async def adm_back(call: CallbackQuery):
+    if not _is_admin(call.from_user.id):
+        return
+    stats = get_full_stats()
+    from config import EARLY_ADOPTERS_LIMIT
+    slots_left = max(0, EARLY_ADOPTERS_LIMIT - stats["early"])
+    await call.message.edit_text(
+        f"🔧 <b>Админ-панель {BOT_NAME}</b>\n\n"
+        f"👥 Пользователей: <b>{stats['users']}</b>  |  Сегодня: <b>{stats['today_users']}</b>\n"
+        f"⭐ VIP: <b>{stats['vip']}</b>  |  🌟 Early: <b>{stats['early']}</b>/50 (мест: {slots_left})\n"
+        f"🔎 Поисков: <b>{stats['searches']}</b>  |  Сегодня: <b>{stats['today_searches']}</b>",
+        reply_markup=admin_kb(),
+    )
+    await call.answer()
 
 
 @router.message(Command("givevip"))
 async def cmd_givevip(msg: Message):
-    if msg.from_user.id not in ADMIN_IDS:
+    if not _is_admin(msg.from_user.id):
         return
     parts = msg.text.split()
     if len(parts) < 2:
@@ -840,12 +1149,7 @@ async def cmd_givevip(msg: Message):
         await msg.answer(f"✅ VIP выдан пользователю {uid} на {days} дней")
         from bot.bot import bot as _bot
         try:
-            await _bot.send_message(
-                uid,
-                f"🎉 <b>VIP активирован на {days} дней!</b>\n\n"
-                f"✅ Безлимитный поиск\n✅ Алерты\n\n/search — начать поиск",
-                parse_mode="HTML",
-            )
+            await _bot.send_message(uid, f"🎉 <b>VIP активирован на {days} дней!</b>\n\n✅ Безлимитный поиск\n✅ Алерты\n\n/search", parse_mode="HTML")
         except Exception:
             pass
     except ValueError:
@@ -858,7 +1162,7 @@ async def cmd_broadcast(msg: Message):
         return
     text = msg.text.removeprefix("/broadcast").strip()
     if not text:
-        await msg.answer("Использование: /broadcast &lt;текст&gt;")
+        await msg.answer("Используй /admin → 📢 Рассылка")
         return
     from database.db import get_all_user_ids
     from bot.bot import bot as _bot

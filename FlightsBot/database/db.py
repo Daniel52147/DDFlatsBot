@@ -19,22 +19,51 @@ def init_db():
     for stmt in CREATE_INDEXES.strip().split("\n"):
         if stmt.strip():
             conn.execute(stmt.strip())
+    # Migrations — add new columns if they don't exist
+    _migrate(conn)
     conn.commit()
     conn.close()
     print("[DB] Initialized")
 
 
+def _migrate(conn: sqlite3.Connection):
+    """Add new columns to existing tables without breaking old data."""
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+    migrations = [
+        ("is_early_adopter", "ALTER TABLE users ADD COLUMN is_early_adopter INTEGER DEFAULT 0"),
+        ("banned",           "ALTER TABLE users ADD COLUMN banned INTEGER DEFAULT 0"),
+    ]
+    for col, sql in migrations:
+        if col not in existing:
+            try:
+                conn.execute(sql)
+                print(f"[DB] Migration: added column {col}")
+            except Exception as e:
+                print(f"[DB] Migration skip {col}: {e}")
+
+
 # ── Users ──────────────────────────────────────────────────────────────────────
 
 def get_or_create_user(user_id: int, username: str = "", first_name: str = "") -> dict:
+    from config import EARLY_ADOPTERS_LIMIT
     conn = get_conn()
     row = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
     if not row:
+        # Check if this user qualifies as early adopter
+        total = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        is_early = 1 if total < EARLY_ADOPTERS_LIMIT else 0
         conn.execute(
-            "INSERT INTO users (user_id, username, first_name) VALUES (?,?,?)",
-            (user_id, username or "", first_name or "")
+            "INSERT INTO users (user_id, username, first_name, is_early_adopter) VALUES (?,?,?,?)",
+            (user_id, username or "", first_name or "", is_early)
         )
         conn.commit()
+        # Give early adopters permanent VIP
+        if is_early:
+            conn.execute(
+                "UPDATE users SET vip=1, vip_until=NULL WHERE user_id=?", (user_id,)
+            )
+            conn.commit()
+            print(f"[DB] Early adopter #{total+1}: user {user_id} — VIP granted")
         row = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
     else:
         conn.execute(
@@ -49,9 +78,14 @@ def get_or_create_user(user_id: int, username: str = "", first_name: str = "") -
 
 def is_vip(user_id: int) -> bool:
     conn = get_conn()
-    row = conn.execute("SELECT vip, vip_until FROM users WHERE user_id=?", (user_id,)).fetchone()
+    row = conn.execute("SELECT vip, vip_until, is_early_adopter FROM users WHERE user_id=?", (user_id,)).fetchone()
     conn.close()
-    if not row or not row["vip"]:
+    if not row:
+        return False
+    # Early adopters have permanent VIP
+    if row["is_early_adopter"]:
+        return True
+    if not row["vip"]:
         return False
     if row["vip_until"]:
         try:
@@ -313,3 +347,90 @@ def get_vip_user_ids() -> list:
     ).fetchall()
     conn.close()
     return [r[0] for r in rows]
+
+
+# ── Admin functions ────────────────────────────────────────────────────────────
+
+def get_user_info(user_id: int) -> dict | None:
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_recent_users(limit: int = 10) -> list:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM users ORDER BY created_at DESC LIMIT ?", (limit,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_early_adopters() -> list:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM users WHERE is_early_adopter=1 ORDER BY created_at ASC"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def revoke_vip(user_id: int):
+    conn = get_conn()
+    conn.execute("UPDATE users SET vip=0, vip_until=NULL WHERE user_id=?", (user_id,))
+    conn.commit()
+    conn.close()
+
+
+def ban_user(user_id: int):
+    conn = get_conn()
+    conn.execute("UPDATE users SET banned=1 WHERE user_id=?", (user_id,))
+    conn.commit()
+    conn.close()
+
+
+def unban_user(user_id: int):
+    conn = get_conn()
+    conn.execute("UPDATE users SET banned=0 WHERE user_id=?", (user_id,))
+    conn.commit()
+    conn.close()
+
+
+def is_banned(user_id: int) -> bool:
+    conn = get_conn()
+    row = conn.execute("SELECT banned FROM users WHERE user_id=?", (user_id,)).fetchone()
+    conn.close()
+    return bool(row and row["banned"])
+
+
+def get_top_users(limit: int = 10) -> list:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM users ORDER BY total_searches DESC LIMIT ?", (limit,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_full_stats() -> dict:
+    conn = get_conn()
+    users       = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    vip         = conn.execute("SELECT COUNT(*) FROM users WHERE vip=1").fetchone()[0]
+    early       = conn.execute("SELECT COUNT(*) FROM users WHERE is_early_adopter=1").fetchone()[0]
+    banned      = conn.execute("SELECT COUNT(*) FROM users WHERE banned=1").fetchone()[0]
+    searches    = conn.execute("SELECT COUNT(*) FROM searches").fetchone()[0]
+    alerts      = conn.execute("SELECT COUNT(*) FROM alerts WHERE active=1").fetchone()[0]
+    deals       = conn.execute("SELECT COUNT(*) FROM hot_deals").fetchone()[0]
+    today_users = conn.execute(
+        "SELECT COUNT(*) FROM users WHERE last_seen >= date('now')"
+    ).fetchone()[0]
+    today_searches = conn.execute(
+        "SELECT COUNT(*) FROM searches WHERE created_at >= date('now')"
+    ).fetchone()[0]
+    conn.close()
+    return {
+        "users": users, "vip": vip, "early": early, "banned": banned,
+        "searches": searches, "alerts": alerts, "deals": deals,
+        "today_users": today_users, "today_searches": today_searches,
+    }

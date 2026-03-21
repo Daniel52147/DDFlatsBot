@@ -10,7 +10,7 @@ from bot.handlers import router
 from bot.middleware import RateLimitMiddleware
 from database.db import (
     init_db, get_stats, get_all_active_alerts, get_all_user_ids,
-    mark_deal_notified, get_unnotified_hot_deals, get_vip_user_ids,
+    mark_deal_notified, get_unnotified_hot_deals, get_vip_user_ids, get_full_stats,
 )
 from search.flights import search_one_way
 from search.hot_deals import scan_hot_deals
@@ -209,7 +209,7 @@ async def setup_commands():
 
 
 async def notify_admin_start():
-    stats = get_stats()
+    stats = get_full_stats()
     for admin_id in ADMIN_IDS:
         try:
             await bot.send_message(
@@ -217,8 +217,9 @@ async def notify_admin_start():
                 f"✅ <b>{BOT_NAME} запущен</b>\n\n"
                 f"🕐 {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
                 f"👥 Пользователей: <b>{stats['users']}</b>\n"
-                f"⭐ VIP: <b>{stats['vip']}</b>\n"
-                f"🔔 Алертов: <b>{stats['alerts']}</b>",
+                f"⭐ VIP: <b>{stats['vip']}</b>  |  🌟 Early: <b>{stats['early']}</b>/50\n"
+                f"🔔 Алертов: <b>{stats['alerts']}</b>\n\n"
+                f"/admin — панель управления",
                 parse_mode="HTML",
             )
         except Exception:

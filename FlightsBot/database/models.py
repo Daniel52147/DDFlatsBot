@@ -1,16 +1,18 @@
 CREATE_USERS = """
 CREATE TABLE IF NOT EXISTS users (
-    user_id     INTEGER PRIMARY KEY,
-    username    TEXT,
-    first_name  TEXT,
-    lang        TEXT    DEFAULT 'ru',
-    vip         INTEGER DEFAULT 0,
-    vip_until   TEXT,
-    searches_today INTEGER DEFAULT 0,
-    searches_date  TEXT,
-    total_searches INTEGER DEFAULT 0,
-    created_at  TEXT    DEFAULT (datetime('now')),
-    last_seen   TEXT    DEFAULT (datetime('now'))
+    user_id         INTEGER PRIMARY KEY,
+    username        TEXT,
+    first_name      TEXT,
+    lang            TEXT    DEFAULT 'ru',
+    vip             INTEGER DEFAULT 0,
+    vip_until       TEXT,
+    is_early_adopter INTEGER DEFAULT 0,
+    banned          INTEGER DEFAULT 0,
+    searches_today  INTEGER DEFAULT 0,
+    searches_date   TEXT,
+    total_searches  INTEGER DEFAULT 0,
+    created_at      TEXT    DEFAULT (datetime('now')),
+    last_seen       TEXT    DEFAULT (datetime('now'))
 )
 """
 
@@ -76,6 +78,8 @@ CREATE INDEX IF NOT EXISTS idx_alerts_user ON alerts(user_id);
 CREATE INDEX IF NOT EXISTS idx_alerts_active ON alerts(active);
 CREATE INDEX IF NOT EXISTS idx_searches_user ON searches(user_id);
 CREATE INDEX IF NOT EXISTS idx_hot_deals_notified ON hot_deals(notified);
+CREATE INDEX IF NOT EXISTS idx_users_vip ON users(vip);
+CREATE INDEX IF NOT EXISTS idx_users_early ON users(is_early_adopter);
 """
 
 ALL_TABLES = [

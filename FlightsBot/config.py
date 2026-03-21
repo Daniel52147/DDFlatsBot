@@ -45,6 +45,7 @@ ADMIN_IDS = [int(x) for x in os.environ.get("ADMIN_IDS", "2066158453").split(","
 FREE_SEARCHES = 5       # free searches per day
 VIP_PRICE_PLN = 19      # zł/month
 VIP_PRICE_STARS = 50    # Telegram Stars
+EARLY_ADOPTERS_LIMIT = 50  # first N users get permanent VIP free
 
 CHANNEL_ID = os.environ.get("CHANNEL_ID", "@DDfrets")
 CHANNEL_LINK = os.environ.get("CHANNEL_LINK", "https://t.me/DDfrets")

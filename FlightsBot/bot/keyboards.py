@@ -198,6 +198,36 @@ def vip_manual_kb() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+# ── Admin panel ────────────────────────────────────────────────────────────────
+
+def admin_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📊 Статистика",        callback_data="adm:stats")
+    builder.button(text="👥 Последние юзеры",   callback_data="adm:recent")
+    builder.button(text="🏆 Топ по поискам",    callback_data="adm:top")
+    builder.button(text="⭐ Early adopters",    callback_data="adm:early")
+    builder.button(text="📢 Рассылка",          callback_data="adm:broadcast")
+    builder.button(text="🔍 Найти юзера",       callback_data="adm:find")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def admin_user_kb(user_id: int, is_vip: bool, is_banned: bool) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    if is_vip:
+        builder.button(text="❌ Забрать VIP",   callback_data=f"adm:revokevip:{user_id}")
+    else:
+        builder.button(text="⭐ Выдать VIP 30д", callback_data=f"adm:givevip:{user_id}")
+    if is_banned:
+        builder.button(text="✅ Разбанить",     callback_data=f"adm:unban:{user_id}")
+    else:
+        builder.button(text="🚫 Забанить",      callback_data=f"adm:ban:{user_id}")
+    builder.button(text="📢 Написать",          callback_data=f"adm:msg:{user_id}")
+    builder.button(text="◀️ Назад",             callback_data="adm:back")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
 # ── Cancel ─────────────────────────────────────────────────────────────────────
 
 def cancel_kb() -> InlineKeyboardMarkup:
