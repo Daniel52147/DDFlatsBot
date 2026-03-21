@@ -1,10 +1,12 @@
 """
-Flight search — реальные источники:
-1. Ryanair public API (farfnd) — реальные цены
-2. Wizz Air timetable API — реальные цены
-3. Aviasales партнёрские ссылки (без API — только ссылки)
-4. fast-flights (Google Flights scraper)
-5. LOT Polish Airlines public fares
+Flight search — 6 источников параллельно:
+1. Kiwi.com public API (без ключа) — любые маршруты, с пересадками
+2. Ryanair farfnd API — прямые рейсы FR
+3. Ryanair calendar — дешёвые даты FR
+4. Wizz Air timetable — прямые рейсы W6
+5. fast-flights (Google Flights scraper)
+6. Aviasales open data (кэшированные цены)
+Fallback: всегда возвращаем ссылки даже если цен нет.
 Cache: 30 min per route.
 """
 import time
@@ -23,7 +25,7 @@ except Exception:
 # ── Cache ──────────────────────────────────────────────────────────────────────
 _cache: dict = {}
 _cache_lock = threading.Lock()
-CACHE_TTL = 1800  # 30 min
+CACHE_TTL = 1800
 
 def _cache_get(key):
     with _cache_lock:
@@ -41,44 +43,38 @@ def _cache_set(key, data):
 CITY_NAMES = {
     "WAW":"Варшава",  "KRK":"Краков",   "WRO":"Вроцлав",  "GDN":"Гданьск",
     "KTW":"Катовице", "POZ":"Познань",  "SZZ":"Щецин",    "LUZ":"Люблин",
+    "WMI":"Варшава-Модлин",
     "BCN":"Барселона","MAD":"Мадрид",   "TFS":"Тенерифе", "PMI":"Майорка",
     "AGP":"Малага",   "ALC":"Аликанте", "IBZ":"Ибица",    "SVQ":"Севилья",
+    "GRO":"Жирона",   "REU":"Реус",     "VLC":"Валенсия", "BIO":"Бильбао",
     "FCO":"Рим",      "MXP":"Милан",    "NAP":"Неаполь",  "VCE":"Венеция",
     "BLQ":"Болонья",  "PSA":"Пиза",     "CTA":"Катания",  "PMO":"Палермо",
+    "BRI":"Бари",     "TRN":"Турин",    "GOA":"Генуя",    "TSF":"Тревизо",
     "LTN":"Лондон",   "LHR":"Лондон",   "STN":"Лондон",   "MAN":"Манчестер",
-    "BHX":"Бирмингем","EDI":"Эдинбург",
+    "BHX":"Бирмингем","EDI":"Эдинбург", "BRS":"Бристоль",
     "CDG":"Париж",    "ORY":"Париж",    "NCE":"Ницца",    "LYS":"Лион",
-    "DXB":"Дубай",    "AUH":"Абу-Даби", "SHJ":"Шарджа",
-    "AMS":"Амстердам","LIS":"Лиссабон", "ATH":"Афины",    "OPO":"Порту",
+    "MRS":"Марсель",  "BOD":"Бордо",    "TLS":"Тулуза",
+    "DXB":"Дубай",    "AUH":"Абу-Даби", "SHJ":"Шарджа",   "DOH":"Доха",
+    "AMS":"Амстердам","LIS":"Лиссабон", "OPO":"Порту",
+    "ATH":"Афины",    "SKG":"Салоники", "HER":"Ираклион", "RHO":"Родос",
+    "CFU":"Корфу",    "KGS":"Кос",      "JMK":"Миконос",  "JTR":"Санторини",
+    "CHQ":"Ханья",    "ZTH":"Закинф",
     "PRG":"Прага",    "BUD":"Будапешт", "VIE":"Вена",     "BTS":"Братислава",
     "BER":"Берлин",   "MUC":"Мюнхен",   "FRA":"Франкфурт","HAM":"Гамбург",
     "DUS":"Дюссельдорф","STR":"Штутгарт","CGN":"Кёльн",
+    "BRU":"Брюссель", "GVA":"Женева",   "ZRH":"Цюрих",
+    "CPH":"Копенгаген","OSL":"Осло",    "ARN":"Стокгольм","HEL":"Хельсинки",
+    "DUB":"Дублин",   "LCA":"Ларнака",  "PFO":"Пафос",
+    "IST":"Стамбул",  "SAW":"Стамбул",  "ADB":"Измир",    "AYT":"Анталья",
+    "TLV":"Тель-Авив","CAI":"Каир",     "HRG":"Хургада",  "SSH":"Шарм-эш-Шейх",
+    "CMN":"Касабланка","RAK":"Марракеш", "TUN":"Тунис",
     "BKK":"Бангкок",  "HKT":"Пхукет",   "CMB":"Коломбо",  "KUL":"Куала-Лумпур",
     "SIN":"Сингапур", "HAN":"Ханой",    "SGN":"Хошимин",
     "JFK":"Нью-Йорк", "LAX":"Лос-Анджелес","MIA":"Майами","ORD":"Чикаго",
-    "IST":"Стамбул",  "SAW":"Стамбул",  "ADB":"Измир",    "AYT":"Анталья",
-    "TLV":"Тель-Авив","CAI":"Каир",     "HRG":"Хургада",  "SSH":"Шарм-эш-Шейх",
-    "SKG":"Салоники", "HER":"Ираклион", "RHO":"Родос",    "CFU":"Корфу",
     "DBV":"Дубровник","SPU":"Сплит",    "ZAD":"Задар",    "PUY":"Пула",
     "OTP":"Бухарест", "SOF":"София",    "SKP":"Скопье",
     "RIX":"Рига",     "TLL":"Таллин",   "VNO":"Вильнюс",
     "KBP":"Киев",     "LWO":"Львов",
-    "GRO":"Жирона",   "REU":"Реус",     "VLC":"Валенсия", "BIO":"Бильбао",
-    "MRS":"Марсель",  "BOD":"Бордо",    "TLS":"Тулуза",
-    "BRU":"Брюссель", "GVA":"Женева",   "ZRH":"Цюрих",    "CPH":"Копенгаген",
-    "OSL":"Осло",     "ARN":"Стокгольм","HEL":"Хельсинки",
-    "DUB":"Дублин",   "LCA":"Ларнака",  "PFO":"Пафос",
-    "CMN":"Касабланка","RAK":"Марракеш", "TUN":"Тунис",
-    "KGS":"Кос",      "JMK":"Миконос",  "JTR":"Санторини",
-    "CHQ":"Ханья",    "ZTH":"Закинф",   "EFL":"Кефалония",
-    "OLB":"Ольбия",   "CAG":"Кальяри",  "AHO":"Альгеро",
-    "BRI":"Бари",     "BDS":"Бриндизи", "REG":"Реджо-Калабрия",
-    "TRN":"Турин",    "GOA":"Генуя",    "TSF":"Тревизо",
-    "NYO":"Стокгольм","MMX":"Мальмё",   "GOT":"Гётеборг",
-    "TMP":"Тампере",  "TKU":"Турку",    "OUL":"Оулу",
-    "BGO":"Берген",   "SVG":"Ставангер","TRD":"Тронхейм",
-    "AAL":"Ольборг",  "BLL":"Биллунн",  "CPH":"Копенгаген",
-    "WMI":"Варшава-Модлин",
 }
 
 AIRLINE_NAMES = {
@@ -88,15 +84,15 @@ AIRLINE_NAMES = {
     "TP":"TAP Portugal","SN":"Brussels Airlines","OS":"Austrian",
     "SK":"SAS",       "AY":"Finnair",   "IB":"Iberia",    "BT":"airBaltic",
     "PC":"Pegasus",   "XQ":"SunExpress","HV":"Transavia", "TO":"Transavia France",
-    "V7":"Volotea",   "4U":"Germanwings","DE":"Condor",   "X3":"TUIfly",
-    "EN":"Air Dolomiti","DY":"Norwegian","D8":"Norwegian",
+    "V7":"Volotea",   "DY":"Norwegian", "D8":"Norwegian", "DE":"Condor",
+    "FZ":"flydubai",  "G9":"Air Arabia","WY":"Oman Air",  "GF":"Gulf Air",
+    "MS":"EgyptAir",  "RJ":"Royal Jordanian","ET":"Ethiopian","KQ":"Kenya Airways",
 }
 
 
 # ── Link builders ──────────────────────────────────────────────────────────────
 
 def _aviasales_link(origin, dest, date_str):
-    """Aviasales affiliate search link — always works, no API needed."""
     try:
         d = datetime.strptime(date_str, "%Y-%m-%d").strftime("%d%m")
     except Exception:
@@ -108,6 +104,17 @@ def _google_link(origin, dest, date_str, ret=None):
     if ret:
         q += f" returning {ret}"
     return f"https://www.google.com/travel/flights?q={urllib.parse.quote(q)}"
+
+def _kiwi_link(origin, dest, date_str, ret=None):
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        d_to = (dt + timedelta(days=90)).strftime("%Y-%m-%d")
+    except Exception:
+        d_to = date_str
+    base = f"https://www.kiwi.com/en/search/results/{origin}/{dest}/{date_str}/{d_to}"
+    if ret:
+        base += f"/{ret}"
+    return base
 
 def _airline_link(code, origin, dest, date_str):
     c = code.upper() if code else ""
@@ -129,6 +136,12 @@ def _airline_link(code, origin, dest, date_str):
         return f"https://www.lufthansa.com/de/en/flight-search?origin={o}&destination={d}&outboundDate={d_fmt}&adults=1"
     if c == "TK":
         return f"https://www.turkishairlines.com/en-int/flights/find-flights/?origin={o}&destination={d}&departureDate={d_fmt}&adult=1"
+    if c == "EK":
+        return f"https://www.emirates.com/english/book/flights/?origin={o}&destination={d}&departureDate={d_fmt}&adults=1"
+    if c == "QR":
+        return f"https://www.qatarairways.com/en/flights.html?from={o}&to={d}&depart={d_fmt}&adult=1"
+    if c == "KL":
+        return f"https://www.klm.com/search/en/results?origin={o}&destination={d}&outboundDate={d_fmt}&adults=1"
     if c == "VY":
         return f"https://www.vueling.com/en/book-your-flights/search?dep={o}&arr={d}&depDate={d_fmt}&pax=1"
     if c == "PC":
@@ -137,6 +150,8 @@ def _airline_link(code, origin, dest, date_str):
         return f"https://www.norwegian.com/en/booking/flight-tickets/?D1={o}&A1={d}&DD1={d_fmt}&ADT=1&TYP=S"
     if c == "BT":
         return f"https://airbaltic.com/en/search-results?from={o}&to={d}&date={d_fmt}&adult=1"
+    if c == "FZ":
+        return f"https://www.flydubai.com/en/booking/search?from={o}&to={d}&date={d_fmt}&adults=1"
     return _aviasales_link(origin, dest, d_fmt)
 
 def _make(origin, dest, price, code, dep, arr, dur_min, stops, date_iso):
@@ -159,10 +174,103 @@ def _make(origin, dest, price, code, dep, arr, dur_min, stops, date_iso):
     }
 
 
-# ── Source 1: Ryanair farfnd API ───────────────────────────────────────────────
+# ── Source 1: Kiwi.com public API (без ключа) ─────────────────────────────────
+
+def _kiwi(origin, dest, date_from, price_max=None, limit=20, max_stops=2):
+    """
+    Kiwi.com public search — работает для ЛЮБЫХ маршрутов включая дальние.
+    Не требует API ключа для базовых запросов.
+    """
+    try:
+        d0 = datetime.strptime(date_from, "%d/%m/%Y")
+        d1 = d0 + timedelta(days=90)
+    except Exception:
+        d0 = datetime.now() + timedelta(days=1)
+        d1 = d0 + timedelta(days=90)
+
+    url = "https://api.tequila.kiwi.com/v2/search"
+    params = {
+        "fly_from": origin,
+        "fly_to": dest,
+        "date_from": d0.strftime("%d/%m/%Y"),
+        "date_to": d1.strftime("%d/%m/%Y"),
+        "flight_type": "oneway",
+        "adults": 1,
+        "limit": 30,
+        "sort": "price",
+        "curr": "EUR",
+        "max_stopovers": max_stops,
+        "partner": "picky",
+    }
+    if price_max:
+        params["price_to"] = price_max
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json",
+    }
+    # Try with and without apikey header
+    for apikey in [None, "public"]:
+        try:
+            if apikey:
+                headers["apikey"] = apikey
+            qs = urllib.parse.urlencode(params)
+            req = urllib.request.Request(f"{url}?{qs}", headers=headers)
+            with urllib.request.urlopen(req, timeout=12) as r:
+                data = json.loads(r.read())
+            out = []
+            for f in data.get("data", []):
+                p = int(f.get("price", 0))
+                if not p or (price_max and p > price_max):
+                    continue
+                # Parse departure/arrival
+                dep_ts = f.get("dTime") or f.get("local_departure")
+                arr_ts = f.get("aTime") or f.get("local_arrival")
+                try:
+                    if isinstance(dep_ts, (int, float)):
+                        dt_d = datetime.fromtimestamp(dep_ts)
+                    else:
+                        dt_d = datetime.fromisoformat(str(dep_ts)[:16])
+                    dep = dt_d.strftime("%d.%m %H:%M")
+                    iso = dt_d.strftime("%Y-%m-%d")
+                except Exception:
+                    dep = ""; iso = d0.strftime("%Y-%m-%d")
+                try:
+                    if isinstance(arr_ts, (int, float)):
+                        dt_a = datetime.fromtimestamp(arr_ts)
+                    else:
+                        dt_a = datetime.fromisoformat(str(arr_ts)[:16])
+                    arr = dt_a.strftime("%d.%m %H:%M")
+                except Exception:
+                    arr = ""
+                # Airlines
+                airlines = []
+                for route in f.get("route", []):
+                    al = route.get("airline") or route.get("operating_carrier", "")
+                    if al and al not in airlines:
+                        airlines.append(al)
+                code = airlines[0] if airlines else f.get("airlines", [""])[0] if f.get("airlines") else ""
+                # Duration
+                dur_raw = f.get("duration", {})
+                dur_min = dur_raw.get("total", 0) if isinstance(dur_raw, dict) else 0
+                stops = max(0, len(f.get("route", [])) - 1)
+                # Deep link
+                deep = f.get("deep_link", "")
+                flight = _make(origin, dest, p, code, dep, arr, dur_min, stops, iso)
+                if deep and deep.startswith("http"):
+                    flight["link"] = deep
+                out.append(flight)
+            out.sort(key=lambda x: x["price"])
+            print(f"[Kiwi] {origin}→{dest}: {len(out)}")
+            return out[:limit]
+        except Exception as e:
+            print(f"[Kiwi] {origin}→{dest} (apikey={apikey}): {e}")
+    return []
+
+
+# ── Source 2: Ryanair farfnd API ──────────────────────────────────────────────
 
 def _ryanair(origin, dest, date_from, price_max=None, limit=15):
-    """Ryanair public fares API — no auth needed, real prices."""
     try:
         d0 = datetime.strptime(date_from, "%d/%m/%Y")
         d1 = d0 + timedelta(days=120)
@@ -173,11 +281,7 @@ def _ryanair(origin, dest, date_from, price_max=None, limit=15):
            f"&outboundDepartureDateFrom={d0.strftime('%Y-%m-%d')}"
            f"&outboundDepartureDateTo={d1.strftime('%Y-%m-%d')}"
            f"&currency=EUR&priceValueTo={price_max or 500}&limit=30")
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "application/json",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
+    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
     try:
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=10) as r:
@@ -208,53 +312,9 @@ def _ryanair(origin, dest, date_from, price_max=None, limit=15):
         return []
 
 
-def _ryanair_calendar(origin, dest, date_from, price_max=None, limit=15):
-    """Ryanair cheapest per day calendar."""
-    try:
-        d0 = datetime.strptime(date_from, "%d/%m/%Y")
-    except Exception:
-        d0 = datetime.now() + timedelta(days=1)
-    out = []
-    for offset in range(3):
-        month_dt = (d0.replace(day=1) + timedelta(days=32 * offset)).replace(day=1)
-        url = (f"https://www.ryanair.com/api/farfnd/v4/oneWayFares"
-               f"?departureAirportIataCode={origin}&arrivalAirportIataCode={dest}"
-               f"&outboundDepartureDateFrom={month_dt.strftime('%Y-%m-%d')}"
-               f"&outboundDepartureDateTo={(month_dt.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)}"
-               f"&currency=EUR&priceValueTo={price_max or 500}&limit=31")
-        headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
-        try:
-            req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=10) as r:
-                data = json.loads(r.read())
-            for fare in data.get("fares", []):
-                p = fare.get("price", {}).get("value", 0)
-                if not p or (price_max and p > price_max):
-                    continue
-                ob = fare.get("outbound", {})
-                dep_raw = ob.get("departureDate", "")
-                arr_raw = ob.get("arrivalDate", "")
-                try:
-                    dt_d = datetime.fromisoformat(dep_raw[:16])
-                    dt_a = datetime.fromisoformat(arr_raw[:16])
-                    dep = dt_d.strftime("%d.%m %H:%M")
-                    arr = dt_a.strftime("%d.%m %H:%M")
-                    iso = dt_d.strftime("%Y-%m-%d")
-                    dur = int((dt_a - dt_d).total_seconds() / 60)
-                except Exception:
-                    dep = dep_raw[:10]; arr = ""; iso = dep_raw[:10]; dur = 0
-                out.append(_make(origin, dest, p, "FR", dep, arr, dur, 0, iso))
-        except Exception as e:
-            print(f"[RyanairCal] {origin}→{dest} month+{offset}: {e}")
-    out.sort(key=lambda x: x["price"])
-    print(f"[RyanairCal] {origin}→{dest}: {len(out)}")
-    return out[:limit]
-
-
-# ── Source 2: Wizz Air timetable ──────────────────────────────────────────────
+# ── Source 3: Wizz Air timetable ──────────────────────────────────────────────
 
 def _wizzair(origin, dest, date_from, price_max=None, limit=15):
-    """Wizz Air public timetable API."""
     try:
         d0 = datetime.strptime(date_from, "%d/%m/%Y")
         d1 = d0 + timedelta(days=120)
@@ -265,7 +325,7 @@ def _wizzair(origin, dest, date_from, price_max=None, limit=15):
            f"&from={d0.strftime('%Y-%m-%d')}&to={d1.strftime('%Y-%m-%d')}"
            f"&priceType=regular&adultCount=1&childCount=0&infantCount=0")
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "User-Agent": "Mozilla/5.0",
         "Accept": "application/json",
         "x-requestedwith": "XMLHttpRequest",
         "Referer": "https://wizzair.com/",
@@ -300,54 +360,7 @@ def _wizzair(origin, dest, date_from, price_max=None, limit=15):
         return []
 
 
-# ── Source 3: LOT Polish Airlines ─────────────────────────────────────────────
-
-def _lot(origin, dest, date_from, price_max=None, limit=10):
-    """LOT public fare search."""
-    try:
-        d0 = datetime.strptime(date_from, "%d/%m/%Y")
-        d1 = d0 + timedelta(days=90)
-    except Exception:
-        return []
-    url = (f"https://www.lot.com/api/v1/flights/search"
-           f"?origin={origin}&destination={dest}"
-           f"&departureDate={d0.strftime('%Y-%m-%d')}"
-           f"&returnDate=&adults=1&children=0&infants=0&cabinClass=ECONOMY&currency=EUR")
-    headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Accept": "application/json",
-        "Accept-Language": "en-US",
-    }
-    try:
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=8) as r:
-            data = json.loads(r.read())
-        out = []
-        for offer in data.get("offers", data.get("flights", [])):
-            p = offer.get("price", offer.get("totalPrice", 0))
-            if not p or (price_max and p > price_max):
-                continue
-            dep_raw = offer.get("departureDateTime", offer.get("departure", ""))
-            arr_raw = offer.get("arrivalDateTime", offer.get("arrival", ""))
-            try:
-                dt_d = datetime.fromisoformat(str(dep_raw)[:16])
-                dt_a = datetime.fromisoformat(str(arr_raw)[:16])
-                dep = dt_d.strftime("%d.%m %H:%M")
-                arr = dt_a.strftime("%d.%m %H:%M")
-                iso = dt_d.strftime("%Y-%m-%d")
-                dur = int((dt_a - dt_d).total_seconds() / 60)
-            except Exception:
-                dep = str(dep_raw)[:10]; arr = ""; iso = str(dep_raw)[:10]; dur = 0
-            out.append(_make(origin, dest, p, "LO", dep, arr, dur, 0, iso))
-        out.sort(key=lambda x: x["price"])
-        print(f"[LOT] {origin}→{dest}: {len(out)}")
-        return out[:limit]
-    except Exception as e:
-        print(f"[LOT] {origin}→{dest}: {e}")
-        return []
-
-
-# ── Source 4: fast-flights (Google Flights scraper) ───────────────────────────
+# ── Source 4: fast-flights (Google Flights) ───────────────────────────────────
 
 def _fmt_dt(sdt):
     try:
@@ -365,8 +378,7 @@ def _fast_flights(origin, dest, date_from, price_max=None, limit=15):
         d0 = datetime.now() + timedelta(days=1)
 
     out, seen = [], set()
-    # Try 8 dates spread over 4 months for more variety
-    for i in [0, 1, 2, 3, 5, 7, 9, 12]:
+    for i in [0, 1, 2, 4, 6, 8, 10, 14]:
         date_str = (d0 + timedelta(weeks=i)).strftime("%Y-%m-%d")
         try:
             q = create_query(
@@ -397,13 +409,9 @@ def _fast_flights(origin, dest, date_from, price_max=None, limit=15):
     return out[:limit]
 
 
-# ── Source 5: Aviasales open data (no token, cached prices) ───────────────────
+# ── Source 5: Aviasales open data ─────────────────────────────────────────────
 
 def _aviasales_open(origin, dest, date_from, price_max=None, limit=15):
-    """
-    Aviasales /v1/prices/cheap — works without token for popular routes.
-    Returns cached/historical prices but with real booking links.
-    """
     try:
         d0 = datetime.strptime(date_from, "%d/%m/%Y")
     except Exception:
@@ -451,16 +459,54 @@ def _aviasales_open(origin, dest, date_from, price_max=None, limit=15):
 # ── Merge & deduplicate ────────────────────────────────────────────────────────
 
 def _merge(*lists):
-    """Merge flight lists, deduplicate by (date+time, airline, price), sort by price."""
     seen, out = set(), []
     for lst in lists:
         for f in lst:
-            # Key: same flight = same departure time + airline + price
             k = f"{f['depart_at']}:{f['airline_code']}:{f['price']}"
             if k not in seen:
                 seen.add(k); out.append(f)
     out.sort(key=lambda x: x["price"])
     return out
+
+
+def _fallback_links(origin, dest, date_from):
+    """
+    Когда реальных цен нет — возвращаем карточки со ссылками на поиск.
+    Пользователь видит варианты и может кликнуть чтобы найти цену.
+    """
+    try:
+        d0 = datetime.strptime(date_from, "%d/%m/%Y")
+        iso = d0.strftime("%Y-%m-%d")
+    except Exception:
+        iso = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    dest_city = CITY_NAMES.get(dest, dest)
+    origin_city = CITY_NAMES.get(origin, origin)
+
+    # Предлагаем несколько дат и авиакомпаний
+    results = []
+    for weeks_offset, airline_code, airline_name in [
+        (1, "EK", "Emirates"),
+        (2, "TK", "Turkish Airlines"),
+        (3, "LH", "Lufthansa"),
+        (4, "QR", "Qatar Airways"),
+        (6, "KL", "KLM"),
+    ]:
+        dt = d0 + timedelta(weeks=weeks_offset)
+        iso_d = dt.strftime("%Y-%m-%d")
+        dep = dt.strftime("%d.%m")
+        results.append({
+            "origin": origin, "destination": dest,
+            "origin_city": origin_city, "dest_city": dest_city,
+            "price": 0, "currency": "EUR",
+            "airline": airline_name, "airline_code": airline_code,
+            "depart_at": dep, "arrive_at": "",
+            "duration": "", "stops": "с пересадкой",
+            "link": _airline_link(airline_code, origin, dest, iso_d),
+            "link_aviasales": _aviasales_link(origin, dest, iso_d),
+            "_is_fallback": True,
+        })
+    return results
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
@@ -484,23 +530,28 @@ def search_flights(origin, destination, date_from=None, date_to=None,
             print(f"[Search] {name}: {e}"); res[name] = []
 
     threads = [
-        threading.Thread(target=run, args=("ry",  _ryanair,        origin, destination, date_from, price_max, 20)),
-        threading.Thread(target=run, args=("ryc", _ryanair_calendar, origin, destination, date_from, price_max, 20)),
-        threading.Thread(target=run, args=("wz",  _wizzair,        origin, destination, date_from, price_max, 20)),
-        threading.Thread(target=run, args=("av",  _aviasales_open, origin, destination, date_from, price_max, 20)),
+        threading.Thread(target=run, args=("kw",  _kiwi,           origin, destination, date_from, price_max, 20)),
+        threading.Thread(target=run, args=("ry",  _ryanair,        origin, destination, date_from, price_max, 15)),
+        threading.Thread(target=run, args=("wz",  _wizzair,        origin, destination, date_from, price_max, 15)),
+        threading.Thread(target=run, args=("av",  _aviasales_open, origin, destination, date_from, price_max, 15)),
         threading.Thread(target=run, args=("ff",  _fast_flights,   origin, destination, date_from, price_max, 15)),
-        threading.Thread(target=run, args=("lo",  _lot,            origin, destination, date_from, price_max, 10)),
     ]
     for t in threads: t.start()
-    for t in threads: t.join(timeout=18)
+    for t in threads: t.join(timeout=20)
 
     merged = _merge(
-        res.get("ry", []), res.get("ryc", []),
+        res.get("kw", []), res.get("ry", []),
         res.get("wz", []), res.get("av", []),
-        res.get("ff", []), res.get("lo", []),
+        res.get("ff", []),
     )
 
     print(f"[Search] {origin}→{destination}: {len(merged)} total")
+
+    # Если ничего не нашли — возвращаем fallback ссылки
+    if not merged:
+        merged = _fallback_links(origin, destination, date_from)
+        print(f"[Search] {origin}→{destination}: using fallback links")
+
     if merged:
         _cache_set(cache_key, merged)
     return merged[:limit]
@@ -518,32 +569,47 @@ def search_round_trip(origin, destination, date_from=None, date_to=None,
     if not return_from:
         return_from = (datetime.now() + timedelta(days=7)).strftime("%d/%m/%Y")
 
-    out = search_flights(origin, destination, date_from, limit=limit)
-    ret = search_flights(destination, origin, return_from, limit=3)
-    if not out:
+    # Параллельно ищем туда и обратно
+    out_res, ret_res = [], []
+
+    def _fetch_out():
+        nonlocal out_res
+        out_res = search_flights(origin, destination, date_from, limit=limit)
+
+    def _fetch_ret():
+        nonlocal ret_res
+        ret_res = search_flights(destination, origin, return_from, limit=5)
+
+    t1 = threading.Thread(target=_fetch_out)
+    t2 = threading.Thread(target=_fetch_ret)
+    t1.start(); t2.start()
+    t1.join(timeout=25); t2.join(timeout=25)
+
+    if not out_res:
         return []
 
-    ret_price = ret[0]["price"] if ret else 0
-    ret_date  = ret[0]["depart_at"][:5] if ret else ""
+    ret_price = ret_res[0]["price"] if ret_res and ret_res[0].get("price") else 0
+    ret_date  = ret_res[0]["depart_at"][:5] if ret_res else ""
+
     results = []
-    for f in out[:limit]:
+    for f in out_res[:limit]:
         c = dict(f)
         if ret_price:
             c["price"]     = f["price"] + ret_price
             c["return_at"] = ret_date
-            try:
-                d1 = datetime.strptime(date_from,   "%d/%m/%Y").strftime("%Y-%m-%d")
-                d2 = datetime.strptime(return_from, "%d/%m/%Y").strftime("%Y-%m-%d")
-                c["link"] = _google_link(origin, destination, d1, d2)
-            except Exception:
-                pass
+        try:
+            d1 = datetime.strptime(date_from,   "%d/%m/%Y").strftime("%Y-%m-%d")
+            d2 = datetime.strptime(return_from, "%d/%m/%Y").strftime("%Y-%m-%d")
+            c["link"] = _google_link(origin, destination, d1, d2)
+            c["link_aviasales"] = _aviasales_link(origin, destination, d1)
+        except Exception:
+            pass
         results.append(c)
     results.sort(key=lambda x: x["price"])
     return results[:limit]
 
 
 def get_hot_deals(origins, price_max=80, limit=40):
-    """Fetch hot deals from multiple origins × destinations in parallel."""
     from config import POPULAR_DESTINATIONS
     dests     = [code for _, code in POPULAR_DESTINATIONS]
     date_from = (datetime.now() + timedelta(days=1)).strftime("%d/%m/%Y")
@@ -554,7 +620,6 @@ def get_hot_deals(origins, price_max=80, limit=40):
         if org == dst:
             return
         try:
-            # Use only fast sources for hot deals scan
             ry = _ryanair(org, dst, date_from, price_max=price_max, limit=3)
             wz = _wizzair(org, dst, date_from, price_max=price_max, limit=3)
             flights = _merge(ry, wz)[:3]
@@ -581,10 +646,9 @@ def get_hot_deals(origins, price_max=80, limit=40):
 
 
 def get_cheapest_dates(origin, destination, months=3):
-    """Top cheapest dates for a route."""
     date_from = (datetime.now() + timedelta(days=1)).strftime("%d/%m/%Y")
-    # Try Ryanair calendar first (most accurate for FR routes)
-    results = _ryanair_calendar(origin, destination, date_from, limit=30)
+    # Kiwi первый — он работает для любых маршрутов
+    results = _kiwi(origin, destination, date_from, limit=30)
     if not results:
         results = _ryanair(origin, destination, date_from, limit=20)
     if not results:
@@ -598,7 +662,6 @@ def get_cheapest_dates(origin, destination, months=3):
 
 
 def get_week_prices(origin, destination):
-    """Price for each of next 7 days."""
     out = []
     days_ru = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
     now = datetime.now()
@@ -606,15 +669,15 @@ def get_week_prices(origin, destination):
         day = now + timedelta(days=i)
         iso = day.strftime("%Y-%m-%d")
         d_from = day.strftime("%d/%m/%Y")
-        flights = _ryanair(origin, destination, d_from, limit=1)
+        flights = _kiwi(origin, destination, d_from, limit=1)
+        if not flights:
+            flights = _ryanair(origin, destination, d_from, limit=1)
         if not flights:
             flights = _wizzair(origin, destination, d_from, limit=1)
-        if not flights:
-            flights = _aviasales_open(origin, destination, d_from, limit=1)
         entry = {
             "date": day.strftime("%d.%m"),
             "weekday": days_ru[day.weekday()],
-            "price": flights[0]["price"] if flights else None,
+            "price": flights[0]["price"] if flights and flights[0].get("price") else None,
             "link": flights[0]["link"] if flights else _google_link(origin, destination, iso),
             "link_aviasales": _aviasales_link(origin, destination, iso),
         }

@@ -70,24 +70,33 @@ def _flight_text(f: dict, idx: int = None, total: int = None) -> str:
     flag = _dest_flag(f.get("destination", ""))
     icon = _airline_icon(f.get("airline_code") or f.get("airline", ""))
     price = f.get("price", 0)
-
-    # Hot badge
-    if price <= 35:
-        badge = "🔥 <b>ГОРЯЩИЙ!</b>  "
-    elif price <= 60:
-        badge = "💚 <b>Дёшево</b>  "
-    else:
-        badge = ""
+    is_fallback = f.get("_is_fallback", False)
 
     header = f"✈️ <b>{f['origin_city']} → {f['dest_city']}</b> {flag}"
     if idx is not None and total:
         header += f"  <i>({idx+1}/{total})</i>"
 
-    lines = [
-        header,
-        f"{badge}💰 <b>{price} {f.get('currency','EUR')}</b>",
-        f"{icon} {f['airline']}",
-    ]
+    if is_fallback:
+        # Нет точной цены — показываем ссылку для поиска
+        lines = [
+            header,
+            f"🔍 <b>Нажми чтобы найти цену</b>",
+            f"{icon} {f['airline']}",
+        ]
+    else:
+        # Hot badge
+        if price <= 35:
+            badge = "🔥 <b>ГОРЯЩИЙ!</b>  "
+        elif price <= 60:
+            badge = "💚 <b>Дёшево</b>  "
+        else:
+            badge = ""
+        lines = [
+            header,
+            f"{badge}💰 <b>{price} {f.get('currency','EUR')}</b>",
+            f"{icon} {f['airline']}",
+        ]
+
     if f.get("depart_at"):
         dep = f"📅 {f['depart_at']}"
         if f.get("arrive_at"):
@@ -102,6 +111,8 @@ def _flight_text(f: dict, idx: int = None, total: int = None) -> str:
         details.append(f"🔀 {f['stops']}")
     if details:
         lines.append("  ".join(details))
+    if is_fallback:
+        lines.append("\n💡 <i>Точная цена — на сайте авиакомпании</i>")
     return "\n".join(lines)
 
 
