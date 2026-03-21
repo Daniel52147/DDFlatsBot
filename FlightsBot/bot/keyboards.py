@@ -112,10 +112,16 @@ def date_range_kb(label_prefix: str = "dates") -> InlineKeyboardMarkup:
 
 def flight_card_kb(flight: dict, idx: int, total: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(text="🛒 Купить билет", url=flight["link"]),
-        InlineKeyboardButton(text="❤️ Сохранить", callback_data=f"fav:save:{idx}"),
-    )
+    # Primary buy button
+    builder.row(InlineKeyboardButton(text="🛒 Купить билет", url=flight["link"]))
+    # Aviasales alternative if available
+    if flight.get("link_aviasales"):
+        builder.row(
+            InlineKeyboardButton(text="✈️ Aviasales", url=flight["link_aviasales"]),
+            InlineKeyboardButton(text="❤️ Сохранить", callback_data=f"fav:save:{idx}"),
+        )
+    else:
+        builder.row(InlineKeyboardButton(text="❤️ Сохранить", callback_data=f"fav:save:{idx}"))
     if total > 1:
         nav = []
         if idx > 0:
