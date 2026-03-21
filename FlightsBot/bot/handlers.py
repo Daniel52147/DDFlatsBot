@@ -68,11 +68,26 @@ def _airline_icon(airline: str) -> str:
 
 def _flight_text(f: dict, idx: int = None, total: int = None) -> str:
     flag = _dest_flag(f.get("destination", ""))
-    icon = _airline_icon(f.get("airline", ""))
+    icon = _airline_icon(f.get("airline_code") or f.get("airline", ""))
+    price = f.get("price", 0)
+
+    # Hot badge
+    if price <= 35:
+        badge = "🔥 <b>ГОРЯЩИЙ!</b>  "
+    elif price <= 60:
+        badge = "💚 <b>Дёшево</b>  "
+    else:
+        badge = ""
+
     header = f"✈️ <b>{f['origin_city']} → {f['dest_city']}</b> {flag}"
     if idx is not None and total:
         header += f"  <i>({idx+1}/{total})</i>"
-    lines = [header, f"💰 <b>{f['price']} {f['currency']}</b>", f"{icon} {f['airline']}"]
+
+    lines = [
+        header,
+        f"{badge}💰 <b>{price} {f.get('currency','EUR')}</b>",
+        f"{icon} {f['airline']}",
+    ]
     if f.get("depart_at"):
         dep = f"📅 {f['depart_at']}"
         if f.get("arrive_at"):
@@ -154,6 +169,7 @@ async def cmd_help(msg: Message):
         f"✈️ <b>{BOT_NAME} — команды:</b>\n\n"
         "/search — 🔎 найти билет (туда)\n"
         "/roundtrip — 🔄 туда-обратно\n"
+        "/price — 💰 быстрая проверка цены (/price WAW BCN)\n"
         "/hot — 🔥 горящие билеты\n"
         "/popular — 🌍 популярные маршруты\n"
         "/cheapdates — 📅 самые дешёвые даты\n"
@@ -166,7 +182,59 @@ async def cmd_help(msg: Message):
     )
 
 
-# ── Search flow ────────────────────────────────────────────────────────────────
+# ── /price — quick price check ────────────────────────────────────────────────
+
+@router.message(Command("price"))
+async def cmd_price(msg: Message):
+    """Usage: /price WAW BCN  or  /price WAW BCN 2025-05-01"""
+    parts = msg.text.split()
+    if len(parts) < 3:
+        await msg.answer(
+            "📌 <b>Быстрая проверка цены</b>\n\n"
+            "Использование:\n"
+            "<code>/price WAW BCN</code> — ближайший месяц\n"
+            "<code>/price KRK DXB</code> — из Кракова в Дубай\n\n"
+            "IATA коды: WAW, KRK, WRO, GDN, KTW, POZ"
+        )
+        return
+    origin = parts[1].upper()
+    dest   = parts[2].upper()
+    wait   = await msg.answer(f"🔍 Проверяю цену <b>{origin} → {dest}</b>...")
+    loop   = asyncio.get_event_loop()
+    from datetime import datetime, timedelta
+    d_from = (datetime.now() + timedelta(days=1)).strftime("%d/%m/%Y")
+    d_to   = (datetime.now() + timedelta(days=30)).strftime("%d/%m/%Y")
+    flights = await loop.run_in_executor(
+        None, lambda: search_flights(origin, dest, d_from, d_to, limit=3)
+    )
+    try:
+        await wait.delete()
+    except Exception:
+        pass
+    if not flights:
+        await msg.answer(f"😔 Рейсы <b>{origin} → {dest}</b> не найдены.\nПроверь IATA коды.")
+        return
+    f = flights[0]
+    flag = _dest_flag(dest)
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    from aiogram.types import InlineKeyboardButton
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="🛒 Купить", url=f["link"]))
+    if f.get("link_aviasales"):
+        builder.row(InlineKeyboardButton(text="✈️ Aviasales", url=f["link_aviasales"]))
+    builder.row(InlineKeyboardButton(text="🔎 Полный поиск", callback_data="search:new"))
+    await msg.answer(
+        f"💰 <b>Минимальная цена {origin} → {dest}</b> {flag}\n\n"
+        f"<b>{f['price']} EUR</b>  {_airline_icon(f.get('airline_code') or f.get('airline',''))} {f['airline']}\n"
+        f"📅 {f.get('depart_at','')}  ⏱ {f.get('duration','')}\n"
+        f"🔀 {f.get('stops','')}\n\n"
+        + (f"💚 Дёшево!" if f['price'] <= 60 else "") +
+        (f"🔥 Горящий!" if f['price'] <= 35 else ""),
+        reply_markup=builder.as_markup(),
+    )
+
+
+
 
 @router.message(F.text == "🔎 Найти билет")
 @router.message(Command("search"))
