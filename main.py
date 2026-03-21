@@ -191,6 +191,7 @@ async def _post_to_channel():
 async def setup_commands():
     from aiogram.types import BotCommand, BotCommandScopeDefault
     commands = [
+        BotCommand(command="lang",       description="🌍 Сменить язык / Zmień język / Change language"),
         BotCommand(command="start",      description=f"✈️ {BOT_NAME} — главная"),
         BotCommand(command="search",     description="🔎 Найти билет (туда)"),
         BotCommand(command="roundtrip",  description="🔄 Туда-обратно"),

@@ -42,6 +42,20 @@ def _migrate(conn: sqlite3.Connection):
                 print(f"[DB] Migration skip {col}: {e}")
 
 
+def get_user_lang(user_id: int) -> str:
+    conn = get_conn()
+    row = conn.execute("SELECT lang FROM users WHERE user_id=?", (user_id,)).fetchone()
+    conn.close()
+    return row["lang"] if row and row["lang"] else "ru"
+
+
+def set_user_lang(user_id: int, lang: str):
+    conn = get_conn()
+    conn.execute("UPDATE users SET lang=? WHERE user_id=?", (lang, user_id))
+    conn.commit()
+    conn.close()
+
+
 # ── Users ──────────────────────────────────────────────────────────────────────
 
 def get_or_create_user(user_id: int, username: str = "", first_name: str = "") -> dict:

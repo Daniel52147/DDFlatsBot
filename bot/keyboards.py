@@ -9,13 +9,32 @@ from config import POPULAR_DESTINATIONS, CHANNEL_LINK, VIP_PRICE_PLN, VIP_PRICE_
 
 # ── Main menu ──────────────────────────────────────────────────────────────────
 
-def main_menu_kb() -> ReplyKeyboardMarkup:
+MENU_LABELS = {
+    "ru": ["🔎 Найти билет", "🔄 Туда-обратно", "🔥 Горящие", "🌍 Популярные",
+           "📅 Дешёвые даты", "🔔 Алерты", "❤️ Избранное", "⭐ VIP"],
+    "pl": ["🔎 Szukaj biletu", "🔄 W obie strony", "🔥 Gorące oferty", "🌍 Popularne",
+           "📅 Najtańsze daty", "🔔 Alerty", "❤️ Ulubione", "⭐ VIP"],
+    "en": ["🔎 Find flight", "🔄 Round trip", "🔥 Hot deals", "🌍 Popular",
+           "📅 Cheapest dates", "🔔 Alerts", "❤️ Favorites", "⭐ VIP"],
+}
+
+def main_menu_kb(lang: str = "ru") -> ReplyKeyboardMarkup:
+    labels = MENU_LABELS.get(lang, MENU_LABELS["ru"])
     kb = ReplyKeyboardBuilder()
-    kb.row(KeyboardButton(text="🔎 Найти билет"), KeyboardButton(text="🔄 Туда-обратно"))
-    kb.row(KeyboardButton(text="🔥 Горящие"),     KeyboardButton(text="🌍 Популярные"))
-    kb.row(KeyboardButton(text="📅 Дешёвые даты"), KeyboardButton(text="🔔 Алерты"))
-    kb.row(KeyboardButton(text="❤️ Избранное"),   KeyboardButton(text="⭐ VIP"))
+    kb.row(KeyboardButton(text=labels[0]), KeyboardButton(text=labels[1]))
+    kb.row(KeyboardButton(text=labels[2]), KeyboardButton(text=labels[3]))
+    kb.row(KeyboardButton(text=labels[4]), KeyboardButton(text=labels[5]))
+    kb.row(KeyboardButton(text=labels[6]), KeyboardButton(text=labels[7]))
     return kb.as_markup(resize_keyboard=True)
+
+
+def lang_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🇷🇺 Русский",  callback_data="lang:ru")
+    builder.button(text="🇵🇱 Polski",   callback_data="lang:pl")
+    builder.button(text="🇬🇧 English",  callback_data="lang:en")
+    builder.adjust(3)
+    return builder.as_markup()
 
 
 # ── Trip type ──────────────────────────────────────────────────────────────────

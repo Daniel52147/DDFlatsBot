@@ -12,14 +12,16 @@ from database.db import (
     get_recent_hot_deals, get_stats, save_search,
     get_full_stats, get_recent_users, get_top_users, get_early_adopters,
     get_user_info, revoke_vip, ban_user, unban_user, is_banned,
+    get_user_lang, set_user_lang,
 )
 from search.flights import search_flights, get_cheapest_dates, search_round_trip, get_week_prices
 from bot.keyboards import (
     main_menu_kb, origins_kb, destinations_kb, date_range_kb,
     flight_card_kb, hot_deal_kb, alerts_list_kb, favorites_kb,
     vip_kb, vip_manual_kb, cancel_kb, trip_type_kb, filters_kb,
-    admin_kb, admin_user_kb,
+    admin_kb, admin_user_kb, lang_kb, MENU_LABELS,
 )
+from bot.i18n import t
 from config import (
     ADMIN_IDS, VIP_PRICE_PLN, VIP_PRICE_STARS,
     FREE_SEARCHES, CHANNEL_LINK, BOT_NAME,
@@ -43,6 +45,10 @@ class SetAlert(StatesGroup):
     origin      = State()
     destination = State()
     price_max   = State()
+
+
+class LangSelect(StatesGroup):
+    waiting = State()
 
 
 class AdminState(StatesGroup):
@@ -141,35 +147,55 @@ def _dest_flag(iata: str) -> str:
 async def cmd_start(msg: Message, state: FSMContext):
     await state.clear()
     if is_banned(msg.from_user.id):
-        await msg.answer("🚫 Ваш аккаунт заблокирован.")
+        await msg.answer("🚫 Ваш аккаунт заблокирован. / Konto zablokowane. / Account banned.")
         return
     user = get_or_create_user(msg.from_user.id, msg.from_user.username or "", msg.from_user.first_name or "")
+    lang = get_user_lang(msg.from_user.id)
+
+    # Новый пользователь — предлагаем выбрать язык
+    if user.get("total_searches", 0) == 0 and not user.get("lang") or user.get("lang") == "ru":
+        is_new = user.get("total_searches", 0) == 0
+        if is_new:
+            await msg.answer(
+                t("choose_lang", "ru"),
+                reply_markup=lang_kb(),
+            )
+            return
+
+    await _show_main_menu(msg, lang, user)
+
+
+async def _show_main_menu(msg: Message, lang: str, user: dict):
     vip_status = is_vip(msg.from_user.id)
     early = user.get("is_early_adopter", 0)
-    if early:
-        badge = " 🌟"  # early adopter
-    elif vip_status:
-        badge = " ⭐"
-    else:
-        badge = ""
+    badge = " 🌟" if early else (" ⭐" if vip_status else "")
     left = searches_left(msg.from_user.id)
     left_str = "∞" if left >= 999 else str(left)
-    name = msg.from_user.first_name or "друг"
-
-    welcome_extra = ""
+    name = msg.from_user.first_name or ("друг" if lang == "ru" else ("przyjacielu" if lang == "pl" else "friend"))
+    vip_str = "(∞ VIP)" if vip_status else (f"из {FREE_SEARCHES}" if lang == "ru" else (f"z {FREE_SEARCHES}" if lang == "pl" else f"of {FREE_SEARCHES}"))
+    extra = ""
     if early and user.get("total_searches", 0) == 0:
-        welcome_extra = "\n\n🌟 <b>Ты один из первых 50 пользователей!</b>\nVIP навсегда — бесплатно. Спасибо что с нами с самого начала!"
-
+        extra = t("early_badge", lang)
     await msg.answer(
-        f"✈️ <b>{BOT_NAME}{badge}</b>\n\n"
-        f"Привет, {name}! Нахожу самые дешёвые авиабилеты из Польши.\n\n"
-        f"🔎 Поисков сегодня: <b>{left_str}</b> {'(∞ VIP)' if vip_status else f'из {FREE_SEARCHES}'}\n"
-        f"🔥 Горящие билеты обновляются каждые 2 часа\n"
-        f"📢 Канал: {CHANNEL_LINK}"
-        f"{welcome_extra}\n\n"
-        f"Выбери действие 👇",
-        reply_markup=main_menu_kb(),
+        t("welcome", lang, bot=BOT_NAME, badge=badge, name=name,
+          left=left_str, vip_str=vip_str, channel=CHANNEL_LINK, extra=extra),
+        reply_markup=main_menu_kb(lang),
     )
+
+
+@router.callback_query(F.data.startswith("lang:"))
+async def set_lang_cb(call: CallbackQuery, state: FSMContext):
+    lang = call.data.split(":")[1]
+    set_user_lang(call.from_user.id, lang)
+    await call.answer(t("lang_set", lang))
+    user = get_or_create_user(call.from_user.id, call.from_user.username or "", call.from_user.first_name or "")
+    await call.message.edit_reply_markup(reply_markup=None)
+    await _show_main_menu(call.message, lang, user)
+
+
+@router.message(Command("lang"))
+async def cmd_lang(msg: Message):
+    await msg.answer(t("choose_lang", get_user_lang(msg.from_user.id)), reply_markup=lang_kb())
 
 
 # ── /help ──────────────────────────────────────────────────────────────────────
@@ -296,56 +322,55 @@ async def cmd_week(msg: Message):
 
 
 @router.message(F.text == "🔎 Найти билет")
+@router.message(F.text == "🔎 Szukaj biletu")
+@router.message(F.text == "🔎 Find flight")
 @router.message(Command("search"))
 async def start_search(msg: Message, state: FSMContext):
     await state.clear()
+    lang = get_user_lang(msg.from_user.id)
     if not can_search(msg.from_user.id):
         await msg.answer(
-            f"⚠️ <b>Лимит поисков исчерпан</b> ({FREE_SEARCHES}/день).\n\n"
-            f"⭐ <b>VIP</b> — безлимитный поиск + алерты\n"
-            f"💰 Всего {VIP_PRICE_PLN} zł/мес\n\n👉 /vip",
+            t("limit_reached", lang) + f"\n\n👉 /vip",
             reply_markup=vip_kb(),
         )
         return
     await state.update_data(mode="oneway")
     await state.set_state(SearchFlight.origin)
-    await msg.answer("🛫 <b>Откуда летим?</b>", reply_markup=origins_kb())
+    await msg.answer(t("search_from", lang), reply_markup=origins_kb())
 
 
 @router.message(Command("roundtrip"))
 @router.message(F.text == "🔄 Туда-обратно")
+@router.message(F.text == "🔄 W obie strony")
+@router.message(F.text == "🔄 Round trip")
 async def start_roundtrip(msg: Message, state: FSMContext):
     await state.clear()
+    lang = get_user_lang(msg.from_user.id)
     if not can_search(msg.from_user.id):
-        await msg.answer(
-            f"⚠️ Лимит поисков исчерпан ({FREE_SEARCHES}/день). /vip",
-            reply_markup=vip_kb(),
-        )
+        await msg.answer(t("limit_reached", lang) + "\n\n👉 /vip", reply_markup=vip_kb())
         return
     await state.update_data(mode="roundtrip")
     await state.set_state(SearchFlight.origin)
-    await msg.answer("🔄 <b>Туда-обратно</b>\n\n🛫 Откуда летим?", reply_markup=origins_kb())
+    await msg.answer(t("trip_type", lang), reply_markup=origins_kb())
 
 
 @router.callback_query(SearchFlight.origin, F.data.startswith("origin:"))
 async def pick_origin(call: CallbackQuery, state: FSMContext):
+    lang = get_user_lang(call.from_user.id)
     origin = call.data.split(":")[1]
     await state.update_data(origin=origin)
     await state.set_state(SearchFlight.destination)
-    await call.message.edit_text("🛬 <b>Куда летим?</b>", reply_markup=destinations_kb())
+    await call.message.edit_text(t("search_to", lang), reply_markup=destinations_kb())
     await call.answer()
 
 
 @router.callback_query(SearchFlight.destination, F.data.startswith("dest:"))
 async def pick_destination(call: CallbackQuery, state: FSMContext):
+    lang = get_user_lang(call.from_user.id)
     parts = call.data.split(":")
     if parts[1] == "manual":
         await state.set_state(SearchFlight.dest_manual)
-        await call.message.edit_text(
-            "✏️ Введи <b>IATA-код</b> аэропорта назначения\n\n"
-            "Примеры: <code>BCN</code> (Barcelona), <code>DXB</code> (Dubai), <code>BKK</code> (Bangkok)",
-            reply_markup=cancel_kb(),
-        )
+        await call.message.edit_text(t("manual_iata", lang), reply_markup=cancel_kb())
         await call.answer()
         return
     dest_code = parts[1]
@@ -574,34 +599,32 @@ async def popular_search(call: CallbackQuery, state: FSMContext):
 
 @router.message(Command("cheapdates"))
 @router.message(F.text == "📅 Дешёвые даты")
+@router.message(F.text == "📅 Najtańsze daty")
+@router.message(F.text == "📅 Cheapest dates")
 async def cmd_cheapdates(msg: Message, state: FSMContext):
     await state.clear()
+    lang = get_user_lang(msg.from_user.id)
     await state.update_data(mode="cheapdates")
     await state.set_state(SearchFlight.origin)
-    await msg.answer(
-        "📅 <b>Самые дешёвые даты</b>\n\n"
-        "Найду топ-5 самых дешёвых дат вылета для маршрута.\n\n"
-        "🛫 Откуда летим?",
-        reply_markup=origins_kb(),
-    )
+    await msg.answer(t("search_from", lang), reply_markup=origins_kb())
 
 
 # ── Hot deals ──────────────────────────────────────────────────────────────────
 
 @router.message(F.text == "🔥 Горящие")
+@router.message(F.text == "🔥 Gorące oferty")
+@router.message(F.text == "🔥 Hot deals")
 @router.message(Command("hot"))
 async def cmd_hot(msg: Message):
+    lang = get_user_lang(msg.from_user.id)
     deals = get_recent_hot_deals(limit=10)
     if not deals:
         await msg.answer(
-            "🔥 <b>Горящие билеты</b>\n\n"
-            "Пока нет актуальных предложений.\n"
-            "Обновляем каждые 2 часа!\n\n"
-            f"📢 Подпишись на канал: {CHANNEL_LINK}",
-            reply_markup=main_menu_kb(),
+            t("hot_empty", lang, channel=CHANNEL_LINK),
+            reply_markup=main_menu_kb(lang),
         )
         return
-    await msg.answer(f"🔥 <b>Горящие билеты — {len(deals)} предложений:</b>")
+    await msg.answer(t("hot_title", lang, n=len(deals)))
     for deal in deals:
         flag = _dest_flag(deal.get("destination", ""))
         text = (
@@ -635,19 +658,17 @@ async def hot_more(call: CallbackQuery):
 # ── Alerts ─────────────────────────────────────────────────────────────────────
 
 @router.message(F.text == "🔔 Алерты")
+@router.message(F.text == "🔔 Alerty")
+@router.message(F.text == "🔔 Alerts")
 @router.message(Command("alerts"))
 async def cmd_alerts(msg: Message):
+    lang = get_user_lang(msg.from_user.id)
     alerts = get_user_alerts(msg.from_user.id)
     if not alerts:
-        await msg.answer(
-            "🔔 <b>Алерты</b>\n\nНет активных алертов.\n\n"
-            "Алерт — уведомление когда цена на маршрут упадёт ниже нужной суммы.\n\n"
-            "Нажми ➕ чтобы добавить:",
-            reply_markup=alerts_list_kb([]),
-        )
+        await msg.answer(t("alerts_empty", lang), reply_markup=alerts_list_kb([]))
         return
     await msg.answer(
-        f"🔔 <b>Твои алерты ({len(alerts)}):</b>\n\nНажми на алерт чтобы удалить:",
+        f"🔔 <b>{'Твои алерты' if lang=='ru' else ('Twoje alerty' if lang=='pl' else 'Your alerts')} ({len(alerts)}):</b>",
         reply_markup=alerts_list_kb(alerts),
     )
 
@@ -664,35 +685,33 @@ async def alert_new_cb(call: CallbackQuery, state: FSMContext):
 
 
 async def _start_alert_flow(msg: Message, state: FSMContext):
+    lang = get_user_lang(msg.from_user.id if hasattr(msg, 'from_user') and msg.from_user else 0)
     await state.set_state(SetAlert.origin)
-    await msg.answer("🛫 <b>Откуда?</b>\n\nВыбери аэропорт вылета:", reply_markup=origins_kb("alert_origin"))
+    await msg.answer(t("alert_origin", lang), reply_markup=origins_kb("alert_origin"))
 
 
 @router.callback_query(SetAlert.origin, F.data.startswith("alert_origin:"))
 async def alert_pick_origin(call: CallbackQuery, state: FSMContext):
+    lang = get_user_lang(call.from_user.id)
     origin = call.data.split(":")[1]
     await state.update_data(origin=origin)
     await state.set_state(SetAlert.destination)
-    await call.message.edit_text("🛬 <b>Куда?</b>", reply_markup=destinations_kb("alert_dest"))
+    await call.message.edit_text(t("alert_dest", lang), reply_markup=destinations_kb("alert_dest"))
     await call.answer()
 
 
 @router.callback_query(SetAlert.destination, F.data.startswith("alert_dest:"))
 async def alert_pick_dest(call: CallbackQuery, state: FSMContext):
+    lang = get_user_lang(call.from_user.id)
     parts = call.data.split(":")
     if parts[1] == "manual":
-        await call.message.edit_text("✏️ Введи IATA-код:", reply_markup=cancel_kb())
+        await call.message.edit_text(t("manual_iata", lang), reply_markup=cancel_kb())
         await call.answer()
         return
     dest = parts[1]
     await state.update_data(destination=dest)
     await state.set_state(SetAlert.price_max)
-    await call.message.edit_text(
-        "💰 <b>Максимальная цена (EUR)?</b>\n\n"
-        "Введи число, например: <code>50</code>\n"
-        "Или <code>0</code> — получать все предложения:",
-        reply_markup=cancel_kb(),
-    )
+    await call.message.edit_text(t("alert_price", lang), reply_markup=cancel_kb())
     await call.answer()
 
 
@@ -751,13 +770,20 @@ async def alert_from_route(call: CallbackQuery, state: FSMContext):
 # ── Favorites ──────────────────────────────────────────────────────────────────
 
 @router.message(F.text == "❤️ Избранное")
+@router.message(F.text == "❤️ Ulubione")
+@router.message(F.text == "❤️ Favorites")
 @router.message(Command("favorites"))
 async def cmd_favorites(msg: Message):
+    lang = get_user_lang(msg.from_user.id)
     favs = get_favorites(msg.from_user.id)
+    empty_text = {"ru": "❤️ <b>Избранное пусто</b>\n\nСохраняй билеты кнопкой ❤️ при поиске.",
+                  "pl": "❤️ <b>Ulubione jest puste</b>\n\nZapisuj bilety przyciskiem ❤️ podczas wyszukiwania.",
+                  "en": "❤️ <b>Favorites is empty</b>\n\nSave flights with the ❤️ button during search."}
     if not favs:
-        await msg.answer("❤️ <b>Избранное пусто</b>\n\nСохраняй билеты кнопкой ❤️ при поиске или в горящих.")
+        await msg.answer(empty_text.get(lang, empty_text["ru"]))
         return
-    await msg.answer(f"❤️ <b>Избранное ({len(favs)}):</b>", reply_markup=favorites_kb(favs))
+    title = {"ru": f"❤️ <b>Избранное ({len(favs)}):</b>", "pl": f"❤️ <b>Ulubione ({len(favs)}):</b>", "en": f"❤️ <b>Favorites ({len(favs)}):</b>"}
+    await msg.answer(title.get(lang, title["ru"]), reply_markup=favorites_kb(favs))
 
 
 @router.callback_query(F.data.startswith("fav:save:"))
@@ -847,20 +873,15 @@ async def fav_clear_cb(call: CallbackQuery):
 @router.message(F.text == "⭐ VIP")
 @router.message(Command("vip"))
 async def cmd_vip(msg: Message):
+    lang = get_user_lang(msg.from_user.id)
     if is_vip(msg.from_user.id):
-        await msg.answer(
-            f"⭐ <b>У тебя уже есть VIP!</b>\n\n"
-            f"✅ Безлимитный поиск\n✅ Алерты на маршруты\n"
-            f"✅ Уведомления о горящих билетах\n✅ Поиск туда-обратно\n\n"
-            f"Спасибо за поддержку! 🙏"
-        )
+        already = {"ru": "⭐ <b>У тебя уже есть VIP!</b>\n\n✅ Безлимитный поиск\n✅ Алерты\n✅ Горящие уведомления\n\nСпасибо! 🙏",
+                   "pl": "⭐ <b>Masz już VIP!</b>\n\n✅ Nieograniczone wyszukiwania\n✅ Alerty\n✅ Powiadomienia o gorących ofertach\n\nDziękujemy! 🙏",
+                   "en": "⭐ <b>You already have VIP!</b>\n\n✅ Unlimited searches\n✅ Alerts\n✅ Hot deal notifications\n\nThank you! 🙏"}
+        await msg.answer(already.get(lang, already["ru"]))
         return
     await msg.answer(
-        f"⭐ <b>VIP — {BOT_NAME}</b>\n\n"
-        f"🆓 Бесплатно: {FREE_SEARCHES} поисков/день\n"
-        f"⭐ VIP: безлимитный поиск + алерты + туда-обратно\n\n"
-        f"💰 <b>{VIP_PRICE_PLN} zł/мес</b> или <b>{VIP_PRICE_STARS} Telegram Stars</b>\n\n"
-        f"Выбери способ оплаты:",
+        t("vip_text", lang, price_pln=VIP_PRICE_PLN, price_stars=VIP_PRICE_STARS),
         reply_markup=vip_kb(),
     )
 
