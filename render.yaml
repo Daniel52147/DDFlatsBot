@@ -2,9 +2,12 @@ services:
   - type: worker
     name: skycheap-bot
     env: python
+    pythonVersion: "3.11.9"
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
       - key: BOT_TOKEN
         value: "8611527220:AAFH5ClovMuUp7h3-rXscWPucEVQwNacYFs"
       - key: ADMIN_IDS
