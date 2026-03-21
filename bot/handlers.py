@@ -421,7 +421,7 @@ async def pick_dates(call: CallbackQuery, state: FSMContext):
     await call.message.edit_text(f"🔍 Ищу билеты <b>{origin} → {dest_city}</b>...\n⏳ Обычно 5–10 секунд")
     loop = asyncio.get_event_loop()
     flights = await loop.run_in_executor(
-        None, lambda: search_flights(origin, destination, date_from, date_to, limit=10)
+        None, lambda: search_flights(origin, destination, date_from, date_to, limit=15)
     )
     save_search(call.from_user.id, origin, destination, date_from, date_to, len(flights))
     increment_searches(call.from_user.id)
@@ -580,7 +580,7 @@ async def cmd_cheapdates(msg: Message, state: FSMContext):
 @router.message(F.text == "🔥 Горящие")
 @router.message(Command("hot"))
 async def cmd_hot(msg: Message):
-    deals = get_recent_hot_deals(limit=5)
+    deals = get_recent_hot_deals(limit=10)
     if not deals:
         await msg.answer(
             "🔥 <b>Горящие билеты</b>\n\n"
