@@ -55,6 +55,7 @@ def init_db():
         "ALTER TABLE users ADD COLUMN ref_count INTEGER DEFAULT 0",
         "ALTER TABLE users ADD COLUMN lang TEXT DEFAULT 'ru'",
         "ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'",
+        "ALTER TABLE users ADD COLUMN last_visit TEXT",
         "ALTER TABLE apartments ADD COLUMN rooms INTEGER",
         "ALTER TABLE apartments ADD COLUMN area REAL",
         "ALTER TABLE apartments ADD COLUMN floor TEXT",
@@ -739,6 +740,44 @@ def get_top_new_apartments(limit: int = 5) -> list:
         """, (today, limit)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def get_new_since(since_iso: str) -> int:
+    """Count apartments added since a given ISO datetime."""
+    conn = get_conn()
+    count = conn.execute(
+        "SELECT COUNT(*) FROM apartments WHERE created_at > ?", (since_iso,)
+    ).fetchone()[0]
+    conn.close()
+    return count
+
+
+def update_last_visit(user_id: int):
+    """Store user's last visit time."""
+    conn = get_conn()
+    try:
+        conn.execute(
+            "UPDATE users SET last_visit=? WHERE user_id=?",
+            (datetime.now().isoformat(), user_id)
+        )
+        conn.commit()
+    except Exception:
+        pass
+    conn.close()
+
+
+def get_last_visit(user_id: int) -> str | None:
+    """Get user's last visit time."""
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT last_visit FROM users WHERE user_id=?", (user_id,)
+        ).fetchone()
+        conn.close()
+        return row["last_visit"] if row and row.get("last_visit") else None
+    except Exception:
+        conn.close()
+        return None
 
 
 def get_user_streak(user_id: int) -> int:

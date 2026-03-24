@@ -23,6 +23,7 @@ from database.db import (
     get_price_stats, get_cheapest_apartments, get_apartment_by_id,
     add_user_note, get_user_notes, get_similar_apartments, get_new_today_count,
     increment_apt_views, mark_seen, get_seen_ids, record_conversion, get_conversion_stats,
+    get_new_since, update_last_visit, get_last_visit,
 )
 from config import FREE_VIEWS, VIP_PRICE, DISTRICTS, ADMIN_IDS, CHANNEL_LINK, MODERATOR_IDS
 from config import REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS
@@ -288,6 +289,15 @@ async def cmd_start(message: Message, state: FSMContext):
         vip_until = user.get("vip_until", "")[:10] if user.get("vip_until") else "∞"
         vip_badge = t(lang, "vip_badge", until=vip_until)
 
+    # New apartments since last visit
+    new_since_msg = ""
+    last_visit = get_last_visit(message.from_user.id)
+    if last_visit and not is_new:
+        new_count = get_new_since(last_visit)
+        if new_count > 0:
+            new_since_msg = f"\n\n🆕 <b>+{new_count} новых квартир</b> с твоего последнего визита!"
+    update_last_visit(message.from_user.id)
+
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text=t(lang, "btn_find"), callback_data="next"),
@@ -318,7 +328,7 @@ async def cmd_start(message: Message, state: FSMContext):
         ],
     ])
     await message.answer(
-        t(lang, "start_greeting", name=name, badge=vip_badge) + early_adopter_msg +
+        t(lang, "start_greeting", name=name, badge=vip_badge) + early_adopter_msg + new_since_msg +
         "\n\n/menu — полное меню  |  /help — все команды",
         parse_mode="HTML",
         reply_markup=kb
@@ -1686,7 +1696,17 @@ async def cb_open_favorites(call: CallbackQuery):
     if not favs:
         await call.message.answer("❤️ Избранное пусто.\nДобавляй кнопкой под объявлением.")
         return
-    await call.message.answer(f"❤️ <b>Избранное ({len(favs)}):</b>", parse_mode="HTML")
+    # Header with compare button if 2+ favorites
+    header_kb = None
+    if len(favs) >= 2:
+        header_kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="📊 Сравнить квартиры", callback_data="open_compare"),
+        ]])
+    await call.message.answer(
+        f"❤️ <b>Избранное ({len(favs)}):</b>",
+        parse_mode="HTML",
+        reply_markup=header_kb
+    )
     for apt in favs[:10]:
         kb = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="🗑 Удалить", callback_data=f"fav_remove:{apt['id']}"),
@@ -1916,14 +1936,23 @@ async def cb_found(call: CallbackQuery):
     source = apt.get("source", "") if apt else ""
     record_conversion(call.from_user.id, apt_id, source)
     await call.answer("🎉 Поздравляем!", show_alert=True)
+    bot_me = await call.bot.get_me()
+    ref_stats = get_ref_stats(call.from_user.id)
+    ref_code = ref_stats.get("ref_code", "")
+    ref_link = f"https://t.me/{bot_me.username}?start=ref_{ref_code}" if ref_code else f"https://t.me/{bot_me.username}"
+    import urllib.parse
+    share_text = f"Нашёл квартиру в Варшаве через этого бота! Рекомендую 🏠"
+    share_url = f"https://t.me/share/url?url={urllib.parse.quote(ref_link)}&text={urllib.parse.quote(share_text)}"
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="📤 Поделиться ботом с другом", url=share_url),
+    ]])
     await call.message.answer(
-        "🎉 <b>Отлично! Рады за тебя!</b>\n\n"
-        "Если бот помог найти квартиру — расскажи друзьям:\n"
-        "👉 /ref — пригласи друга и получи VIP бесплатно\n\n"
-        "Удачи на новом месте! 🏠",
-        parse_mode="HTML"
+        "🎉 <b>Поздравляем с новой квартирой!</b>\n\n"
+        "Если бот помог — расскажи друзьям.\n"
+        "За каждого приглашённого — <b>7 дней VIP бесплатно!</b> 🎁",
+        parse_mode="HTML",
+        reply_markup=kb
     )
-    # Notify admin
     for admin_id in ADMIN_IDS:
         try:
             apt_info = f"🏠 {apt['title']} · {apt.get('price',0)} zł · {apt.get('source','')}" if apt else f"apt_id={apt_id}"

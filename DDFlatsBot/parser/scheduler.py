@@ -18,7 +18,7 @@ from database.db import (
     save_apartment, get_latest_apartments, get_all_user_ids,
     get_all_vip_user_ids, get_subscribers_for_district, log_parse,
     match_alerts, check_vip_expiry, get_daily_digest, check_auto_vip_conditions,
-    get_cheapest_apartments, get_conn, get_top_new_apartments,
+    get_cheapest_apartments, get_conn,
 )
 from config import CHANNEL_ID, DB_PATH, ADMIN_IDS
 
@@ -306,7 +306,6 @@ async def _daily_digest():
 
     from database.db import get_price_drops_today
     drops = get_price_drops_today(limit=3)
-    top_apts = get_top_new_apartments(limit=5)
 
     user_ids = get_all_user_ids()
     text = (
@@ -315,38 +314,28 @@ async def _daily_digest():
     )
     if digest["avg_price"]:
         text += f"💰 Средняя цена: <b>{digest['avg_price']} zł</b>\n"
+    if digest["cheapest"]:
+        c = digest["cheapest"]
+        text += (
+            f"\n🏆 <b>Самая дешёвая сегодня:</b>\n"
+            f"🏠 {c['title']}\n"
+            f"💰 {c['price']} zł/мес · 📍 {c.get('district','Warszawa')}\n"
+            f"🔗 <a href=\"{c['link']}\">Открыть</a>\n"
+        )
     if drops:
-        text += f"📉 Снижение цен: {len(drops)} объявл. → /drops\n"
-    text += "\n👇 Топ-5 дешёвых квартир сегодня:"
+        text += f"\n📉 Снижение цен: {len(drops)} объявл. → /drops\n"
+    text += "\n👇 /next — смотреть квартиры"
+
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🏠 Смотреть квартиры", callback_data="next"),
+        InlineKeyboardButton(text="📉 Снижения цен", callback_data="open_drops"),
+    ]])
 
     for uid in user_ids:
         try:
-            await _bot.send_message(uid, text, parse_mode="HTML")
-            # Send top apartments
-            for apt in top_apts:
-                source_icons = {"OLX": "🟠", "Otodom": "🔵", "Gratka": "🟢", "Morizon": "🟣", "Adresowo": "🟡", "Domiporta": "🔴", "Lento": "🟤"}
-                icon = source_icons.get(apt.get("source", ""), "📡")
-                rooms_str = f"{apt['rooms']} комн. · " if apt.get("rooms") else ""
-                apt_text = (
-                    f"🏠 <b>{apt['title']}</b>\n"
-                    f"💰 <b>{apt['price']} zł/мес</b>\n"
-                    f"📍 {apt.get('district', 'Warszawa')} · {rooms_str}{icon} {apt.get('source','')}\n"
-                    f"🔗 <a href=\"{apt['link']}\">Открыть объявление</a>"
-                )
-                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-                kb = InlineKeyboardMarkup(inline_keyboard=[[
-                    InlineKeyboardButton(text="❤️ Избранное", callback_data=f"fav_add:{apt['id']}"),
-                    InlineKeyboardButton(text="➡️ Следующая", callback_data="next"),
-                ]])
-                try:
-                    if apt.get("image"):
-                        await _bot.send_photo(uid, apt["image"], caption=apt_text, reply_markup=kb, parse_mode="HTML")
-                    else:
-                        await _bot.send_message(uid, apt_text, reply_markup=kb, parse_mode="HTML")
-                except Exception:
-                    await _bot.send_message(uid, apt_text, reply_markup=kb, parse_mode="HTML")
-                await asyncio.sleep(0.05)
-            await asyncio.sleep(0.1)
+            await _bot.send_message(uid, text, parse_mode="HTML", reply_markup=kb)
+            await asyncio.sleep(0.05)
         except Exception:
             pass
 
