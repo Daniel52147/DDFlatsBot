@@ -585,22 +585,17 @@ def rate_apartment(user_id: int, apartment_id: int, rating: int):
 # ── Deduplication ─────────────────────────────────────────────
 
 def find_duplicate(title: str, price: int, source: str = "") -> bool:
-    """Check if very similar apartment already exists from the SAME source."""
+    """Cross-source deduplication: same title+price from ANY source = duplicate."""
     if not title or not price:
         return False
     conn = get_conn()
-    short_title = " ".join(title.lower().split())[:40]
-    # Only deduplicate within same source — allow same apt from OLX+Otodom+Gratka+Morizon
-    if source:
-        row = conn.execute(
-            "SELECT id FROM apartments WHERE LOWER(TRIM(title)) LIKE ? AND price=? AND source=? LIMIT 1",
-            (f"{short_title}%", price, source)
-        ).fetchone()
-    else:
-        row = conn.execute(
-            "SELECT id FROM apartments WHERE LOWER(TRIM(title)) LIKE ? AND price=? LIMIT 1",
-            (f"{short_title}%", price)
-        ).fetchone()
+    # Normalize: lowercase, strip extra spaces, take first 50 chars
+    short_title = " ".join(title.lower().split())[:50]
+    # Check across ALL sources — same apartment listed on OLX and Otodom is still a duplicate
+    row = conn.execute(
+        "SELECT id FROM apartments WHERE LOWER(TRIM(title)) LIKE ? AND ABS(price - ?) <= 50 LIMIT 1",
+        (f"{short_title[:35]}%", price)
+    ).fetchone()
     conn.close()
     return row is not None
 
@@ -723,6 +718,27 @@ def get_daily_digest() -> dict:
         "cheapest": dict(cheapest) if cheapest else None,
         "avg_price": int(avg_price) if avg_price else 0,
     }
+
+
+def get_top_new_apartments(limit: int = 5) -> list:
+    """Top new apartments today sorted by price (cheapest first, with photo preferred)."""
+    from datetime import date
+    today = date.today().isoformat()
+    conn = get_conn()
+    # Prefer apartments with photos
+    rows = conn.execute("""
+        SELECT * FROM apartments
+        WHERE price > 0 AND price <= 4000 AND created_at >= ?
+        ORDER BY (image IS NOT NULL AND image != '') DESC, price ASC
+        LIMIT ?
+    """, (today, limit)).fetchall()
+    if not rows:
+        rows = conn.execute("""
+            SELECT * FROM apartments WHERE price > 0 AND created_at >= ?
+            ORDER BY price ASC LIMIT ?
+        """, (today, limit)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 def get_user_streak(user_id: int) -> int:

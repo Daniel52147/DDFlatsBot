@@ -152,7 +152,7 @@ def apt_keyboard(apt_id: int, lat=None, lon=None, lang: str = "ru") -> InlineKey
         InlineKeyboardButton(text="👍", callback_data=f"rate:1:{apt_id}"),
         InlineKeyboardButton(text="👎", callback_data=f"rate:-1:{apt_id}"),
         InlineKeyboardButton(text="🚩", callback_data=f"report:{apt_id}"),
-        InlineKeyboardButton(text="📤", callback_data=f"share:{apt_id}"),
+        InlineKeyboardButton(text="📤 Поделиться", callback_data=f"share:{apt_id}"),
     ]
     row3 = [
         InlineKeyboardButton(text="👁 Уже смотрел", callback_data=f"seen:{apt_id}"),
@@ -323,6 +323,24 @@ async def cmd_start(message: Message, state: FSMContext):
         parse_mode="HTML",
         reply_markup=kb
     )
+    # Show referral link inline — viral growth
+    try:
+        bot_me = await message.bot.get_me()
+        ref_stats = get_ref_stats(message.from_user.id)
+        ref_code = ref_stats.get("ref_code", "")
+        if ref_code:
+            ref_link = f"https://t.me/{bot_me.username}?start=ref_{ref_code}"
+            ref_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="📤 Пригласить друга → VIP бесплатно", url=f"https://t.me/share/url?url={ref_link}&text=Нашёл+бота+для+поиска+квартир+в+Варшаве!+Все+OLX%2C+Otodom%2C+Gratka+в+одном+месте+🏠"),
+            ]])
+            await message.answer(
+                f"👥 Пригласи друга — получи <b>7 дней VIP бесплатно!</b>\n"
+                f"Твоя ссылка: <code>{ref_link}</code>",
+                parse_mode="HTML",
+                reply_markup=ref_kb
+            )
+    except Exception:
+        pass
 
 # ── /next ────────────────────────────────────────────────────
 
@@ -1862,13 +1880,25 @@ async def cb_share(call: CallbackQuery):
     source_icons = {"OLX": "🟠", "Otodom": "🔵", "Gratka": "🟢", "Morizon": "🟣", "Adresowo": "🟡", "Domiporta": "🔴", "Lento": "🟤"}
     icon = source_icons.get(apt.get("source", ""), "📡")
     share_text = (
-        f"🏠 <b>{apt['title']}</b>\n"
+        f"🏠 {apt['title']}\n"
         f"💰 {apt['price']} zł/мес\n"
         f"📍 {apt.get('district', 'Warszawa')}\n"
         f"🔗 {apt['link']}\n\n"
-        f"{icon} Найдено через @{bot_me.username}"
+        f"{icon} Найдено через @{bot_me.username} — все квартиры Варшавы!"
     )
-    await call.message.answer(share_text, parse_mode="HTML")
+    import urllib.parse
+    share_url = f"https://t.me/share/url?url={urllib.parse.quote(apt['link'])}&text={urllib.parse.quote(share_text)}"
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="📤 Поделиться в Telegram", url=share_url),
+        InlineKeyboardButton(text="🔗 Открыть объявление", url=apt["link"]),
+    ]])
+    await call.message.answer(
+        f"📤 <b>Поделиться квартирой:</b>\n\n"
+        f"🏠 {apt['title']}\n"
+        f"💰 {apt['price']} zł/мес · 📍 {apt.get('district','Warszawa')}",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
 
 
 @router.callback_query(F.data.startswith("seen:"))
