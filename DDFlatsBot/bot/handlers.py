@@ -324,6 +324,11 @@ async def cmd_start(message: Message, state: FSMContext):
             InlineKeyboardButton(text=t(lang, "btn_mystats"), callback_data="open_stats"),
         ],
         [
+            InlineKeyboardButton(text="⚡ до 2000 zł", callback_data="quick:2000"),
+            InlineKeyboardButton(text="⚡ до 3000 zł", callback_data="quick:3000"),
+            InlineKeyboardButton(text="⚡ 1 комн.", callback_data="quick:1room"),
+        ],
+        [
             InlineKeyboardButton(text="🔄 Сбросить фильтры", callback_data="reset_filters"),
         ],
     ])
@@ -1874,6 +1879,35 @@ async def cb_cancel(call: CallbackQuery, state: FSMContext):
 async def cb_reset_filters(call: CallbackQuery, state: FSMContext):
     await state.update_data(filters={}, offset=0)
     await call.answer("✅ Фильтры сброшены!", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("quick:"))
+async def cb_quick_filter(call: CallbackQuery, state: FSMContext):
+    """One-tap quick filters from main menu."""
+    key = call.data.split(":")[1]
+    user = get_or_create_user(call.from_user.id)
+    if key == "2000":
+        filters = {"price_max": 2000}
+        label = "до 2000 zł"
+    elif key == "3000":
+        filters = {"price_max": 3000}
+        label = "до 3000 zł"
+    elif key == "1room":
+        filters = {"rooms": 1}
+        label = "1 комната"
+    else:
+        filters = {}
+        label = "все"
+    await state.update_data(filters=filters, offset=0)
+    total = count_apartments(filters, vip=bool(user["vip"]))
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=f"🏠 Смотреть ({total})", callback_data="next"),
+    ]])
+    await call.answer(f"⚡ Фильтр: {label}", show_alert=False)
+    await call.message.answer(
+        f"⚡ <b>Быстрый фильтр: {label}</b>\n🏠 Найдено: <b>{total}</b> квартир",
+        parse_mode="HTML", reply_markup=kb
+    )
 
 
 # ── Rating ────────────────────────────────────────────────────

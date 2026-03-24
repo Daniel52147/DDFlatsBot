@@ -14,6 +14,13 @@ from config import USER_AGENTS
 BASE     = "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa"
 BASE_NEW = "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa?daysSinceCreated=1&by=LATEST&direction=DESC"
 BASE_PRICE_ASC = "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa?by=PRICE&direction=ASC"
+BASE_DIST = "https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/warszawa/{district}?by=LATEST&direction=DESC"
+
+WARSAW_DISTRICTS = [
+    "mokotow", "wola", "praga-poludnie", "praga-polnoc",
+    "ursynow", "bielany", "zoliborz", "ochota",
+    "targowek", "bemowo", "ursus", "wawer",
+]
 
 _ROOMS_MAP = {"ONE": 1, "TWO": 2, "THREE": 3, "FOUR": 4, "FIVE": 5, "MORE": 6}
 
