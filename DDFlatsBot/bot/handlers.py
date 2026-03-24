@@ -1,6 +1,7 @@
 from aiogram import Router, F
 from aiogram.types import (
     Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton,
+    ReplyKeyboardRemove,
 )
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -233,6 +234,10 @@ async def cmd_start(message: Message, state: FSMContext):
         lang = detected_lang
     else:
         lang = get_lang(message.from_user.id)
+
+    # Remove any old ReplyKeyboard from previous bot versions
+    await message.answer(".", reply_markup=ReplyKeyboardRemove())
+    await message.delete()
 
     if is_new:
         kb_disc = InlineKeyboardMarkup(inline_keyboard=[[
