@@ -236,8 +236,11 @@ async def cmd_start(message: Message, state: FSMContext):
         lang = get_lang(message.from_user.id)
 
     # Remove any old ReplyKeyboard from previous bot versions
-    await message.answer(".", reply_markup=ReplyKeyboardRemove())
-    await message.delete()
+    rm_msg = await message.answer(".", reply_markup=ReplyKeyboardRemove())
+    try:
+        await rm_msg.delete()
+    except Exception:
+        pass
 
     if is_new:
         kb_disc = InlineKeyboardMarkup(inline_keyboard=[[

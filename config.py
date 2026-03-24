@@ -1,87 +1,66 @@
 import os
 
-BOT_NAME = "SkyCheap"
-BOT_USERNAME = os.environ.get("BOT_USERNAME", "DDSkyCheapBot")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8655267832:AAHG9jPbmT3UmT4TeHA4xy3IuHSPjJiY4cI")
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8611527220:AAFH5ClovMuUp7h3-rXscWPucEVQwNacYFs")
+FREE_VIEWS = 5
+VIP_PRICE = 19          # zł / month
 
-# Aviasales/Travelpayouts partner API
-# Бесплатный токен: https://www.travelpayouts.com/developers/api
-AVIASALES_TOKEN = os.environ.get("AVIASALES_TOKEN", "")
-AVIASALES_MARKER = os.environ.get("AVIASALES_MARKER", "")
-
-# Kiwi.com Tequila API — бесплатный, реальные цены на все маршруты
-# Регистрация: https://tequila.kiwi.com/portal/register
-KIWI_API_KEY = os.environ.get("KIWI_API_KEY", "")
-
-# DB path — Render disk → project dir fallback
-_PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+# DB path — find a writable persistent location
+# Priority: /var/data (Render disk) → project dir
 _RENDER_DISK = "/var/data"
-
+_PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def _find_db_path() -> str:
-    # On Render: /var/data is the persistent disk
-    if os.path.exists(_RENDER_DISK) or os.environ.get("RENDER"):
-        try:
-            os.makedirs(_RENDER_DISK, exist_ok=True)
-            test = os.path.join(_RENDER_DISK, ".write_test")
-            with open(test, "w") as f:
-                f.write("ok")
-            os.remove(test)
-            return os.path.join(_RENDER_DISK, "skycheap.db")
-        except Exception:
-            pass
-    # DATA_DIR env override
+    # Try /var/data first (Render persistent disk)
+    try:
+        os.makedirs(_RENDER_DISK, exist_ok=True)
+        test = os.path.join(_RENDER_DISK, ".write_test")
+        with open(test, "w") as f:
+            f.write("ok")
+        os.remove(test)
+        return os.path.join(_RENDER_DISK, "Flats.db")
+    except Exception as e:
+        print(f"[Config] /var/data not writable: {e}")
+
+    # Fallback: DATA_DIR env var
     data_dir = os.environ.get("DATA_DIR", "")
     if data_dir:
         try:
             os.makedirs(data_dir, exist_ok=True)
-            return os.path.join(data_dir, "skycheap.db")
+            return os.path.join(data_dir, "Flats.db")
         except Exception:
             pass
-    # Local dev: same folder as config.py
-    return os.path.join(_PROJECT_DIR, "skycheap.db")
+
+    # Last resort: same directory as config.py (works on Render too)
+    # On Render: /opt/render/project/src/DDFlatsBot/config.py
+    return os.path.join(_PROJECT_DIR, "Flats.db")
 
 DB_PATH = _find_db_path()
 print(f"[Config] DB_PATH = {DB_PATH}")
 
 ADMIN_IDS = [int(x) for x in os.environ.get("ADMIN_IDS", "2066158453").split(",") if x.strip()]
+MODERATOR_IDS = []
 
-FREE_SEARCHES = 5       # free searches per day
-VIP_PRICE_PLN = 19      # zł/month
-VIP_PRICE_STARS = 50    # Telegram Stars
-EARLY_ADOPTERS_LIMIT = 50  # first N users get permanent VIP free
+CHANNEL_LINK = "https://t.me/ddflots"
+CHANNEL_ID = os.environ.get("CHANNEL_ID", "@ddflots")
 
-CHANNEL_ID = os.environ.get("CHANNEL_ID", "@DDfrets")
-CHANNEL_LINK = os.environ.get("CHANNEL_LINK", "https://t.me/DDfrets")
+EARLY_ADOPTER_LIMIT = 50
 
-# Popular departure airports (IATA)
-POPULAR_ORIGINS = ["WAW", "KRK", "WRO", "GDN", "KTW", "POZ"]
+REFERRAL_REWARD_DAYS = 7
+REFERRAL_REQUIRED = 3
 
-# Popular destinations with emoji flags
-POPULAR_DESTINATIONS = [
-    ("Barcelona 🇪🇸",  "BCN"),
-    ("Rome 🇮🇹",        "FCO"),
-    ("London 🇬🇧",      "LTN"),
-    ("Paris 🇫🇷",       "CDG"),
-    ("Dubai 🇦🇪",       "DXB"),
-    ("Milan 🇮🇹",       "MXP"),
-    ("Amsterdam 🇳🇱",   "AMS"),
-    ("Lisbon 🇵🇹",      "LIS"),
-    ("Athens 🇬🇷",      "ATH"),
-    ("Tenerife 🇪🇸",    "TFS"),
-    ("Prague 🇨🇿",      "PRG"),
-    ("Vienna 🇦🇹",      "VIE"),
+VIP_EARLY_ACCESS_MINUTES = 0
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/119.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1",
 ]
 
-HOT_DEAL_MAX_PRICE = 100  # EUR
-
-# Rate limiting
-RATE_LIMIT_REQUESTS = 8
-RATE_LIMIT_WINDOW = 10  # seconds
-
-# Webhook
-WEBHOOK_HOST = os.environ.get("WEBHOOK_HOST", "")
-WEBHOOK_PATH = f"/webhook/{BOT_TOKEN.split(':')[0]}" if BOT_TOKEN else "/webhook"
-WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}" if WEBHOOK_HOST else ""
-WEBAPP_PORT = int(os.environ.get("PORT", 8080))
+DISTRICTS = [
+    "Mokotów", "Ursynów", "Wilanów", "Wola", "Śródmieście",
+    "Praga-Południe", "Praga-Północ", "Żoliborz", "Bielany",
+    "Bemowo", "Ochota", "Targówek", "Białołęka", "Ursus", "Włochy",
+]

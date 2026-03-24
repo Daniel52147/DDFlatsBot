@@ -1,45 +1,560 @@
 import sqlite3
-from datetime import datetime, date
-from config import DB_PATH
-from database.models import ALL_TABLES, CREATE_INDEXES
+import os
+import random
+import string
+from datetime import datetime, timedelta
+from database.models import (
+    CREATE_APARTMENTS, CREATE_USERS, CREATE_FAVORITES,
+    CREATE_SUBSCRIPTIONS, CREATE_ALERTS, CREATE_STATS, CREATE_PRICE_HISTORY,
+    CREATE_RATINGS, CREATE_INDEXES, CREATE_USER_NOTES,
+)
+from config import DB_PATH, VIP_EARLY_ACCESS_MINUTES, REFERRAL_REWARD_DAYS, EARLY_ADOPTER_LIMIT
 
 
-def get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+def get_conn():
+    conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
 
 def init_db():
+    print(f"[DB] Initializing database at: {DB_PATH}")
+    print(f"[DB] File exists: {os.path.exists(DB_PATH)}")
     conn = get_conn()
-    for sql in ALL_TABLES:
-        conn.execute(sql)
-    for stmt in CREATE_INDEXES.strip().split("\n"):
-        if stmt.strip():
-            conn.execute(stmt.strip())
-    # Migrations — add new columns if they don't exist
-    _migrate(conn)
+    c = conn.cursor()
+    for sql in [CREATE_APARTMENTS, CREATE_USERS, CREATE_FAVORITES,
+                CREATE_SUBSCRIPTIONS, CREATE_ALERTS, CREATE_STATS,
+                CREATE_PRICE_HISTORY, CREATE_RATINGS, CREATE_USER_NOTES]:
+        c.execute(sql)
+
+    # Create performance indexes
+    for stmt in CREATE_INDEXES.strip().split(";"):
+        stmt = stmt.strip()
+        if stmt:
+            try:
+                c.execute(stmt)
+            except Exception:
+                pass
+
+    # user_seen table
+    try:
+        c.execute("""CREATE TABLE IF NOT EXISTS user_seen (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            apt_id INTEGER NOT NULL,
+            seen_at TEXT,
+            UNIQUE(user_id, apt_id)
+        )""")
+    except Exception:
+        pass
+
+    migrations = [
+        "ALTER TABLE users ADD COLUMN vip_until TEXT",
+        "ALTER TABLE users ADD COLUMN ref_code TEXT",
+        "ALTER TABLE users ADD COLUMN referred_by INTEGER",
+        "ALTER TABLE users ADD COLUMN ref_count INTEGER DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN lang TEXT DEFAULT 'ru'",
+        "ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'",
+        "ALTER TABLE apartments ADD COLUMN rooms INTEGER",
+        "ALTER TABLE apartments ADD COLUMN area REAL",
+        "ALTER TABLE apartments ADD COLUMN floor TEXT",
+        "ALTER TABLE apartments ADD COLUMN furnished INTEGER DEFAULT 0",
+        "ALTER TABLE apartments ADD COLUMN image TEXT",
+        "ALTER TABLE apartments ADD COLUMN score REAL DEFAULT 0",
+        "ALTER TABLE apartments ADD COLUMN verified INTEGER DEFAULT 0",
+        "ALTER TABLE apartments ADD COLUMN reported INTEGER DEFAULT 0",
+        "ALTER TABLE apartments ADD COLUMN apt_views INTEGER DEFAULT 0",
+        """CREATE TABLE IF NOT EXISTS user_activity (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            UNIQUE(user_id, date)
+        )""",
+        """CREATE TABLE IF NOT EXISTS reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            apartment_id INTEGER,
+            reason TEXT,
+            created_at TEXT
+        )""",
+        """CREATE TABLE IF NOT EXISTS mod_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            mod_id INTEGER,
+            action TEXT,
+            target_id INTEGER,
+            note TEXT,
+            created_at TEXT
+        )""",
+        """CREATE TABLE IF NOT EXISTS conversions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            apt_id INTEGER,
+            source TEXT,
+            created_at TEXT
+        )""",
+    ]
+    for sql in migrations:
+        try:
+            c.execute(sql)
+        except Exception:
+            pass  # Column already exists — skip
+
     conn.commit()
     conn.close()
-    print("[DB] Initialized")
+    cleanup_junk_listings()
 
 
-def _migrate(conn: sqlite3.Connection):
-    """Add new columns to existing tables without breaking old data."""
-    existing = {row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
-    migrations = [
-        ("is_early_adopter", "ALTER TABLE users ADD COLUMN is_early_adopter INTEGER DEFAULT 0"),
-        ("banned",           "ALTER TABLE users ADD COLUMN banned INTEGER DEFAULT 0"),
+# ── Apartments ───────────────────────────────────────────────
+
+def _is_apartment_listing(title: str, price: int) -> bool:
+    """Filter out non-apartment listings before saving."""
+    if not title:
+        return False
+    t = title.lower()
+    junk = [
+        "osuszacz", "klimatyzator", "agregat", "laweta", "przyczepa",
+        "rower", "samochód", "skuter", "motor", "kamera", "telewizor",
+        "lodówka", "pralka", "zmywarka", "garaż", "parking",
+        "miejsce postojowe", "komórka", "działka", "lokal użytkowy",
+        "biuro na wynajem", "magazyn", "hala ", "sprzedam dom",
+        "na sprzedaż", "sprzedaż", "skup", "usługi",
+        "na doby", "na godziny", "na noclegi", "noclegi",
+        "na tydzień", "krótkoterminow", "dobowy", "na doby", "/doby", "godz/",
+        "osuszanie", "pochłaniacz",
     ]
-    for col, sql in migrations:
-        if col not in existing:
-            try:
-                conn.execute(sql)
-                print(f"[DB] Migration: added column {col}")
-            except Exception as e:
-                print(f"[DB] Migration skip {col}: {e}")
+    for kw in junk:
+        if kw in t:
+            return False
+    # Price sanity: rentals in Warsaw are 500–20000 zł
+    if price and (price < 300 or price > 30000):
+        return False
+    return True
+
+
+_NON_WARSAW = {
+    "widzew", "górna", "bałuty", "polesie", "retkinia", "śródmieście-wschód",
+    "zgierz", "łódź", "lodz", "częstochowa", "radomsko", "kutno", "łęczyca",
+    "piotrków", "łask", "zduńska", "zelów", "sieradz", "tomaszów",
+    "opoczno", "gdańsk", "gdansk", "kraków", "krakow", "wrocław", "wroclaw",
+    "poznań", "poznan", "katowice", "lublin", "szczecin", "bydgoszcz", "białystok",
+}
+
+
+def _is_warsaw(district: str) -> bool:
+    """Return False if district clearly belongs to another city."""
+    if not district:
+        return True  # unknown district — allow
+    d = district.lower().strip()
+    for city in _NON_WARSAW:
+        if city in d:
+            return False
+    return True
+
+
+def save_apartment(data: dict) -> bool:
+    if not _is_apartment_listing(data.get("title", ""), data.get("price", 0)):
+        return False
+    if not _is_warsaw(data.get("district", "")):
+        return False
+    # Deduplicate within same source only
+    if find_duplicate(data.get("title", ""), data.get("price", 0), data.get("source", "")):
+        return False
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT id, price FROM apartments WHERE link=?", (data["link"],))
+    existing = c.fetchone()
+    if existing:
+        if data.get("price") and existing["price"] != data["price"]:
+            c.execute(
+                "INSERT INTO price_history (apartment_id, price, recorded_at) VALUES (?,?,?)",
+                (existing["id"], data["price"], datetime.now().isoformat())
+            )
+            c.execute("UPDATE apartments SET price=? WHERE id=?",
+                      (data["price"], existing["id"]))
+            conn.commit()
+        conn.close()
+        return False
+    c.execute("""
+        INSERT INTO apartments
+        (title, price, district, rooms, area, floor, furnished, link, image, source, created_at)
+        VALUES (:title,:price,:district,:rooms,:area,:floor,:furnished,:link,:image,:source,:created_at)
+    """, {**data, "created_at": datetime.now().isoformat()})
+    conn.commit()
+    conn.close()
+    return True
+
+
+def get_apartments(filters: dict = None, offset: int = 0, limit: int = 1,
+                   vip: bool = False, exclude_ids: list = None) -> list[dict]:
+    conn = get_conn()
+    c = conn.cursor()
+    query = "SELECT * FROM apartments WHERE 1=1"
+    params = []
+
+    # Early access: free users only see apartments older than N minutes
+    if not vip and VIP_EARLY_ACCESS_MINUTES > 0:
+        cutoff = (datetime.now() - timedelta(minutes=VIP_EARLY_ACCESS_MINUTES)).isoformat()
+        query += " AND created_at <= ?"
+        params.append(cutoff)
+
+    if filters:
+        if filters.get("district"):
+            query += " AND district LIKE ?"
+            params.append(f"%{filters['district']}%")
+        if filters.get("price_max"):
+            query += " AND price <= ? AND price > 0"
+            params.append(filters["price_max"])
+        if filters.get("price_min"):
+            query += " AND price >= ?"
+            params.append(filters["price_min"])
+        if filters.get("rooms"):
+            query += " AND rooms = ?"
+            params.append(filters["rooms"])
+        if filters.get("keyword"):
+            query += " AND title LIKE ?"
+            params.append(f"%{filters['keyword']}%")
+        if filters.get("today"):
+            query += " AND created_at >= ?"
+            params.append(filters["today"])
+        if filters.get("furnished") is not None:
+            query += " AND furnished = ?"
+            params.append(filters["furnished"])
+
+    if exclude_ids:
+        placeholders = ",".join("?" * len(exclude_ids))
+        query += f" AND id NOT IN ({placeholders})"
+        params.extend(exclude_ids)
+
+    query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    params += [limit, offset]
+    rows = c.execute(query, params).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def count_apartments(filters: dict = None, vip: bool = False) -> int:
+    conn = get_conn()
+    c = conn.cursor()
+    query = "SELECT COUNT(*) FROM apartments WHERE 1=1"
+    params = []
+    if not vip and VIP_EARLY_ACCESS_MINUTES > 0:
+        cutoff = (datetime.now() - timedelta(minutes=VIP_EARLY_ACCESS_MINUTES)).isoformat()
+        query += " AND created_at <= ?"
+        params.append(cutoff)
+    if filters:
+        if filters.get("district"):
+            query += " AND district LIKE ?"
+            params.append(f"%{filters['district']}%")
+        if filters.get("price_max"):
+            query += " AND price <= ? AND price > 0"
+            params.append(filters["price_max"])
+        if filters.get("price_min"):
+            query += " AND price >= ?"
+            params.append(filters["price_min"])
+        if filters.get("rooms"):
+            query += " AND rooms = ?"
+            params.append(filters["rooms"])
+        if filters.get("keyword"):
+            query += " AND title LIKE ?"
+            params.append(f"%{filters['keyword']}%")
+        if filters.get("today"):
+            query += " AND created_at >= ?"
+            params.append(filters["today"])
+    count = c.execute(query, params).fetchone()[0]
+    conn.close()
+    return count
+
+
+def get_latest_apartments(since: str) -> list[dict]:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM apartments WHERE created_at > ? ORDER BY created_at DESC",
+        (since,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_price_drop(apartment_id: int):
+    """Returns price drop info if price decreased."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT price, recorded_at FROM price_history WHERE apartment_id=? ORDER BY id DESC LIMIT 2",
+        (apartment_id,)
+    ).fetchall()
+    conn.close()
+    if len(rows) >= 2:
+        new_price, old_price = rows[0]["price"], rows[1]["price"]
+        if new_price < old_price:
+            return {"old": old_price, "new": new_price, "drop": old_price - new_price}
+    return None
+
+
+# ── Users ────────────────────────────────────────────────────
+
+def _gen_ref_code() -> str:
+    return "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
+
+
+def get_or_create_user(user_id: int) -> dict:
+    conn = get_conn()
+    c = conn.cursor()
+    row = c.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
+    if not row:
+        ref_code = _gen_ref_code()
+        c.execute(
+            "INSERT INTO users (user_id, vip, views, ref_code, ref_count, created_at) VALUES (?,0,0,?,0,?)",
+            (user_id, ref_code, datetime.now().isoformat())
+        )
+        conn.commit()
+        row = c.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
+
+        # Early adopter bonus: first N users get 7 days VIP free
+        # Everyone else gets 1 day trial
+        total_users = c.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        conn.close()
+        if total_users <= EARLY_ADOPTER_LIMIT:
+            set_vip(user_id, 1, days=7)
+        else:
+            set_vip(user_id, 1, days=1)  # 1 day trial for all new users
+        return get_or_create_user(user_id)
+
+    conn.close()
+    return dict(row)
+
+
+def increment_views(user_id: int):
+    conn = get_conn()
+    conn.execute("UPDATE users SET views=views+1 WHERE user_id=?", (user_id,))
+    conn.commit()
+    conn.close()
+
+
+def increment_apt_views(apt_id: int):
+    """Track how many times an apartment was shown to users."""
+    conn = get_conn()
+    try:
+        conn.execute("UPDATE apartments SET apt_views=COALESCE(apt_views,0)+1 WHERE id=?", (apt_id,))
+        conn.commit()
+    except Exception:
+        pass
+    conn.close()
+
+
+def set_vip(user_id: int, status: int = 1, days: int = 30):
+    conn = get_conn()
+    vip_until = (datetime.now() + timedelta(days=days)).isoformat() if status else None
+    conn.execute("UPDATE users SET vip=?, vip_until=? WHERE user_id=?",
+                 (status, vip_until, user_id))
+    conn.commit()
+    conn.close()
+
+
+def check_vip_expiry():
+    """Call periodically to auto-expire VIP."""
+    conn = get_conn()
+    now = datetime.now().isoformat()
+    conn.execute(
+        "UPDATE users SET vip=0, vip_until=NULL WHERE vip=1 AND vip_until IS NOT NULL AND vip_until < ?",
+        (now,)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_all_user_ids() -> list:
+    conn = get_conn()
+    rows = conn.execute("SELECT user_id FROM users").fetchall()
+    conn.close()
+    return [r["user_id"] for r in rows]
+
+
+def get_all_vip_user_ids() -> list:
+    conn = get_conn()
+    rows = conn.execute("SELECT user_id FROM users WHERE vip=1").fetchall()
+    conn.close()
+    return [r["user_id"] for r in rows]
+
+
+# ── Referrals ────────────────────────────────────────────────
+
+def apply_referral(new_user_id: int, ref_code: str) -> bool:
+    """Apply referral code. Returns True if successful."""
+    conn = get_conn()
+    c = conn.cursor()
+    referrer = c.execute("SELECT * FROM users WHERE ref_code=?", (ref_code,)).fetchone()
+    if not referrer or referrer["user_id"] == new_user_id:
+        conn.close()
+        return False
+    # Mark new user as referred
+    c.execute("UPDATE users SET referred_by=? WHERE user_id=?",
+              (referrer["user_id"], new_user_id))
+    # Increment referrer count
+    c.execute("UPDATE users SET ref_count=ref_count+1 WHERE user_id=?",
+              (referrer["user_id"],))
+    new_count = c.execute(
+        "SELECT ref_count FROM users WHERE user_id=?", (referrer["user_id"],)
+    ).fetchone()["ref_count"]
+    conn.commit()
+    conn.close()
+
+    # Every 3 referrals = 7 days VIP
+    from config import REFERRAL_REQUIRED
+    if new_count % REFERRAL_REQUIRED == 0:
+        set_vip(referrer["user_id"], 1, days=REFERRAL_REWARD_DAYS)
+        return True
+    return False
+
+
+def get_ref_stats(user_id: int) -> dict:
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT ref_code, ref_count FROM users WHERE user_id=?", (user_id,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else {}
+
+
+# ── Favorites ────────────────────────────────────────────────
+
+def add_favorite(user_id: int, apartment_id: int):
+    conn = get_conn()
+    try:
+        conn.execute("INSERT INTO favorites (user_id, apartment_id) VALUES (?,?)",
+                     (user_id, apartment_id))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        pass
+    conn.close()
+
+
+def remove_favorite(user_id: int, apartment_id: int):
+    conn = get_conn()
+    conn.execute("DELETE FROM favorites WHERE user_id=? AND apartment_id=?",
+                 (user_id, apartment_id))
+    conn.commit()
+    conn.close()
+
+
+def get_favorites(user_id: int) -> list:
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT a.* FROM apartments a
+        JOIN favorites f ON a.id = f.apartment_id
+        WHERE f.user_id=? ORDER BY a.created_at DESC
+    """, (user_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Subscriptions ────────────────────────────────────────────
+
+def subscribe_district(user_id: int, district: str):
+    conn = get_conn()
+    try:
+        conn.execute("INSERT INTO subscriptions (user_id, district) VALUES (?,?)",
+                     (user_id, district))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        pass
+    conn.close()
+
+
+def unsubscribe_district(user_id: int, district: str):
+    conn = get_conn()
+    conn.execute("DELETE FROM subscriptions WHERE user_id=? AND district=?",
+                 (user_id, district))
+    conn.commit()
+    conn.close()
+
+
+def get_user_subscriptions(user_id: int) -> list:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT district FROM subscriptions WHERE user_id=?", (user_id,)
+    ).fetchall()
+    conn.close()
+    return [r["district"] for r in rows]
+
+
+def get_subscribers_for_district(district: str) -> list:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT DISTINCT user_id FROM subscriptions WHERE ? LIKE '%' || district || '%'",
+        (district,)
+    ).fetchall()
+    conn.close()
+    return [r["user_id"] for r in rows]
+
+
+# ── Smart Alerts ─────────────────────────────────────────────
+
+def create_alert(user_id: int, district: str = None, price_min: int = None,
+                 price_max: int = None, rooms: int = None):
+    conn = get_conn()
+    conn.execute("""
+        INSERT INTO alerts (user_id, district, price_min, price_max, rooms, active, created_at)
+        VALUES (?,?,?,?,?,1,?)
+    """, (user_id, district, price_min, price_max, rooms, datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+
+
+def get_user_alerts(user_id: int) -> list:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM alerts WHERE user_id=? AND active=1", (user_id,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def delete_alert(alert_id: int, user_id: int):
+    conn = get_conn()
+    conn.execute("UPDATE alerts SET active=0 WHERE id=? AND user_id=?",
+                 (alert_id, user_id))
+    conn.commit()
+    conn.close()
+
+
+def match_alerts(apartment: dict) -> list:
+    """Returns user_ids whose alerts match this apartment."""
+    conn = get_conn()
+    query = "SELECT user_id FROM alerts WHERE active=1"
+    params = []
+    if apartment.get("district"):
+        query += " AND (district IS NULL OR ? LIKE '%' || district || '%')"
+        params.append(apartment["district"])
+    if apartment.get("price"):
+        query += " AND (price_min IS NULL OR price_min <= ?)"
+        params.append(apartment["price"])
+        query += " AND (price_max IS NULL OR price_max >= ?)"
+        params.append(apartment["price"])
+    if apartment.get("rooms"):
+        query += " AND (rooms IS NULL OR rooms = ?)"
+        params.append(apartment["rooms"])
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+    return [r["user_id"] for r in rows]
+
+
+# ── Stats ────────────────────────────────────────────────────
+
+def log_parse(source: str, count: int):
+    conn = get_conn()
+    conn.execute("INSERT INTO parse_log (source, count, logged_at) VALUES (?,?,?)",
+                 (source, count, datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+
+
+# ── Language ─────────────────────────────────────────────────
+
+def set_user_lang(user_id: int, lang: str):
+    conn = get_conn()
+    conn.execute("UPDATE users SET lang=? WHERE user_id=?", (lang, user_id))
+    conn.commit()
+    conn.close()
 
 
 def get_user_lang(user_id: int) -> str:
@@ -49,402 +564,635 @@ def get_user_lang(user_id: int) -> str:
     return row["lang"] if row and row["lang"] else "ru"
 
 
-def set_user_lang(user_id: int, lang: str):
+# ── Ratings ──────────────────────────────────────────────────
+
+def rate_apartment(user_id: int, apartment_id: int, rating: int):
+    """rating: 1 = like, -1 = dislike"""
     conn = get_conn()
-    conn.execute("UPDATE users SET lang=? WHERE user_id=?", (lang, user_id))
+    conn.execute(
+        "INSERT OR REPLACE INTO ratings (user_id, apartment_id, rating) VALUES (?,?,?)",
+        (user_id, apartment_id, rating)
+    )
+    conn.execute("""
+        UPDATE apartments SET score = (
+            SELECT COALESCE(SUM(rating), 0) FROM ratings WHERE apartment_id=?
+        ) WHERE id=?
+    """, (apartment_id, apartment_id))
     conn.commit()
     conn.close()
 
 
-# ── Users ──────────────────────────────────────────────────────────────────────
+# ── Deduplication ─────────────────────────────────────────────
 
-def get_or_create_user(user_id: int, username: str = "", first_name: str = "") -> dict:
-    from config import EARLY_ADOPTERS_LIMIT
+def find_duplicate(title: str, price: int, source: str = "") -> bool:
+    """Check if very similar apartment already exists from the SAME source."""
+    if not title or not price:
+        return False
     conn = get_conn()
-    row = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
-    if not row:
-        # Check if this user qualifies as early adopter
-        total = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-        is_early = 1 if total < EARLY_ADOPTERS_LIMIT else 0
-        conn.execute(
-            "INSERT INTO users (user_id, username, first_name, is_early_adopter) VALUES (?,?,?,?)",
-            (user_id, username or "", first_name or "", is_early)
-        )
-        conn.commit()
-        # Give early adopters permanent VIP
-        if is_early:
-            conn.execute(
-                "UPDATE users SET vip=1, vip_until=NULL WHERE user_id=?", (user_id,)
-            )
-            conn.commit()
-            print(f"[DB] Early adopter #{total+1}: user {user_id} — VIP granted")
-        row = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
+    short_title = " ".join(title.lower().split())[:40]
+    # Only deduplicate within same source — allow same apt from OLX+Otodom+Gratka+Morizon
+    if source:
+        row = conn.execute(
+            "SELECT id FROM apartments WHERE LOWER(TRIM(title)) LIKE ? AND price=? AND source=? LIMIT 1",
+            (f"{short_title}%", price, source)
+        ).fetchone()
     else:
-        conn.execute(
-            "UPDATE users SET last_seen=datetime('now'), username=?, first_name=? WHERE user_id=?",
-            (username or row["username"], first_name or row["first_name"], user_id)
-        )
-        conn.commit()
-    result = dict(row)
+        row = conn.execute(
+            "SELECT id FROM apartments WHERE LOWER(TRIM(title)) LIKE ? AND price=? LIMIT 1",
+            (f"{short_title}%", price)
+        ).fetchone()
     conn.close()
-    return result
+    return row is not None
 
-
-def is_vip(user_id: int) -> bool:
-    conn = get_conn()
-    row = conn.execute("SELECT vip, vip_until, is_early_adopter FROM users WHERE user_id=?", (user_id,)).fetchone()
-    conn.close()
-    if not row:
-        return False
-    # Early adopters have permanent VIP
-    if row["is_early_adopter"]:
-        return True
-    if not row["vip"]:
-        return False
-    if row["vip_until"]:
-        try:
-            return datetime.fromisoformat(row["vip_until"]) > datetime.now()
-        except Exception:
-            return False
-    return True
-
-
-def set_vip(user_id: int, days: int = 30):
-    from datetime import timedelta
-    until = (datetime.now() + timedelta(days=days)).isoformat()
-    conn = get_conn()
-    conn.execute(
-        "UPDATE users SET vip=1, vip_until=? WHERE user_id=?",
-        (until, user_id)
-    )
-    conn.commit()
-    conn.close()
-
-
-def can_search(user_id: int) -> bool:
-    """Check if user has free searches left today."""
-    if is_vip(user_id):
-        return True
-    conn = get_conn()
-    row = conn.execute(
-        "SELECT searches_today, searches_date FROM users WHERE user_id=?", (user_id,)
-    ).fetchone()
-    conn.close()
-    if not row:
-        return True
-    today = date.today().isoformat()
-    if row["searches_date"] != today:
-        return True  # new day — reset
-    from config import FREE_SEARCHES
-    return (row["searches_today"] or 0) < FREE_SEARCHES
-
-
-def increment_searches(user_id: int):
-    today = date.today().isoformat()
-    conn = get_conn()
-    row = conn.execute(
-        "SELECT searches_today, searches_date FROM users WHERE user_id=?", (user_id,)
-    ).fetchone()
-    if row and row["searches_date"] == today:
-        conn.execute(
-            "UPDATE users SET searches_today=searches_today+1, total_searches=total_searches+1 WHERE user_id=?",
-            (user_id,)
-        )
-    else:
-        conn.execute(
-            "UPDATE users SET searches_today=1, searches_date=?, total_searches=total_searches+1 WHERE user_id=?",
-            (today, user_id)
-        )
-    conn.commit()
-    conn.close()
-
-
-def searches_left(user_id: int) -> int:
-    from config import FREE_SEARCHES
-    if is_vip(user_id):
-        return 999
-    conn = get_conn()
-    row = conn.execute(
-        "SELECT searches_today, searches_date FROM users WHERE user_id=?", (user_id,)
-    ).fetchone()
-    conn.close()
-    if not row:
-        return FREE_SEARCHES
-    today = date.today().isoformat()
-    if row["searches_date"] != today:
-        return FREE_SEARCHES
-    return max(0, FREE_SEARCHES - (row["searches_today"] or 0))
-
-
-# ── Alerts ─────────────────────────────────────────────────────────────────────
-
-def save_alert(user_id: int, origin: str, destination: str,
-               price_max: int = None, date_from: str = None, date_to: str = None) -> int:
-    conn = get_conn()
-    # Deactivate old alert for same route
-    conn.execute(
-        "UPDATE alerts SET active=0 WHERE user_id=? AND origin=? AND destination=?",
-        (user_id, origin, destination)
-    )
-    cur = conn.execute(
-        "INSERT INTO alerts (user_id, origin, destination, price_max, date_from, date_to) VALUES (?,?,?,?,?,?)",
-        (user_id, origin, destination, price_max, date_from, date_to)
-    )
-    alert_id = cur.lastrowid
-    conn.commit()
-    conn.close()
-    return alert_id
-
-
-def get_user_alerts(user_id: int) -> list:
-    conn = get_conn()
-    rows = conn.execute(
-        "SELECT * FROM alerts WHERE user_id=? AND active=1 ORDER BY created_at DESC",
-        (user_id,)
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
-
-def delete_alert(alert_id: int, user_id: int):
-    conn = get_conn()
-    conn.execute("UPDATE alerts SET active=0 WHERE id=? AND user_id=?", (alert_id, user_id))
-    conn.commit()
-    conn.close()
-
-
-def get_all_active_alerts() -> list:
-    conn = get_conn()
-    rows = conn.execute("SELECT * FROM alerts WHERE active=1").fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
-
-# ── Favorites ──────────────────────────────────────────────────────────────────
-
-def save_favorite(user_id: int, flight: dict) -> bool:
-    conn = get_conn()
-    exists = conn.execute(
-        "SELECT id FROM favorites WHERE user_id=? AND link=?",
-        (user_id, flight.get("link", ""))
-    ).fetchone()
-    if exists:
-        conn.close()
-        return False
-    conn.execute(
-        """INSERT INTO favorites (user_id, origin, destination, price, airline, depart_at, arrive_at, link)
-           VALUES (?,?,?,?,?,?,?,?)""",
-        (user_id, flight.get("origin"), flight.get("destination"),
-         flight.get("price"), flight.get("airline"),
-         flight.get("depart_at"), flight.get("arrive_at"), flight.get("link"))
-    )
-    conn.commit()
-    conn.close()
-    return True
-
-
-def get_favorites(user_id: int) -> list:
-    conn = get_conn()
-    rows = conn.execute(
-        "SELECT * FROM favorites WHERE user_id=? ORDER BY saved_at DESC LIMIT 20",
-        (user_id,)
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
-
-def delete_favorite(fav_id: int, user_id: int):
-    conn = get_conn()
-    conn.execute("DELETE FROM favorites WHERE id=? AND user_id=?", (fav_id, user_id))
-    conn.commit()
-    conn.close()
-
-
-# ── Hot deals ──────────────────────────────────────────────────────────────────
-
-def save_hot_deal(deal: dict) -> bool:
-    conn = get_conn()
-    # Don't duplicate same route+price found today
-    today = date.today().isoformat()
-    exists = conn.execute(
-        "SELECT id FROM hot_deals WHERE origin=? AND destination=? AND price=? AND found_at >= ?",
-        (deal["origin"], deal["destination"], deal["price"], today)
-    ).fetchone()
-    if exists:
-        conn.close()
-        return False
-    conn.execute(
-        "INSERT INTO hot_deals (origin, destination, price, airline, depart_at, link) VALUES (?,?,?,?,?,?)",
-        (deal["origin"], deal["destination"], deal["price"],
-         deal.get("airline", ""), deal.get("depart_at", ""), deal.get("link", ""))
-    )
-    conn.commit()
-    conn.close()
-    return True
-
-
-def get_unnotified_hot_deals() -> list:
-    conn = get_conn()
-    rows = conn.execute(
-        "SELECT * FROM hot_deals WHERE notified=0 ORDER BY price ASC LIMIT 10"
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
-
-def mark_deal_notified(deal_id: int):
-    conn = get_conn()
-    conn.execute("UPDATE hot_deals SET notified=1 WHERE id=?", (deal_id,))
-    conn.commit()
-    conn.close()
-
-
-def get_recent_hot_deals(limit: int = 5) -> list:
-    conn = get_conn()
-    rows = conn.execute(
-        "SELECT * FROM hot_deals ORDER BY found_at DESC LIMIT ?", (limit,)
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
-
-# ── Stats ──────────────────────────────────────────────────────────────────────
 
 def get_stats() -> dict:
     conn = get_conn()
-    users = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-    vip = conn.execute("SELECT COUNT(*) FROM users WHERE vip=1").fetchone()[0]
-    searches = conn.execute("SELECT COUNT(*) FROM searches").fetchone()[0]
-    alerts = conn.execute("SELECT COUNT(*) FROM alerts WHERE active=1").fetchone()[0]
+    from datetime import date
+    today = date.today().isoformat()
+    yesterday = (datetime.now() - timedelta(days=1)).date().isoformat()
+
+    total_apts = conn.execute("SELECT COUNT(*) FROM apartments").fetchone()[0]
+    total_users = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    vip_users = conn.execute("SELECT COUNT(*) FROM users WHERE vip=1").fetchone()[0]
+    total_favs = conn.execute("SELECT COUNT(*) FROM favorites").fetchone()[0]
+    new_today = conn.execute(
+        "SELECT COUNT(*) FROM apartments WHERE created_at >= ?", (today,)
+    ).fetchone()[0]
+    new_users_today = conn.execute(
+        "SELECT COUNT(*) FROM users WHERE created_at >= ?", (today,)
+    ).fetchone()[0]
+    active_today = conn.execute(
+        "SELECT COUNT(DISTINCT user_id) FROM user_activity WHERE date = ?", (today,)
+    ).fetchone()[0]
+    active_yesterday = conn.execute(
+        "SELECT COUNT(DISTINCT user_id) FROM user_activity WHERE date = ?", (yesterday,)
+    ).fetchone()[0]
+    last_parse = conn.execute(
+        "SELECT logged_at FROM parse_log ORDER BY id DESC LIMIT 1"
+    ).fetchone()
     conn.close()
-    return {"users": users, "vip": vip, "searches": searches, "alerts": alerts}
+    return {
+        "apartments": total_apts,
+        "users": total_users,
+        "vip": vip_users,
+        "favorites": total_favs,
+        "new_today": new_today,
+        "new_users_today": new_users_today,
+        "active_today": active_today,
+        "active_yesterday": active_yesterday,
+        "last_parse": last_parse["logged_at"] if last_parse else "никогда",
+    }
 
 
-def get_all_user_ids() -> list:
+# ── Auto VIP conditions ───────────────────────────────────────
+
+def check_auto_vip_conditions(user_id: int) -> str | None:
     conn = get_conn()
-    rows = conn.execute("SELECT user_id FROM users").fetchall()
+    c = conn.cursor()
+
+    user = c.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
+    if not user or user["vip"]:
+        conn.close()
+        return None
+
+    # Condition 1: saved 10+ favorites
+    fav_count = c.execute(
+        "SELECT COUNT(*) FROM favorites WHERE user_id=?", (user_id,)
+    ).fetchone()[0]
+
+    # Condition 2: active user (registered 7+ days ago, viewed 20+ apartments)
+    created = user["created_at"] or ""
+    views = user["views"] or 0
+    loyal = False
+    if created and views >= 20:
+        try:
+            days_since = (datetime.now() - datetime.fromisoformat(created)).days
+            if days_since >= 7:
+                loyal = True
+        except Exception:
+            pass
+
     conn.close()
-    return [r[0] for r in rows]
+
+    if fav_count >= 10:
+        set_vip(user_id, 1, days=3)
+        return "fav10"
+
+    if loyal:
+        set_vip(user_id, 1, days=2)
+        return "loyal"
+
+    # Condition 3: 7-day activity streak → 1 day VIP
+    streak = get_user_streak_days(user_id)
+    if streak >= 7:
+        set_vip(user_id, 1, days=1)
+        return "streak7"
+
+    return None
 
 
-def save_search(user_id: int, origin: str, destination: str,
-                date_from: str, date_to: str, results: int):
+def get_leaderboard() -> list:
+    """Top users by referral count."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT user_id, ref_count FROM users
+        WHERE ref_count > 0 ORDER BY ref_count DESC LIMIT 10
+    """).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_daily_digest() -> dict:
+    """Stats for daily digest message."""
+    from datetime import date
+    today = date.today().isoformat()
+    conn = get_conn()
+    new_today = conn.execute(
+        "SELECT COUNT(*) FROM apartments WHERE created_at >= ?", (today,)
+    ).fetchone()[0]
+    cheapest = conn.execute(
+        "SELECT * FROM apartments WHERE price > 0 AND created_at >= ? ORDER BY price ASC LIMIT 1",
+        (today,)
+    ).fetchone()
+    avg_price = conn.execute(
+        "SELECT AVG(price) FROM apartments WHERE price > 0 AND created_at >= ?", (today,)
+    ).fetchone()[0]
+    conn.close()
+    return {
+        "new_today": new_today,
+        "cheapest": dict(cheapest) if cheapest else None,
+        "avg_price": int(avg_price) if avg_price else 0,
+    }
+
+
+def get_user_streak(user_id: int) -> int:
+    """How many days in a row user has been active (viewed apartments)."""
+    # Simplified: return views count as activity proxy
+    conn = get_conn()
+    row = conn.execute("SELECT views FROM users WHERE user_id=?", (user_id,)).fetchone()
+    conn.close()
+    return row["views"] if row else 0
+
+
+def get_hot_apartments(limit: int = 5) -> list:
+    """Apartments with most likes in last 24h."""
+    conn = get_conn()
+    from datetime import timedelta
+    since = (datetime.now() - timedelta(hours=24)).isoformat()
+    rows = conn.execute("""
+        SELECT a.*, COALESCE(SUM(r.rating), 0) as hot_score
+        FROM apartments a
+        LEFT JOIN ratings r ON a.id = r.apartment_id
+        WHERE a.created_at >= ?
+        GROUP BY a.id
+        HAVING hot_score > 0
+        ORDER BY hot_score DESC
+        LIMIT ?
+    """, (since, limit)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_price_drops_today(limit: int = 5) -> list:
+    """Apartments where price dropped. Returns only apartments still in DB with valid links."""
+    conn = get_conn()
+    from datetime import timedelta
+    since = (datetime.now() - timedelta(hours=48)).isoformat()
+    rows = conn.execute("""
+        SELECT DISTINCT a.*,
+               ph.price as new_price,
+               (SELECT price FROM price_history
+                WHERE apartment_id=a.id ORDER BY id ASC LIMIT 1) as old_price
+        FROM apartments a
+        JOIN price_history ph ON a.id = ph.apartment_id
+        WHERE ph.recorded_at >= ?
+          AND a.price >= 500 AND a.price <= 25000
+        GROUP BY a.id
+        HAVING old_price IS NOT NULL AND old_price > a.price
+        ORDER BY (old_price - a.price) DESC
+        LIMIT ?
+    """, (since, limit)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def record_user_activity(user_id: int):
+    """Record today's activity for streak tracking."""
+    conn = get_conn()
+    today = datetime.now().date().isoformat()
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO user_activity (user_id, date) VALUES (?,?)",
+            (user_id, today)
+        )
+        conn.commit()
+    except Exception:
+        pass
+    conn.close()
+
+
+def get_user_streak_days(user_id: int) -> int:
+    """Count consecutive days user was active."""
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT date FROM user_activity WHERE user_id=? ORDER BY date DESC LIMIT 30",
+            (user_id,)
+        ).fetchall()
+    except Exception:
+        conn.close()
+        return 0
+    conn.close()
+    if not rows:
+        return 0
+    from datetime import date, timedelta
+    streak = 0
+    check_date = date.today()
+    for row in rows:
+        try:
+            row_date = date.fromisoformat(row["date"])
+            if row_date == check_date or row_date == check_date - timedelta(days=1):
+                streak += 1
+                check_date = row_date - timedelta(days=1)
+            else:
+                break
+        except Exception:
+            break
+    return streak
+
+
+# ── Roles & Moderation ────────────────────────────────────────
+
+def set_user_role(user_id: int, role: str):
+    """role: 'user', 'moderator', 'admin'"""
+    conn = get_conn()
+    conn.execute("UPDATE users SET role=? WHERE user_id=?", (role, user_id))
+    conn.commit()
+    conn.close()
+    # Moderators get free VIP
+    if role == "moderator":
+        set_vip(user_id, 1, days=36500)  # ~100 years = permanent
+
+
+def get_user_role(user_id: int) -> str:
+    from config import ADMIN_IDS, MODERATOR_IDS
+    if user_id in ADMIN_IDS:
+        return "admin"
+    if user_id in MODERATOR_IDS:
+        return "moderator"
+    conn = get_conn()
+    row = conn.execute("SELECT role FROM users WHERE user_id=?", (user_id,)).fetchone()
+    conn.close()
+    if row and row["role"] in ("moderator", "admin"):
+        return row["role"]
+    return "user"
+
+
+def is_moderator(user_id: int) -> bool:
+    return get_user_role(user_id) in ("moderator", "admin")
+
+
+def report_apartment(user_id: int, apartment_id: int, reason: str):
     conn = get_conn()
     conn.execute(
-        "INSERT INTO searches (user_id, origin, destination, date_from, date_to, results) VALUES (?,?,?,?,?,?)",
-        (user_id, origin, destination, date_from, date_to, results)
+        "INSERT INTO reports (user_id, apartment_id, reason, created_at) VALUES (?,?,?,?)",
+        (user_id, apartment_id, reason, datetime.now().isoformat())
     )
+    conn.execute("UPDATE apartments SET reported=reported+1 WHERE id=?", (apartment_id,))
     conn.commit()
     conn.close()
 
 
-def get_top_routes(limit: int = 5) -> list:
-    """Most searched routes in last 7 days."""
+def get_pending_reports(limit: int = 20) -> list:
     conn = get_conn()
     rows = conn.execute("""
-        SELECT origin, destination, COUNT(*) as cnt
-        FROM searches
-        WHERE created_at >= datetime('now', '-7 days')
-        GROUP BY origin, destination
-        ORDER BY cnt DESC
-        LIMIT ?
+        SELECT r.*, a.title, a.link, a.price, a.district
+        FROM reports r JOIN apartments a ON r.apartment_id = a.id
+        ORDER BY r.id DESC LIMIT ?
     """, (limit,)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
-def get_vip_user_ids() -> list:
-    """Get all active VIP user IDs."""
+def verify_apartment(apartment_id: int, mod_id: int):
+    conn = get_conn()
+    conn.execute("UPDATE apartments SET verified=1 WHERE id=?", (apartment_id,))
+    conn.execute(
+        "INSERT INTO mod_log (mod_id, action, target_id, created_at) VALUES (?,?,?,?)",
+        (mod_id, "verify", apartment_id, datetime.now().isoformat())
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_apartment(apartment_id: int, mod_id: int, note: str = ""):
+    conn = get_conn()
+    conn.execute("DELETE FROM apartments WHERE id=?", (apartment_id,))
+    conn.execute(
+        "INSERT INTO mod_log (mod_id, action, target_id, note, created_at) VALUES (?,?,?,?,?)",
+        (mod_id, "delete", apartment_id, note, datetime.now().isoformat())
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_mod_stats(mod_id: int) -> dict:
+    conn = get_conn()
+    verified = conn.execute(
+        "SELECT COUNT(*) FROM mod_log WHERE mod_id=? AND action='verify'", (mod_id,)
+    ).fetchone()[0]
+    deleted = conn.execute(
+        "SELECT COUNT(*) FROM mod_log WHERE mod_id=? AND action='delete'", (mod_id,)
+    ).fetchone()[0]
+    conn.close()
+    return {"verified": verified, "deleted": deleted}
+
+
+def get_reported_apartments(limit: int = 10) -> list:
+    """Apartments with most reports."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT * FROM apartments WHERE reported > 0
+        ORDER BY reported DESC LIMIT ?
+    """, (limit,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── New features ──────────────────────────────────────────────
+
+def get_price_stats() -> dict:
+    """Price analytics: avg, min, max by district. Filters junk prices."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT district,
+               COUNT(*) as cnt,
+               AVG(price) as avg,
+               MIN(price) as min,
+               MAX(price) as max
+        FROM apartments
+        WHERE price >= 500 AND price <= 25000 AND district != '' AND district IS NOT NULL
+        GROUP BY district
+        HAVING cnt >= 2
+        ORDER BY avg ASC
+    """).fetchall()
+    total = conn.execute(
+        "SELECT COUNT(*) FROM apartments WHERE price >= 500 AND price <= 25000"
+    ).fetchone()[0]
+    overall_avg = conn.execute(
+        "SELECT AVG(price) FROM apartments WHERE price >= 500 AND price <= 25000"
+    ).fetchone()[0]
+    conn.close()
+    return {
+        "by_district": [dict(r) for r in rows],
+        "total": total,
+        "overall_avg": int(overall_avg) if overall_avg else 0,
+    }
+
+
+def get_new_today_count() -> int:
+    from datetime import date
+    today = date.today().isoformat()
+    conn = get_conn()
+    count = conn.execute(
+        "SELECT COUNT(*) FROM apartments WHERE created_at >= ?", (today,)
+    ).fetchone()[0]
+    conn.close()
+    return count
+
+
+def cleanup_junk_listings():
+    """Remove obvious non-apartment listings from DB. Called once on startup."""
+    conn = get_conn()
+    junk_keywords = [
+        "osuszacz", "osuszanie", "pochłaniacz",
+        "na doby", "noclegi", "godz/", "/doby", "krótkoterminow",
+    ]
+    for kw in junk_keywords:
+        conn.execute(
+            "DELETE FROM apartments WHERE LOWER(title) LIKE ?",
+            (f"%{kw}%",)
+        )
+    # Remove extreme price outliers
+    conn.execute("DELETE FROM apartments WHERE price > 0 AND price < 200")
+    conn.execute("DELETE FROM apartments WHERE price > 50000")
+    # Remove non-Warsaw listings — these cities are NOT Warsaw districts
+    non_warsaw_districts = [
+        "Zgierz", "Łódź", "Częstochowa", "Radomsko", "Kutno", "Łęczyca",
+        "Piotrków", "Łask", "Zduńska", "Zelów", "Sieradz", "Tomaszów",
+        "Opoczno", "Ostrowy", "Retkinia", "Bałuty",
+        "Widzew", "Górna", "Polesie", "Śródmieście-Wschód",
+        "Gdańsk", "Kraków", "Wrocław", "Poznań", "Katowice",
+        "Lublin", "Szczecin", "Bydgoszcz", "Białystok",
+    ]
+    for city in non_warsaw_districts:
+        conn.execute(
+            "DELETE FROM apartments WHERE district LIKE ?",
+            (f"%{city}%",)
+        )
+    conn.commit()
+    conn.close()
+
+
+def search_by_keyword(keyword: str, limit: int = 20) -> list:
     conn = get_conn()
     rows = conn.execute(
-        "SELECT user_id FROM users WHERE vip=1 AND (vip_until IS NULL OR vip_until > datetime('now'))"
+        "SELECT * FROM apartments WHERE title LIKE ? OR district LIKE ? ORDER BY created_at DESC LIMIT ?",
+        (f"%{keyword}%", f"%{keyword}%", limit)
     ).fetchall()
     conn.close()
-    return [r[0] for r in rows]
+    return [dict(r) for r in rows]
 
 
-# ── Admin functions ────────────────────────────────────────────────────────────
-
-def get_user_info(user_id: int) -> dict | None:
+def get_user_count() -> int:
     conn = get_conn()
-    row = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
+    count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    conn.close()
+    return count
+
+
+def get_apartment_by_id(apt_id: int) -> dict | None:
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM apartments WHERE id=?", (apt_id,)).fetchone()
     conn.close()
     return dict(row) if row else None
 
 
-def get_recent_users(limit: int = 10) -> list:
+def add_user_note(user_id: int, apt_id: int, note: str):
+    """User can add a personal note to an apartment."""
     conn = get_conn()
-    rows = conn.execute(
-        "SELECT * FROM users ORDER BY created_at DESC LIMIT ?", (limit,)
-    ).fetchall()
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO user_notes (user_id, apt_id, note, created_at) VALUES (?,?,?,?)",
+            (user_id, apt_id, note[:500], datetime.now().isoformat())
+        )
+        conn.commit()
+    except Exception:
+        pass
+    conn.close()
+
+
+def get_user_notes(user_id: int) -> list:
+    conn = get_conn()
+    try:
+        rows = conn.execute("""
+            SELECT n.note, n.apt_id, n.created_at, a.title, a.price, a.link
+            FROM user_notes n JOIN apartments a ON n.apt_id = a.id
+            WHERE n.user_id = ? ORDER BY n.created_at DESC
+        """, (user_id,)).fetchall()
+    except Exception:
+        rows = []
     conn.close()
     return [dict(r) for r in rows]
 
 
-def get_early_adopters() -> list:
+def get_similar_apartments(apt_id: int, limit: int = 3) -> list:
+    """Find similar apartments by price range and district."""
     conn = get_conn()
-    rows = conn.execute(
-        "SELECT * FROM users WHERE is_early_adopter=1 ORDER BY created_at ASC"
-    ).fetchall()
+    apt = conn.execute("SELECT * FROM apartments WHERE id=?", (apt_id,)).fetchone()
+    if not apt:
+        conn.close()
+        return []
+    price = apt["price"] or 0
+    district = apt["district"] or ""
+    rows = conn.execute("""
+        SELECT * FROM apartments
+        WHERE id != ? AND price BETWEEN ? AND ? AND district LIKE ?
+        ORDER BY created_at DESC LIMIT ?
+    """, (apt_id, price * 0.8, price * 1.2, f"%{district[:10]}%", limit)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
-def revoke_vip(user_id: int):
+def get_cheapest_apartments(limit: int = 5, price_max: int = 2500) -> list:
+    """Get cheapest real Warsaw apartments, filtering junk."""
+    junk_sql = " AND ".join([
+        "LOWER(title) NOT LIKE '%osuszacz%'",
+        "LOWER(title) NOT LIKE '%garaż%'",
+        "LOWER(title) NOT LIKE '%parking%'",
+        "LOWER(title) NOT LIKE '%na doby%'",
+        "LOWER(title) NOT LIKE '%noclegi%'",
+        "LOWER(title) NOT LIKE '%osuszanie%'",
+        "LOWER(title) NOT LIKE '%pochłaniacz%'",
+        "LOWER(title) NOT LIKE '%klimatyzator%'",
+        "LOWER(title) NOT LIKE '%sprzedaż%'",
+        "LOWER(title) NOT LIKE '%na sprzedaż%'",
+    ])
+    # Explicitly block known non-Warsaw districts/cities
+    non_warsaw_sql = (
+        "LOWER(district) NOT LIKE '%widzew%' AND "
+        "LOWER(district) NOT LIKE '%górna%' AND LOWER(district) NOT LIKE '%gorna%' AND "
+        "LOWER(district) NOT LIKE '%bałuty%' AND LOWER(district) NOT LIKE '%baluty%' AND "
+        "LOWER(district) NOT LIKE '%polesie%' AND "
+        "LOWER(district) NOT LIKE '%retkinia%' AND "
+        "LOWER(district) NOT LIKE '%łódź%' AND LOWER(district) NOT LIKE '%lodz%' AND "
+        "LOWER(district) NOT LIKE '%gdańsk%' AND LOWER(district) NOT LIKE '%gdansk%' AND "
+        "LOWER(district) NOT LIKE '%kraków%' AND LOWER(district) NOT LIKE '%krakow%' AND "
+        "LOWER(district) NOT LIKE '%wrocław%' AND LOWER(district) NOT LIKE '%wroclaw%' AND "
+        "LOWER(district) NOT LIKE '%poznań%' AND LOWER(district) NOT LIKE '%poznan%' AND "
+        "LOWER(district) NOT LIKE '%katowice%' AND "
+        "LOWER(district) NOT LIKE '%lublin%' AND "
+        "LOWER(district) NOT LIKE '%szczecin%' AND "
+        "LOWER(district) NOT LIKE '%bydgoszcz%' AND "
+        "LOWER(district) NOT LIKE '%białystok%' AND LOWER(district) NOT LIKE '%bialystok%'"
+    )
+    # Warsaw districts/keywords — exclude listings clearly from other cities
+    warsaw_sql = (
+        "("
+        "district IS NULL OR district = '' OR "
+        "LOWER(district) LIKE '%warszawa%' OR "
+        "LOWER(district) LIKE '%mokotów%' OR LOWER(district) LIKE '%mokotow%' OR "
+        "LOWER(district) LIKE '%ursynów%' OR LOWER(district) LIKE '%ursynow%' OR "
+        "LOWER(district) LIKE '%wilanów%' OR LOWER(district) LIKE '%wilanow%' OR "
+        "LOWER(district) LIKE '%wola%' OR "
+        "LOWER(district) LIKE '%śródmieście%' OR LOWER(district) LIKE '%srodmiescie%' OR "
+        "LOWER(district) LIKE '%praga%' OR "
+        "LOWER(district) LIKE '%żoliborz%' OR LOWER(district) LIKE '%zoliborz%' OR "
+        "LOWER(district) LIKE '%bielany%' OR "
+        "LOWER(district) LIKE '%bemowo%' OR "
+        "LOWER(district) LIKE '%ochota%' OR "
+        "LOWER(district) LIKE '%targówek%' OR LOWER(district) LIKE '%targowek%' OR "
+        "LOWER(district) LIKE '%białołęka%' OR LOWER(district) LIKE '%bialoleka%' OR "
+        "LOWER(district) LIKE '%ursus%' OR "
+        "LOWER(district) LIKE '%włochy%' OR LOWER(district) LIKE '%wlochy%' OR "
+        "LOWER(district) LIKE '%wawer%' OR "
+        "LOWER(district) LIKE '%rembertów%' OR LOWER(district) LIKE '%rembertow%' OR "
+        "LOWER(district) LIKE '%wesoła%' OR LOWER(district) LIKE '%wesola%' OR "
+        "LOWER(district) LIKE '%kabaty%' OR LOWER(district) LIKE '%natolin%' OR "
+        "LOWER(district) LIKE '%służew%' OR LOWER(district) LIKE '%sluzew%' OR "
+        "LOWER(district) LIKE '%sadyba%'"
+        ")"
+    )
     conn = get_conn()
-    conn.execute("UPDATE users SET vip=0, vip_until=NULL WHERE user_id=?", (user_id,))
-    conn.commit()
-    conn.close()
-
-
-def ban_user(user_id: int):
-    conn = get_conn()
-    conn.execute("UPDATE users SET banned=1 WHERE user_id=?", (user_id,))
-    conn.commit()
-    conn.close()
-
-
-def unban_user(user_id: int):
-    conn = get_conn()
-    conn.execute("UPDATE users SET banned=0 WHERE user_id=?", (user_id,))
-    conn.commit()
-    conn.close()
-
-
-def is_banned(user_id: int) -> bool:
-    conn = get_conn()
-    row = conn.execute("SELECT banned FROM users WHERE user_id=?", (user_id,)).fetchone()
-    conn.close()
-    return bool(row and row["banned"])
-
-
-def get_top_users(limit: int = 10) -> list:
-    conn = get_conn()
-    rows = conn.execute(
-        "SELECT * FROM users ORDER BY total_searches DESC LIMIT ?", (limit,)
-    ).fetchall()
+    rows = conn.execute(f"""
+        SELECT * FROM apartments
+        WHERE price > 300 AND price <= ? AND {junk_sql} AND {warsaw_sql} AND {non_warsaw_sql}
+        ORDER BY price ASC LIMIT ?
+    """, (price_max, limit)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
-def get_full_stats() -> dict:
+# ── Seen apartments ───────────────────────────────────────────
+
+def mark_seen(user_id: int, apt_id: int):
+    """Mark apartment as already seen by user."""
     conn = get_conn()
-    users       = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-    vip         = conn.execute("SELECT COUNT(*) FROM users WHERE vip=1").fetchone()[0]
-    early       = conn.execute("SELECT COUNT(*) FROM users WHERE is_early_adopter=1").fetchone()[0]
-    banned      = conn.execute("SELECT COUNT(*) FROM users WHERE banned=1").fetchone()[0]
-    searches    = conn.execute("SELECT COUNT(*) FROM searches").fetchone()[0]
-    alerts      = conn.execute("SELECT COUNT(*) FROM alerts WHERE active=1").fetchone()[0]
-    deals       = conn.execute("SELECT COUNT(*) FROM hot_deals").fetchone()[0]
-    today_users = conn.execute(
-        "SELECT COUNT(*) FROM users WHERE last_seen >= date('now')"
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO user_seen (user_id, apt_id, seen_at) VALUES (?,?,?)",
+            (user_id, apt_id, datetime.now().isoformat())
+        )
+        conn.commit()
+    except Exception:
+        pass
+    conn.close()
+
+
+def get_seen_ids(user_id: int) -> list:
+    """Get list of apartment IDs already seen by user."""
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT apt_id FROM user_seen WHERE user_id=?", (user_id,)
+        ).fetchall()
+    except Exception:
+        rows = []
+    conn.close()
+    return [r["apt_id"] for r in rows]
+
+
+# ── Conversion tracking ───────────────────────────────────────
+
+def record_conversion(user_id: int, apt_id: int = None, source: str = ""):
+    """User found an apartment — record conversion."""
+    conn = get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO conversions (user_id, apt_id, source, created_at) VALUES (?,?,?,?)",
+            (user_id, apt_id, source, datetime.now().isoformat())
+        )
+        conn.commit()
+    except Exception:
+        pass
+    conn.close()
+
+
+def get_conversion_stats() -> dict:
+    conn = get_conn()
+    total = conn.execute("SELECT COUNT(*) FROM conversions").fetchone()[0]
+    today = datetime.now().date().isoformat()
+    today_count = conn.execute(
+        "SELECT COUNT(*) FROM conversions WHERE created_at >= ?", (today,)
     ).fetchone()[0]
-    today_searches = conn.execute(
-        "SELECT COUNT(*) FROM searches WHERE created_at >= date('now')"
-    ).fetchone()[0]
+    by_source = conn.execute("""
+        SELECT a.source, COUNT(*) as cnt
+        FROM conversions c LEFT JOIN apartments a ON c.apt_id = a.id
+        GROUP BY a.source ORDER BY cnt DESC
+    """).fetchall()
     conn.close()
     return {
-        "users": users, "vip": vip, "early": early, "banned": banned,
-        "searches": searches, "alerts": alerts, "deals": deals,
-        "today_users": today_users, "today_searches": today_searches,
+        "total": total,
+        "today": today_count,
+        "by_source": [dict(r) for r in by_source],
     }

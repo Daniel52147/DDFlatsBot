@@ -1,154 +1,184 @@
-"""
-Translations: ru / pl / en
-"""
+# Simple i18n — Russian (default), Ukrainian, Polish
 
 TEXTS = {
-    # ── /start ──────────────────────────────────────────────────────────────
-    "welcome": {
-        "ru": "✈️ <b>{bot}</b>{badge}\n\nПривет, {name}! Нахожу самые дешёвые авиабилеты из Польши.\n\n🔎 Поисков сегодня: <b>{left}</b> {vip_str}\n🔥 Горящие обновляются каждые 2 часа\n📢 Канал: {channel}{extra}\n\nВыбери действие 👇",
-        "pl": "✈️ <b>{bot}</b>{badge}\n\nCześć, {name}! Znajduję najtańsze bilety lotnicze z Polski.\n\n🔎 Wyszukiwań dziś: <b>{left}</b> {vip_str}\n🔥 Gorące oferty aktualizowane co 2 godziny\n📢 Kanał: {channel}{extra}\n\nWybierz akcję 👇",
-        "en": "✈️ <b>{bot}</b>{badge}\n\nHey, {name}! I find the cheapest flights from Poland.\n\n🔎 Searches today: <b>{left}</b> {vip_str}\n🔥 Hot deals updated every 2 hours\n📢 Channel: {channel}{extra}\n\nChoose an action 👇",
+    "ru": {
+        # Start
+        "start_greeting": (
+            "👋 Привет, {name}!\n"
+            "{badge}\n\n"
+            "🏙 <b>DDFlatsBot</b> — квартиры Варшавы в одном месте.\n"
+            "Парсю OLX · Otodom · Gratka · Morizon каждые 10 минут.\n\n"
+            "⚠️ Бот агрегирует объявления с внешних сайтов. "
+            "Всегда проверяй квартиру лично."
+        ),
+        "disclaimer": (
+            "⚠️ <b>Перед использованием прочитай:</b>\n\n"
+            "DDFlatsBot — агрегатор объявлений с OLX, Otodom, Gratka, Morizon.\n\n"
+            "<b>Мы НЕ несём ответственности за:</b>\n"
+            "• Достоверность объявлений\n"
+            "• Действия арендодателей\n"
+            "• Мошеннические объявления\n\n"
+            "<b>Правила безопасности:</b>\n"
+            "🔍 Всегда проверяй квартиру лично\n"
+            "💳 Не переводи деньги без просмотра\n"
+            "📋 Требуй договор аренды\n\n"
+            "Нажимая кнопку ниже, ты соглашаешься с условиями."
+        ),
+        "btn_accept": "✅ Принимаю условия",
+        "btn_find": "🏠 Найти квартиру",
+        "btn_filter": "🔍 Фильтры",
+        "btn_favorites": "❤️ Избранное",
+        "btn_alerts": "🔔 Алерты",
+        "btn_vip": "⭐ VIP доступ",
+        "btn_ref": "👥 Пригласить друга",
+        "btn_cheap": "💚 Дешёвые",
+        "btn_hot": "🔥 Горячие",
+        "btn_drops": "📉 Снижения цен",
+        "btn_map": "🗺 Карта цен",
+        "btn_notes": "📝 Заметки",
+        "btn_mystats": "📊 Моя статистика",
+        "btn_next": "➡️ Следующая",
+        "btn_fav_add": "❤️ Избранное",
+        "btn_on_map": "🗺 На карте",
+        "btn_note": "📝 Заметка",
+        "btn_similar": "🔍 Похожие",
+        "no_apts": "😔 Квартир по твоим фильтрам не найдено.\n\nПопробуй изменить фильтры: /filter\nИли сбрось их: /start",
+        "no_apts_yet": "😔 Квартир пока нет. Парсер работает каждые 10 минут.\n\nПопробуй позже или измени фильтры: /filter",
+        "wrap_around": "🔄 Показываю сначала — новых квартир пока нет.",
+        "limit_reached": "⛔ Бесплатный лимит {limit} квартир исчерпан.\n\n💎 VIP — безлимит + алерты + уведомления о снижении цены",
+        "vip_badge": "💎 VIP до {until}",
+        "free_badge": "🆓 {bar} {used}/{total}",
+        "choose_lang": "🌍 Выбери язык:",
+        "lang_set_ru": "🇷🇺 Язык: Русский",
+        "lang_set_uk": "🇺🇦 Мова: Українська",
+        "lang_set_pl": "🇵🇱 Język: Polski",
+        "early_adopter": "\n\n🎁 <b>Ты в числе первых 50!</b> VIP на 7 дней бесплатно!",
+        "ref_bonus": "🎁 Реферальный бонус активирован! Пригласивший получил 7 дней VIP.",
+        "vip_fav10": "\n\n🎁 <b>+3 дня VIP</b> за 10 сохранённых квартир!",
+        "vip_loyal": "\n\n🎁 <b>+2 дня VIP</b> за активность!",
+        "remaining": "\n\n📦 Ещё {n} квартир по фильтрам",
+        "warn_check": "⚠️ Всегда проверяй квартиру лично перед оплатой.",
     },
-    "early_badge": {
-        "ru": "\n\n🌟 <b>Ты один из первых 50 пользователей!</b>\nVIP навсегда — бесплатно. Спасибо что с нами!",
-        "pl": "\n\n🌟 <b>Jesteś jednym z pierwszych 50 użytkowników!</b>\nVIP na zawsze — za darmo. Dziękujemy!",
-        "en": "\n\n🌟 <b>You're one of the first 50 users!</b>\nVIP forever — for free. Thank you!",
+    "uk": {
+        "start_greeting": (
+            "👋 Привіт, {name}!\n"
+            "{badge}\n\n"
+            "🏙 <b>DDFlatsBot</b> — квартири Варшави в одному місці.\n"
+            "Парсю OLX · Otodom · Gratka · Morizon кожні 10 хвилин.\n\n"
+            "⚠️ Бот агрегує оголошення з зовнішніх сайтів. "
+            "Завжди перевіряй квартиру особисто."
+        ),
+        "disclaimer": (
+            "⚠️ <b>Перед використанням прочитай:</b>\n\n"
+            "DDFlatsBot — агрегатор оголошень з OLX, Otodom, Gratka, Morizon.\n\n"
+            "<b>Ми НЕ несемо відповідальності за:</b>\n"
+            "• Достовірність оголошень\n"
+            "• Дії орендодавців\n"
+            "• Шахрайські оголошення\n\n"
+            "<b>Правила безпеки:</b>\n"
+            "🔍 Завжди перевіряй квартиру особисто\n"
+            "💳 Не переводь гроші без перегляду\n"
+            "📋 Вимагай договір оренди\n\n"
+            "Натискаючи кнопку нижче, ти погоджуєшся з умовами."
+        ),
+        "btn_accept": "✅ Приймаю умови",
+        "btn_find": "🏠 Знайти квартиру",
+        "btn_filter": "🔍 Фільтри",
+        "btn_favorites": "❤️ Обране",
+        "btn_alerts": "🔔 Алерти",
+        "btn_vip": "⭐ VIP доступ",
+        "btn_ref": "👥 Запросити друга",
+        "btn_cheap": "💚 Дешеві",
+        "btn_hot": "🔥 Гарячі",
+        "btn_drops": "📉 Зниження цін",
+        "btn_map": "🗺 Карта цін",
+        "btn_notes": "📝 Нотатки",
+        "btn_mystats": "📊 Моя статистика",
+        "btn_next": "➡️ Наступна",
+        "btn_fav_add": "❤️ Обране",
+        "btn_on_map": "🗺 На карті",
+        "btn_note": "📝 Нотатка",
+        "btn_similar": "🔍 Схожі",
+        "no_apts": "😔 Квартир за вашими фільтрами не знайдено.\n\nСпробуй змінити фільтри: /filter",
+        "no_apts_yet": "😔 Квартир поки немає. Парсер працює кожні 10 хвилин.",
+        "wrap_around": "🔄 Показую спочатку — нових квартир поки немає.",
+        "limit_reached": "⛔ Безкоштовний ліміт {limit} квартир вичерпано.\n\n💎 VIP — безліміт + алерти + сповіщення про зниження ціни",
+        "vip_badge": "💎 VIP до {until}",
+        "free_badge": "🆓 {bar} {used}/{total}",
+        "choose_lang": "🌍 Оберіть мову:",
+        "lang_set_ru": "🇷🇺 Мова: Російська",
+        "lang_set_uk": "🇺🇦 Мова: Українська",
+        "lang_set_pl": "🇵🇱 Мова: Польська",
+        "early_adopter": "\n\n🎁 <b>Ти серед перших 50!</b> VIP на 7 днів безкоштовно!",
+        "ref_bonus": "🎁 Реферальний бонус активовано! Той хто запросив отримав 7 днів VIP.",
+        "vip_fav10": "\n\n🎁 <b>+3 дні VIP</b> за 10 збережених квартир!",
+        "vip_loyal": "\n\n🎁 <b>+2 дні VIP</b> за активність!",
+        "remaining": "\n\n📦 Ще {n} квартир за фільтрами",
+        "warn_check": "⚠️ Завжди перевіряй квартиру особисто перед оплатою.",
     },
-    "choose_lang": {
-        "ru": "🌍 Выбери язык / Wybierz język / Choose language:",
-        "pl": "🌍 Wyбери язык / Wybierz język / Choose language:",
-        "en": "🌍 Choose language / Wybierz język / Выбери язык:",
-    },
-    "lang_set": {
-        "ru": "✅ Язык установлен: Русский",
-        "pl": "✅ Język ustawiony: Polski",
-        "en": "✅ Language set: English",
-    },
-    # ── Search ───────────────────────────────────────────────────────────────
-    "search_from": {
-        "ru": "🛫 <b>Откуда летим?</b>",
-        "pl": "🛫 <b>Skąd lecimy?</b>",
-        "en": "🛫 <b>Flying from?</b>",
-    },
-    "search_to": {
-        "ru": "🛬 <b>Куда летим?</b>",
-        "pl": "🛬 <b>Dokąd lecimy?</b>",
-        "en": "🛬 <b>Flying to?</b>",
-    },
-    "search_dates": {
-        "ru": "📅 <b>Когда летим?</b>",
-        "pl": "📅 <b>Kiedy lecimy?</b>",
-        "en": "📅 <b>When are we flying?</b>",
-    },
-    "searching": {
-        "ru": "🔍 Ищу билеты <b>{origin} → {dest}</b>...\n⏳ Обычно 5–10 секунд",
-        "pl": "🔍 Szukam biletów <b>{origin} → {dest}</b>...\n⏳ Zwykle 5–10 sekund",
-        "en": "🔍 Searching flights <b>{origin} → {dest}</b>...\n⏳ Usually 5–10 seconds",
-    },
-    "no_flights": {
-        "ru": "😔 Билеты <b>{origin} → {dest}</b> не найдены.\n\nПопробуй:\n• Другие даты\n• Другой аэропорт",
-        "pl": "😔 Nie znaleziono biletów <b>{origin} → {dest}</b>.\n\nSpróbuj:\n• Inne daty\n• Inne lotnisko",
-        "en": "😔 No flights found <b>{origin} → {dest}</b>.\n\nTry:\n• Different dates\n• Different airport",
-    },
-    "no_roundtrip": {
-        "ru": "😔 Рейсы туда-обратно <b>{origin} ↔ {dest}</b> не найдены.\nПопробуй другие даты.",
-        "pl": "😔 Nie znaleziono lotów w obie strony <b>{origin} ↔ {dest}</b>.\nSpróbuj innych dat.",
-        "en": "😔 No round-trip flights <b>{origin} ↔ {dest}</b> found.\nTry different dates.",
-    },
-    "trip_type": {
-        "ru": "✈️ <b>Тип поездки:</b>",
-        "pl": "✈️ <b>Rodzaj podróży:</b>",
-        "en": "✈️ <b>Trip type:</b>",
-    },
-    "limit_reached": {
-        "ru": "⛔ Лимит поисков исчерпан.\nКупи VIP для безлимитного доступа.",
-        "pl": "⛔ Limit wyszukiwań wyczerpany.\nKup VIP dla nieograniczonego dostępu.",
-        "en": "⛔ Search limit reached.\nBuy VIP for unlimited access.",
-    },
-    # ── Hot deals ────────────────────────────────────────────────────────────
-    "hot_title": {
-        "ru": "🔥 <b>Горящие билеты — {n} предложений:</b>",
-        "pl": "🔥 <b>Gorące oferty — {n} propozycji:</b>",
-        "en": "🔥 <b>Hot deals — {n} offers:</b>",
-    },
-    "hot_empty": {
-        "ru": "🔥 <b>Горящие билеты</b>\n\nПока нет актуальных предложений.\nОбновляем каждые 2 часа!\n\n📢 Подпишись: {channel}",
-        "pl": "🔥 <b>Gorące oferty</b>\n\nBrak aktualnych ofert.\nAktualizujemy co 2 godziny!\n\n📢 Subskrybuj: {channel}",
-        "en": "🔥 <b>Hot deals</b>\n\nNo current offers.\nUpdated every 2 hours!\n\n📢 Subscribe: {channel}",
-    },
-    # ── VIP ──────────────────────────────────────────────────────────────────
-    "vip_text": {
-        "ru": "⭐ <b>VIP доступ</b>\n\n✅ Безлимитные поиски\n✅ Приоритетные алерты\n✅ Расширенные фильтры\n\n💰 <b>{price_pln} zł/мес</b> или <b>{price_stars} ⭐ Stars</b>",
-        "pl": "⭐ <b>Dostęp VIP</b>\n\n✅ Nieograniczone wyszukiwania\n✅ Priorytetowe alerty\n✅ Rozszerzone filtry\n\n💰 <b>{price_pln} zł/mies</b> lub <b>{price_stars} ⭐ Stars</b>",
-        "en": "⭐ <b>VIP Access</b>\n\n✅ Unlimited searches\n✅ Priority alerts\n✅ Extended filters\n\n💰 <b>{price_pln} PLN/month</b> or <b>{price_stars} ⭐ Stars</b>",
-    },
-    # ── Alerts ───────────────────────────────────────────────────────────────
-    "alerts_empty": {
-        "ru": "🔔 <b>Алерты</b>\n\nНет активных алертов.\nАлерт — уведомление когда цена упадёт ниже нужной суммы.",
-        "pl": "🔔 <b>Alerty</b>\n\nBrak aktywnych alertów.\nAlert — powiadomienie gdy cena spadnie poniżej wybranej kwoty.",
-        "en": "🔔 <b>Alerts</b>\n\nNo active alerts.\nAlert — notification when price drops below your target.",
-    },
-    "alert_origin": {
-        "ru": "🔔 <b>Новый алерт</b>\n\nОткуда летим?",
-        "pl": "🔔 <b>Nowy alert</b>\n\nSkąd lecimy?",
-        "en": "🔔 <b>New alert</b>\n\nFlying from?",
-    },
-    "alert_dest": {
-        "ru": "🛬 Куда летим?",
-        "pl": "🛬 Dokąd lecimy?",
-        "en": "🛬 Flying to?",
-    },
-    "alert_price": {
-        "ru": "💰 Максимальная цена (EUR)?\n\nНапример: <code>50</code>",
-        "pl": "💰 Maksymalna cena (EUR)?\n\nNp.: <code>50</code>",
-        "en": "💰 Maximum price (EUR)?\n\nE.g.: <code>50</code>",
-    },
-    "alert_saved": {
-        "ru": "✅ Алерт создан!\n✈️ {origin} → {dest}\n💰 до {price} EUR\n\nУведомлю как только найду дешёвый рейс.",
-        "pl": "✅ Alert utworzony!\n✈️ {origin} → {dest}\n💰 do {price} EUR\n\nPowiadomię gdy znajdę tani lot.",
-        "en": "✅ Alert created!\n✈️ {origin} → {dest}\n💰 up to {price} EUR\n\nI'll notify you when I find a cheap flight.",
-    },
-    # ── Misc ─────────────────────────────────────────────────────────────────
-    "cancelled": {
-        "ru": "❌ Отменено.",
-        "pl": "❌ Anulowano.",
-        "en": "❌ Cancelled.",
-    },
-    "session_expired": {
-        "ru": "⏰ Сессия истекла. Начни новый поиск.",
-        "pl": "⏰ Sesja wygasła. Rozpocznij nowe wyszukiwanie.",
-        "en": "⏰ Session expired. Start a new search.",
-    },
-    "manual_iata": {
-        "ru": "✏️ Введи IATA код аэропорта (3 буквы):\nНапример: <code>DXB</code>, <code>BKK</code>, <code>JFK</code>",
-        "pl": "✏️ Wpisz kod IATA lotniska (3 litery):\nNp.: <code>DXB</code>, <code>BKK</code>, <code>JFK</code>",
-        "en": "✏️ Enter airport IATA code (3 letters):\nE.g.: <code>DXB</code>, <code>BKK</code>, <code>JFK</code>",
-    },
-    "return_when": {
-        "ru": "🔙 Когда возвращаемся?",
-        "pl": "🔙 Kiedy wracamy?",
-        "en": "🔙 When are we returning?",
-    },
-    "cheapdates_searching": {
-        "ru": "📅 Ищу самые дешёвые даты <b>{origin} → {dest}</b>...\n⏳ Секунду",
-        "pl": "📅 Szukam najtańszych dat <b>{origin} → {dest}</b>...\n⏳ Chwileczkę",
-        "en": "📅 Finding cheapest dates <b>{origin} → {dest}</b>...\n⏳ One moment",
-    },
-    "cheapdates_empty": {
-        "ru": "😔 Не нашёл дешёвых дат для <b>{origin} → {dest}</b>.",
-        "pl": "😔 Nie znaleziono tanich dat dla <b>{origin} → {dest}</b>.",
-        "en": "😔 No cheap dates found for <b>{origin} → {dest}</b>.",
+    "pl": {
+        "start_greeting": (
+            "👋 Cześć, {name}!\n"
+            "{badge}\n\n"
+            "🏙 <b>DDFlatsBot</b> — mieszkania Warszawy w jednym miejscu.\n"
+            "Parsuje OLX · Otodom · Gratka · Morizon co 10 minut.\n\n"
+            "⚠️ Bot agreguje ogłoszenia z zewnętrznych stron. "
+            "Zawsze sprawdzaj mieszkanie osobiście."
+        ),
+        "disclaimer": (
+            "⚠️ <b>Przed użyciem przeczytaj:</b>\n\n"
+            "DDFlatsBot — agregator ogłoszeń z OLX, Otodom, Gratka, Morizon.\n\n"
+            "<b>NIE ponosimy odpowiedzialności za:</b>\n"
+            "• Wiarygodność ogłoszeń\n"
+            "• Działania wynajmujących\n"
+            "• Oszukańcze ogłoszenia\n\n"
+            "<b>Zasady bezpieczeństwa:</b>\n"
+            "🔍 Zawsze sprawdzaj mieszkanie osobiście\n"
+            "💳 Nie przelewaj pieniędzy bez oglądania\n"
+            "📋 Wymagaj umowy najmu\n\n"
+            "Klikając przycisk poniżej, zgadzasz się z warunkami."
+        ),
+        "btn_accept": "✅ Akceptuję warunki",
+        "btn_find": "🏠 Znajdź mieszkanie",
+        "btn_filter": "🔍 Filtry",
+        "btn_favorites": "❤️ Ulubione",
+        "btn_alerts": "🔔 Alerty",
+        "btn_vip": "⭐ Dostęp VIP",
+        "btn_ref": "👥 Zaproś znajomego",
+        "btn_cheap": "💚 Najtańsze",
+        "btn_hot": "🔥 Gorące",
+        "btn_drops": "📉 Obniżki cen",
+        "btn_map": "🗺 Mapa cen",
+        "btn_notes": "📝 Notatki",
+        "btn_mystats": "📊 Moje statystyki",
+        "btn_next": "➡️ Następne",
+        "btn_fav_add": "❤️ Ulubione",
+        "btn_on_map": "🗺 Na mapie",
+        "btn_note": "📝 Notatka",
+        "btn_similar": "🔍 Podobne",
+        "no_apts": "😔 Nie znaleziono mieszkań wg Twoich filtrów.\n\nSpróbuj zmienić filtry: /filter",
+        "no_apts_yet": "😔 Brak mieszkań. Parser działa co 10 minut.",
+        "wrap_around": "🔄 Pokazuję od początku — brak nowych mieszkań.",
+        "limit_reached": "⛔ Darmowy limit {limit} mieszkań wyczerpany.\n\n💎 VIP — bez limitu + alerty + powiadomienia o obniżkach",
+        "vip_badge": "💎 VIP do {until}",
+        "free_badge": "🆓 {bar} {used}/{total}",
+        "choose_lang": "🌍 Wybierz język:",
+        "lang_set_ru": "🇷🇺 Język: Rosyjski",
+        "lang_set_uk": "🇺🇦 Język: Ukraiński",
+        "lang_set_pl": "🇵🇱 Język: Polski",
+        "early_adopter": "\n\n🎁 <b>Jesteś w pierwszych 50!</b> VIP na 7 dni za darmo!",
+        "ref_bonus": "🎁 Bonus referencyjny aktywowany! Zapraszający otrzymał 7 dni VIP.",
+        "vip_fav10": "\n\n🎁 <b>+3 dni VIP</b> za 10 zapisanych mieszkań!",
+        "vip_loyal": "\n\n🎁 <b>+2 dni VIP</b> za aktywność!",
+        "remaining": "\n\n📦 Jeszcze {n} mieszkań wg filtrów",
+        "warn_check": "⚠️ Zawsze sprawdzaj mieszkanie osobiście przed płatnością.",
     },
 }
 
+DEFAULT_LANG = "ru"
 
-def t(key: str, lang: str = "ru", **kwargs) -> str:
-    """Get translated string."""
-    lang = lang if lang in ("ru", "pl", "en") else "ru"
-    text = TEXTS.get(key, {}).get(lang) or TEXTS.get(key, {}).get("ru", key)
-    if kwargs:
-        try:
-            text = text.format(**kwargs)
-        except Exception:
-            pass
-    return text
+
+def t(lang: str, key: str, **kwargs) -> str:
+    lang = lang if lang in TEXTS else DEFAULT_LANG
+    text = TEXTS[lang].get(key, TEXTS[DEFAULT_LANG].get(key, key))
+    return text.format(**kwargs) if kwargs else text
