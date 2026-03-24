@@ -29,8 +29,8 @@ from config import REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS
 from bot.i18n import t
 from datetime import datetime
 
-# Stars price: ~50 XTR ≈ 19 zł
-VIP_STARS_PRICE = 50
+# Stars price: 190 XTR ≈ 19 zł (100 XTR = 10 zł)
+VIP_STARS_PRICE = 190
 
 router = Router()
 
