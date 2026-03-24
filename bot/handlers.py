@@ -317,19 +317,7 @@ async def cmd_start(message: Message, state: FSMContext):
         ],
         [
             InlineKeyboardButton(text=t(lang, "btn_drops"), callback_data="open_drops"),
-            InlineKeyboardButton(text=t(lang, "btn_map"), callback_data="open_map"),
-        ],
-        [
-            InlineKeyboardButton(text=t(lang, "btn_notes"), callback_data="open_notes"),
             InlineKeyboardButton(text=t(lang, "btn_mystats"), callback_data="open_stats"),
-        ],
-        [
-            InlineKeyboardButton(text="⚡ до 2000 zł", callback_data="quick:2000"),
-            InlineKeyboardButton(text="⚡ до 3000 zł", callback_data="quick:3000"),
-            InlineKeyboardButton(text="⚡ 1 комн.", callback_data="quick:1room"),
-        ],
-        [
-            InlineKeyboardButton(text="🔄 Сбросить фильтры", callback_data="reset_filters"),
         ],
     ])
     await message.answer(
