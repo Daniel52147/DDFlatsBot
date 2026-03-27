@@ -192,6 +192,11 @@ def get_apartments(filters: dict = None, offset: int = 0, limit: int = 1,
     query = "SELECT * FROM apartments WHERE 1=1"
     params = []
 
+    # Only show listings from last 30 days — older ones are likely already rented
+    cutoff_old = (datetime.now() - timedelta(days=30)).isoformat()
+    query += " AND created_at >= ?"
+    params.append(cutoff_old)
+
     # Early access: free users only see apartments older than N minutes
     if not vip and VIP_EARLY_ACCESS_MINUTES > 0:
         cutoff = (datetime.now() - timedelta(minutes=VIP_EARLY_ACCESS_MINUTES)).isoformat()

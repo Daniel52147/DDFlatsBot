@@ -87,6 +87,24 @@ async def setup_bot_commands():
         BotCommand(command="help",       description="📖 Все команды"),
     ]
     await bot.set_my_commands(commands, scope=BotCommandScopeDefault())
+
+    # Set bot description shown before /start
+    try:
+        await bot.set_my_description(
+            "🏙 DDFlatsBot — все квартиры Варшавы в одном месте!\n\n"
+            "✅ OLX · Otodom · Gratka · Morizon · Lento\n"
+            "✅ Обновление каждые 10 минут\n"
+            "✅ Фильтры: цена, район, комнаты\n"
+            "✅ Уведомления о новых квартирах\n"
+            "✅ Аренда посуточно\n\n"
+            "Нажми START чтобы начать 👇"
+        )
+        await bot.set_my_short_description(
+            "🏠 Все квартиры Варшавы — OLX, Otodom, Gratka и другие в одном боте"
+        )
+    except Exception as e:
+        print(f"[Bot] Description set error: {e}")
+
     print("[Bot] Commands menu updated")
 
 

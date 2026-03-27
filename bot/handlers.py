@@ -217,133 +217,171 @@ async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     args = message.text.split()
     user = get_or_create_user(message.from_user.id)
-    name = message.from_user.first_name or "друг"
 
-    # Auto-detect language for new users
-    from datetime import datetime
-    created = user.get("created_at", "")
-    is_new = False
-    if created:
-        try:
-            is_new = (datetime.now() - datetime.fromisoformat(created)).seconds < 30
-        except Exception:
-            pass
-
-    if is_new:
-        detected_lang = auto_detect_lang(message.from_user.language_code)
-        set_user_lang(message.from_user.id, detected_lang)
-        lang = detected_lang
-    else:
-        lang = get_lang(message.from_user.id)
-
-    # Remove any old ReplyKeyboard from previous bot versions
+    # Remove any old ReplyKeyboard
     rm_msg = await message.answer(".", reply_markup=ReplyKeyboardRemove())
     try:
         await rm_msg.delete()
     except Exception:
         pass
 
+    # Detect if truly new user (registered < 60s ago)
+    from datetime import datetime
+    created = user.get("created_at", "")
+    is_new = False
+    if created:
+        try:
+            is_new = (datetime.now() - datetime.fromisoformat(created)).seconds < 60
+        except Exception:
+            pass
+
+    # Store referral for later
+    if len(args) > 1:
+        await state.update_data(pending_ref=args[1])
+
     if is_new:
-        kb_disc = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text=t(lang, "btn_accept"), callback_data="accept_disclaimer"),
+        # Step 1: language selection
+        detected = auto_detect_lang(message.from_user.language_code)
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🇷🇺 Русский",  callback_data="onboard_lang:ru"),
+            InlineKeyboardButton(text="🇺🇦 Українська", callback_data="onboard_lang:uk"),
+            InlineKeyboardButton(text="🇵🇱 Polski",   callback_data="onboard_lang:pl"),
         ]])
         await message.answer(
-            t(lang, "disclaimer"),
-            parse_mode="HTML", reply_markup=kb_disc
+            t(detected, "welcome_new"),
+            parse_mode="HTML",
+            reply_markup=kb
         )
-        # Store referral for after disclaimer
-        if len(args) > 1:
-            await state.update_data(pending_ref=args[1])
         return
 
-    early_adopter_msg = ""
-    if user.get("vip") and user.get("vip_until"):
-        from datetime import datetime
-        created = user.get("created_at", "")
-        if created and (datetime.now() - datetime.fromisoformat(created)).seconds < 10:
-            early_adopter_msg = t(lang, "early_adopter")
+    # Returning user — show main menu
+    await _show_main_menu(message, user)
 
-    if len(args) > 1 and args[1].startswith("ref_"):
-        ref_code = args[1][4:]
-        rewarded = apply_referral(message.from_user.id, ref_code)
+
+@router.callback_query(F.data.startswith("onboard_lang:"))
+async def cb_onboard_lang(call: CallbackQuery, state: FSMContext):
+    """Step 1 complete: language chosen → show disclaimer."""
+    lang = call.data.split(":")[1]
+    set_user_lang(call.from_user.id, lang)
+    await call.answer()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t(lang, "btn_accept"), callback_data=f"onboard_accept:{lang}")],
+        [InlineKeyboardButton(text=t(lang, "btn_decline"), callback_data="onboard_decline")],
+    ])
+    await call.message.edit_text(
+        t(lang, "disclaimer"),
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+
+
+@router.callback_query(F.data.startswith("onboard_accept:"))
+async def cb_onboard_accept(call: CallbackQuery, state: FSMContext):
+    """Step 2 complete: disclaimer accepted → show main menu."""
+    lang = call.data.split(":")[1]
+    await call.answer("✅")
+    await call.message.delete()
+
+    # Apply referral if any
+    data = await state.get_data()
+    pending_ref = data.get("pending_ref", "")
+    if pending_ref and pending_ref.startswith("ref_"):
+        ref_code = pending_ref[4:]
+        rewarded = apply_referral(call.from_user.id, ref_code)
         if rewarded:
-            await message.answer(t(lang, "ref_bonus"))
+            await call.message.answer(t(lang, "ref_bonus"))
 
-    # Auto VIP check on start
-    reason = check_auto_vip_conditions(message.from_user.id)
+    user = get_or_create_user(call.from_user.id)
+    await _show_main_menu(call.message, user, from_user=call.from_user)
+
+
+@router.callback_query(F.data == "onboard_decline")
+async def cb_onboard_decline(call: CallbackQuery):
+    await call.answer()
+    await call.message.edit_text(
+        "❌ Ты отказался от условий использования.\n\n"
+        "Если передумаешь — нажми /start снова.",
+    )
+
+
+# Keep old accept_disclaimer for backward compat
+@router.callback_query(F.data == "accept_disclaimer")
+async def cb_accept_disclaimer_legacy(call: CallbackQuery, state: FSMContext):
+    lang = get_lang(call.from_user.id)
+    await call.answer("✅")
+    data = await state.get_data()
+    pending_ref = data.get("pending_ref", "")
+    if pending_ref and pending_ref.startswith("ref_"):
+        rewarded = apply_referral(call.from_user.id, pending_ref[4:])
+        if rewarded:
+            await call.message.answer(t(lang, "ref_bonus"))
+    user = get_or_create_user(call.from_user.id)
+    await _show_main_menu(call.message, user, from_user=call.from_user)
+
+
+async def _show_main_menu(message, user: dict, from_user=None):
+    """Show main menu to returning or newly onboarded user."""
+    fu = from_user or message.from_user
+    name = fu.first_name or "друг"
+    lang = get_lang(fu.id)
+
+    early_adopter_msg = ""
+    reason = check_auto_vip_conditions(fu.id)
     if reason == "fav10":
-        early_adopter_msg += t(lang, "vip_fav10")
-        user = get_or_create_user(message.from_user.id)
+        early_adopter_msg = t(lang, "vip_fav10")
+        user = get_or_create_user(fu.id)
     elif reason == "loyal":
-        early_adopter_msg += t(lang, "vip_loyal")
-        user = get_or_create_user(message.from_user.id)
+        early_adopter_msg = t(lang, "vip_loyal")
+        user = get_or_create_user(fu.id)
 
-    # Progress bar for free users
     if not user["vip"]:
         used = user["views"]
         total = FREE_VIEWS
-        filled = min(used, total)
-        bar = "🟩" * filled + "⬜" * (total - filled)
+        bar = "🟩" * min(used, total) + "⬜" * max(0, total - used)
         vip_badge = t(lang, "free_badge", bar=bar, used=used, total=total)
     else:
         vip_until = user.get("vip_until", "")[:10] if user.get("vip_until") else "∞"
         vip_badge = t(lang, "vip_badge", until=vip_until)
 
-    # New apartments since last visit
+    # New since last visit
     new_since_msg = ""
-    last_visit = get_last_visit(message.from_user.id)
-    if last_visit and not is_new:
+    last_visit = get_last_visit(fu.id)
+    if last_visit:
         new_count = get_new_since(last_visit)
         if new_count > 0:
-            new_since_msg = f"\n\n🆕 <b>+{new_count} новых квартир</b> с твоего последнего визита!"
-    update_last_visit(message.from_user.id)
+            new_since_msg = f"\n\n🆕 <b>+{new_count}</b> новых квартир с твоего последнего визита!"
+    update_last_visit(fu.id)
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text=t(lang, "btn_find"), callback_data="next"),
-            InlineKeyboardButton(text=t(lang, "btn_filter"), callback_data="open_filter"),
+            InlineKeyboardButton(text=t(lang, "btn_find"),      callback_data="next"),
+            InlineKeyboardButton(text=t(lang, "btn_filter"),    callback_data="open_filter"),
         ],
         [
             InlineKeyboardButton(text=t(lang, "btn_favorites"), callback_data="open_favorites"),
-            InlineKeyboardButton(text=t(lang, "btn_alerts"), callback_data="open_alerts"),
+            InlineKeyboardButton(text=t(lang, "btn_alerts"),    callback_data="open_alerts"),
         ],
         [
-            InlineKeyboardButton(text=t(lang, "btn_vip"), callback_data="open_vip"),
-            InlineKeyboardButton(text=t(lang, "btn_ref"), callback_data="open_ref"),
+            InlineKeyboardButton(text=t(lang, "btn_vip"),       callback_data="open_vip"),
+            InlineKeyboardButton(text=t(lang, "btn_ref"),       callback_data="open_ref"),
         ],
         [
-            InlineKeyboardButton(text=t(lang, "btn_cheap"), callback_data="open_cheap"),
-            InlineKeyboardButton(text=t(lang, "btn_hot"), callback_data="open_hot"),
+            InlineKeyboardButton(text=t(lang, "btn_cheap"),     callback_data="open_cheap"),
+            InlineKeyboardButton(text=t(lang, "btn_hot"),       callback_data="open_hot"),
         ],
         [
-            InlineKeyboardButton(text=t(lang, "btn_drops"), callback_data="open_drops"),
-            InlineKeyboardButton(text=t(lang, "btn_mystats"), callback_data="open_stats"),
+            InlineKeyboardButton(text=t(lang, "btn_drops"),     callback_data="open_drops"),
+            InlineKeyboardButton(text=t(lang, "btn_daily"),     callback_data="open_daily"),
+        ],
+        [
+            InlineKeyboardButton(text=t(lang, "btn_mystats"),   callback_data="open_stats"),
         ],
     ])
     await message.answer(
-        t(lang, "start_greeting", name=name, badge=vip_badge) + early_adopter_msg + new_since_msg +
-        "\n\n/menu — полное меню  |  /help — все команды",
+        t(lang, "start_greeting", name=name, badge=vip_badge) + early_adopter_msg + new_since_msg,
         parse_mode="HTML",
         reply_markup=kb
     )
-    # Show referral link inline — viral growth
-    try:
-        bot_me = await message.bot.get_me()
-        ref_stats = get_ref_stats(message.from_user.id)
-        ref_code = ref_stats.get("ref_code", "")
-        if ref_code:
-            ref_link = f"https://t.me/{bot_me.username}?start=ref_{ref_code}"
-            ref_kb = InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="📤 Пригласить друга → VIP бесплатно", url=f"https://t.me/share/url?url={ref_link}&text=Нашёл+бота+для+поиска+квартир+в+Варшаве!+Все+OLX%2C+Otodom%2C+Gratka+в+одном+месте+🏠"),
-            ]])
-            await message.answer(
-                f"👥 Пригласи друга — получи <b>7 дней VIP бесплатно!</b>\n"
-                f"Твоя ссылка: <code>{ref_link}</code>",
-                parse_mode="HTML",
-                reply_markup=ref_kb
-            )
-    except Exception:
-        pass
 
 # ── /next ────────────────────────────────────────────────────
 
@@ -2188,6 +2226,57 @@ async def cmd_drops(message: Message):
 async def cb_open_drops(call: CallbackQuery):
     await call.answer()
     await cmd_drops(call.message)
+
+
+# ── Посуточно / Short-term rental ────────────────────────────
+
+@router.callback_query(F.data == "open_daily")
+async def cb_open_daily(call: CallbackQuery):
+    await call.answer()
+    lang = get_lang(call.from_user.id)
+    days_labels = [
+        ("btn_1day", "1"),
+        ("btn_3days", "3"),
+        ("btn_7days", "7"),
+        ("btn_14days", "14"),
+        ("btn_30days", "30"),
+    ]
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t(lang, k), callback_data=f"daily_days:{d}") for k, d in days_labels[:3]],
+        [InlineKeyboardButton(text=t(lang, k), callback_data=f"daily_days:{d}") for k, d in days_labels[3:]],
+    ])
+    await call.message.answer(t(lang, "daily_text"), parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("daily_days:"))
+async def cb_daily_days(call: CallbackQuery):
+    await call.answer()
+    lang = get_lang(call.from_user.id)
+    days = call.data.split(":")[1]
+    from datetime import datetime, timedelta
+    checkin = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+    checkout = (datetime.now() + timedelta(days=1 + int(days))).strftime("%Y-%m-%d")
+    import urllib.parse
+    booking_url = (
+        f"https://www.booking.com/searchresults.pl.html"
+        f"?ss=Warszawa&checkin={checkin}&checkout={checkout}&group_adults=1&no_rooms=1"
+    )
+    airbnb_url = (
+        f"https://www.airbnb.pl/s/Warszawa--Polska/homes"
+        f"?checkin={checkin}&checkout={checkout}&adults=1"
+    )
+    nocowanie_url = "https://nocowanie.pl/noclegi/warszawa/"
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏨 Booking.com", url=booking_url)],
+        [InlineKeyboardButton(text="🏠 Airbnb", url=airbnb_url)],
+        [InlineKeyboardButton(text="🛏 Nocowanie.pl", url=nocowanie_url)],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="open_daily")],
+    ])
+    await call.message.edit_text(
+        t(lang, "daily_links", days=days, booking=booking_url, airbnb=airbnb_url, nocowanie=nocowanie_url),
+        parse_mode="HTML",
+        reply_markup=kb
+    )
 
 
 # ── /compare — сравнение квартир (уникальная фича) ────────────
