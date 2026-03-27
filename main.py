@@ -97,7 +97,28 @@ async def setup_bot_commands():
             "✅ Фильтры: цена, район, комнаты\n"
             "✅ Уведомления о новых квартирах\n"
             "✅ Аренда посуточно\n\n"
-            "Нажми START чтобы начать 👇"
+            "Нажми START чтобы начать 👇",
+            language_code="ru"
+        )
+        await bot.set_my_description(
+            "🏙 DDFlatsBot — wszystkie mieszkania Warszawy w jednym miejscu!\n\n"
+            "✅ OLX · Otodom · Gratka · Morizon · Lento\n"
+            "✅ Aktualizacja co 10 minut\n"
+            "✅ Filtry: cena, dzielnica, pokoje\n"
+            "✅ Powiadomienia o nowych mieszkaniach\n"
+            "✅ Wynajem krótkoterminowy\n\n"
+            "Naciśnij START aby zacząć 👇",
+            language_code="pl"
+        )
+        await bot.set_my_description(
+            "🏙 DDFlatsBot — всі квартири Варшави в одному місці!\n\n"
+            "✅ OLX · Otodom · Gratka · Morizon · Lento\n"
+            "✅ Оновлення кожні 10 хвилин\n"
+            "✅ Фільтри: ціна, район, кімнати\n"
+            "✅ Сповіщення про нові квартири\n"
+            "✅ Оренда подобово\n\n"
+            "Натисни START щоб почати 👇",
+            language_code="uk"
         )
         await bot.set_my_short_description(
             "🏠 Все квартиры Варшавы — OLX, Otodom, Gratka и другие в одном боте"

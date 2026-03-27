@@ -2236,17 +2236,19 @@ async def cb_open_daily(call: CallbackQuery):
     lang = get_lang(call.from_user.id)
 
     # Check if we have short-term listings in DB
-    conn = get_apartment_by_id.__module__  # just to import
     from database.db import get_conn
-    db = get_conn()
-    daily_count = db.execute(
-        "SELECT COUNT(*) FROM apartments WHERE "
-        "(LOWER(title) LIKE '%doby%' OR LOWER(title) LIKE '%dobowy%' OR "
-        "LOWER(title) LIKE '%krótkoterminow%' OR LOWER(title) LIKE '%na doby%' OR "
-        "LOWER(title) LIKE '%noclegi%') AND created_at >= ?",
-        ((datetime.now() - timedelta(days=14)).isoformat(),)
-    ).fetchone()[0]
-    db.close()
+    try:
+        db = get_conn()
+        daily_count = db.execute(
+            "SELECT COUNT(*) FROM apartments WHERE "
+            "(LOWER(title) LIKE '%doby%' OR LOWER(title) LIKE '%dobowy%' OR "
+            "LOWER(title) LIKE '%krotkoterminow%' OR LOWER(title) LIKE '%na doby%' OR "
+            "LOWER(title) LIKE '%noclegi%') AND created_at >= ?",
+            ((datetime.now() - timedelta(days=14)).isoformat(),)
+        ).fetchone()[0]
+        db.close()
+    except Exception:
+        daily_count = 0
 
     days_labels = [
         ("btn_1day", "1"), ("btn_3days", "3"), ("btn_7days", "7"),
@@ -2258,7 +2260,7 @@ async def cb_open_daily(call: CallbackQuery):
     ]
     if daily_count > 0:
         kb_rows.insert(0, [InlineKeyboardButton(
-            text=f"🏠 Посуточно в базе ({daily_count})",
+            text=f"🏠 {t(lang, 'btn_find')} ({daily_count})",
             callback_data="daily_from_db"
         )])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
@@ -2267,31 +2269,46 @@ async def cb_open_daily(call: CallbackQuery):
 
 @router.callback_query(F.data == "daily_from_db")
 async def cb_daily_from_db(call: CallbackQuery, state: FSMContext):
-    """Show short-term listings from our own DB."""
     await call.answer()
     from database.db import get_conn
-    db = get_conn()
-    rows = db.execute(
-        "SELECT * FROM apartments WHERE "
-        "(LOWER(title) LIKE '%doby%' OR LOWER(title) LIKE '%dobowy%' OR "
-        "LOWER(title) LIKE '%krótkoterminow%' OR LOWER(title) LIKE '%na doby%' OR "
-        "LOWER(title) LIKE '%noclegi%') AND created_at >= ? "
-        "ORDER BY price ASC LIMIT 10",
-        ((datetime.now() - timedelta(days=14)).isoformat(),)
-    ).fetchall()
-    db.close()
+    try:
+        db = get_conn()
+        rows = db.execute(
+            "SELECT * FROM apartments WHERE "
+            "(LOWER(title) LIKE '%doby%' OR LOWER(title) LIKE '%dobowy%' OR "
+            "LOWER(title) LIKE '%krotkoterminow%' OR LOWER(title) LIKE '%na doby%' OR "
+            "LOWER(title) LIKE '%noclegi%') AND created_at >= ? "
+            "ORDER BY price ASC LIMIT 10",
+            ((datetime.now() - timedelta(days=14)).isoformat(),)
+        ).fetchall()
+        db.close()
+    except Exception:
+        rows = []
 
+    lang = get_lang(call.from_user.id)
     if not rows:
-        await call.message.answer("😔 Посуточных объявлений пока нет в базе.")
+        await call.message.answer(
+            "😔 Посуточных объявлений пока нет в базе.\n\n"
+            "Попробуй поискать на платформах ниже 👇",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="◀️ Назад", callback_data="open_daily")
+            ]])
+        )
         return
 
-    await call.message.answer(f"🏖 <b>Посуточная аренда в Варшаве ({len(rows)}):</b>", parse_mode="HTML")
+    await call.message.answer(
+        f"🏖 <b>Посуточная аренда в Варшаве ({len(rows)}):</b>",
+        parse_mode="HTML"
+    )
     for apt in [dict(r) for r in rows]:
         kb = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="❤️ Сохранить", callback_data=f"fav_add:{apt['id']}"),
             InlineKeyboardButton(text="🔗 Открыть", url=apt["link"]),
         ]])
-        await call.message.answer(apt_text(apt), reply_markup=kb, parse_mode="HTML")
+        try:
+            await call.message.answer(apt_text(apt, lang), reply_markup=kb, parse_mode="HTML")
+        except Exception:
+            pass
 
 
 @router.callback_query(F.data.startswith("daily_days:"))
@@ -2299,13 +2316,13 @@ async def cb_daily_days(call: CallbackQuery):
     await call.answer()
     lang = get_lang(call.from_user.id)
     days = call.data.split(":")[1]
-    from datetime import datetime, timedelta
     checkin = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
     checkout = (datetime.now() + timedelta(days=1 + int(days))).strftime("%Y-%m-%d")
     import urllib.parse
     booking_url = (
         f"https://www.booking.com/searchresults.pl.html"
-        f"?ss=Warszawa&checkin={checkin}&checkout={checkout}&group_adults=1&no_rooms=1"
+        f"?ss=Warszawa%2C+Polska&checkin={checkin}&checkout={checkout}"
+        f"&group_adults=1&no_rooms=1&lang=ru"
     )
     airbnb_url = (
         f"https://www.airbnb.pl/s/Warszawa--Polska/homes"
@@ -2318,7 +2335,8 @@ async def cb_daily_days(call: CallbackQuery):
         [InlineKeyboardButton(text="🛏 Nocowanie.pl", url=nocowanie_url)],
         [InlineKeyboardButton(text="◀️ Назад", callback_data="open_daily")],
     ])
-    await call.message.edit_text(
+    # Use answer (not edit_text) — previous message may not be editable
+    await call.message.answer(
         t(lang, "daily_links", days=days, booking=booking_url, airbnb=airbnb_url, nocowanie=nocowanie_url),
         parse_mode="HTML",
         reply_markup=kb
