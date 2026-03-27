@@ -28,7 +28,8 @@ from database.db import (
 from config import FREE_VIEWS, VIP_PRICE, DISTRICTS, ADMIN_IDS, CHANNEL_LINK, MODERATOR_IDS
 from config import REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS
 from bot.i18n import t
-from datetime import datetime
+from datetime import datetime, timedelta
+import urllib.parse
 
 # Stars price: 190 XTR ≈ 19 zł (100 XTR = 10 zł)
 VIP_STARS_PRICE = 190
@@ -226,7 +227,6 @@ async def cmd_start(message: Message, state: FSMContext):
         pass
 
     # Detect if truly new user (registered < 60s ago)
-    from datetime import datetime
     created = user.get("created_at", "")
     is_new = False
     if created:
@@ -1158,7 +1158,6 @@ async def cb_admin_cleanup(call: CallbackQuery):
         return
     await call.answer("🗑 Очистка запущена...")
     from database.db import get_conn
-    from datetime import datetime, timedelta
     cutoff = (datetime.now() - timedelta(days=30)).isoformat()
     conn = get_conn()
     deleted = conn.execute(
@@ -1966,7 +1965,7 @@ async def cb_share(call: CallbackQuery):
         f"🔗 {apt['link']}\n\n"
         f"{icon} Найдено через @{bot_me.username} — все квартиры Варшавы!"
     )
-    import urllib.parse
+    import urllib.parse  # noqa — already imported at top, kept for clarity
     share_url = f"https://t.me/share/url?url={urllib.parse.quote(apt['link'])}&text={urllib.parse.quote(share_text)}"
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="📤 Поделиться в Telegram", url=share_url),
@@ -2000,7 +1999,6 @@ async def cb_found(call: CallbackQuery):
     ref_stats = get_ref_stats(call.from_user.id)
     ref_code = ref_stats.get("ref_code", "")
     ref_link = f"https://t.me/{bot_me.username}?start=ref_{ref_code}" if ref_code else f"https://t.me/{bot_me.username}"
-    import urllib.parse
     share_text = f"Нашёл квартиру в Варшаве через этого бота! Рекомендую 🏠"
     share_url = f"https://t.me/share/url?url={urllib.parse.quote(ref_link)}&text={urllib.parse.quote(share_text)}"
     kb = InlineKeyboardMarkup(inline_keyboard=[[
@@ -2318,7 +2316,6 @@ async def cb_daily_days(call: CallbackQuery):
     days = call.data.split(":")[1]
     checkin = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
     checkout = (datetime.now() + timedelta(days=1 + int(days))).strftime("%Y-%m-%d")
-    import urllib.parse
     booking_url = (
         f"https://www.booking.com/searchresults.pl.html"
         f"?ss=Warszawa%2C+Polska&checkin={checkin}&checkout={checkout}"
@@ -2393,44 +2390,6 @@ async def cmd_compare(message: Message):
 async def cb_open_compare(call: CallbackQuery):
     await call.answer()
     await cmd_compare(call.message)
-
-
-# ── Disclaimer accept ─────────────────────────────────────────
-
-@router.callback_query(F.data == "accept_disclaimer")
-async def cb_accept_disclaimer(call: CallbackQuery, state: FSMContext):
-    await call.answer("✅ Принято!")
-    data = await state.get_data()
-    pending_ref = data.get("pending_ref")
-
-    user = get_or_create_user(call.from_user.id)
-
-    # Process referral if pending
-    if pending_ref and pending_ref.startswith("ref_"):
-        ref_code = pending_ref[4:]
-        rewarded = apply_referral(call.from_user.id, ref_code)
-        if rewarded:
-            await call.message.answer("🎁 Реферальный бонус активирован! Пригласивший получил 7 дней VIP.")
-
-    lang = get_lang(call.from_user.id)
-    name = call.from_user.first_name or "друг"
-
-    # VIP trial message
-    early_msg = ""
-    if user.get("vip") and user.get("vip_until"):
-        vip_until = user.get("vip_until", "")[:10]
-        early_msg = f"\n\n🎁 <b>Тебе активирован пробный VIP на 1 день бесплатно!</b>\nДо {vip_until} — безлимит, алерты, всё включено.\nПотом {VIP_PRICE} zł/мес — /vip"
-
-    # Start onboarding: ask district
-    await state.update_data(pending_ref=pending_ref, onboard_early_msg=early_msg)
-    await state.set_state(OnboardingState.waiting_district)
-    await call.message.answer(
-        f"👋 Привет, <b>{name}</b>! Давай настроим поиск под тебя.\n\n"
-        f"📍 <b>Шаг 1/2: Выбери район Варшавы</b>\n\n"
-        f"Или нажми «Все районы» если ещё не определился:",
-        parse_mode="HTML",
-        reply_markup=districts_keyboard("onboard_d")
-    )
 
 
 @router.callback_query(F.data.startswith("onboard_d:"))
