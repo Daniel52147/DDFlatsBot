@@ -3057,3 +3057,90 @@ async def cmd_help(message: Message):
         "/menu — быстрое меню",
         parse_mode="HTML"
     )
+
+
+# ── Inline mode — @DDFlatsBot Mokotów 2000 ───────────────────
+
+from aiogram.types import InlineQuery, InlineQueryResultArticle, InputTextMessageContent
+import hashlib
+
+
+@router.inline_query()
+async def inline_search(query: InlineQuery):
+    """
+    Inline mode: user types @DDFlatsBot [district] [max_price]
+    Examples:
+      @DDFlatsBot Mokotów 2000
+      @DDFlatsBot Wola 2 pokoje
+      @DDFlatsBot (empty — show cheapest)
+    """
+    text = query.query.strip()
+    filters = {}
+
+    # Parse district
+    from config import DISTRICTS
+    for d in DISTRICTS:
+        if d.lower() in text.lower():
+            filters["district"] = d
+            text = re.sub(re.escape(d), "", text, flags=re.I).strip()
+            break
+
+    # Parse max price
+    price_m = re.search(r'(\d{3,5})', text)
+    if price_m:
+        filters["price_max"] = int(price_m.group(1))
+
+    # Parse rooms
+    rooms_m = re.search(r'(\d)\s*(?:pok|pokój|pokoje|комн|комнат)', text, re.I)
+    if rooms_m:
+        filters["rooms"] = int(rooms_m.group(1))
+
+    user = get_or_create_user(query.from_user.id)
+    apts = get_apartments(filters=filters, offset=0, limit=10, vip=bool(user["vip"]))
+
+    results = []
+    for apt in apts[:10]:
+        source_icons = {"OLX": "🟠", "Otodom": "🔵", "Gratka": "🟢", "Morizon": "🟣", "Szybko": "🔷", "Lento": "🟤"}
+        icon = source_icons.get(apt.get("source", ""), "📡")
+        price_str = f"{apt['price']} zł/мес" if apt.get("price") else "цена не указана"
+        rooms_str = f" · {apt['rooms']} комн." if apt.get("rooms") else ""
+        area_str = f" · {apt['area']} м²" if apt.get("area") else ""
+
+        title = f"🏠 {apt['price']} zł — {apt.get('district', 'Warszawa')}{rooms_str}"
+        description = f"{apt['title'][:80]}{area_str} {icon}"
+
+        msg_text = (
+            f"🏠 <b>{apt['title']}</b>\n"
+            f"💰 <b>{price_str}</b>\n"
+            f"📍 {apt.get('district', 'Warszawa')}{rooms_str}{area_str}\n"
+            f"🔗 <a href=\"{apt['link']}\">Открыть объявление</a>  {icon} {apt.get('source', '')}\n\n"
+            f"🤖 Найдено через @DDFlatsBot"
+        )
+
+        result_id = hashlib.md5(apt["link"].encode()).hexdigest()[:16]
+        results.append(
+            InlineQueryResultArticle(
+                id=result_id,
+                title=title,
+                description=description,
+                input_message_content=InputTextMessageContent(
+                    message_text=msg_text,
+                    parse_mode="HTML",
+                ),
+                thumbnail_url=apt.get("image") or None,
+            )
+        )
+
+    if not results:
+        results.append(
+            InlineQueryResultArticle(
+                id="no_results",
+                title="😔 Квартир не найдено",
+                description="Попробуй другой район или цену",
+                input_message_content=InputTextMessageContent(
+                    message_text="😔 По запросу квартир не найдено.\n\nОткрой @DDFlatsBot и используй фильтры.",
+                ),
+            )
+        )
+
+    await query.answer(results, cache_time=60, is_personal=True)

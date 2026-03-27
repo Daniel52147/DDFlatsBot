@@ -129,7 +129,7 @@ async def main():
         if WEBHOOK_URL:
             # Webhook mode (Render / production)
             from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
-            await bot.set_webhook(WEBHOOK_URL, drop_pending_updates=True)
+            await bot.set_webhook(WEBHOOK_URL, drop_pending_updates=True, allowed_updates=["message", "callback_query", "pre_checkout_query", "inline_query"])
             app = web.Application()
             SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=WEBHOOK_PATH)
             setup_application(app, dp, bot=bot)
@@ -145,7 +145,7 @@ async def main():
             print("🤖 DDFlatsBot started (polling)")
             await dp.start_polling(
                 bot,
-                allowed_updates=["message", "callback_query", "pre_checkout_query"],
+                allowed_updates=["message", "callback_query", "pre_checkout_query", "inline_query"],
                 drop_pending_updates=True,
             )
     finally:
