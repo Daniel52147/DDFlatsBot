@@ -2234,18 +2234,64 @@ async def cb_open_drops(call: CallbackQuery):
 async def cb_open_daily(call: CallbackQuery):
     await call.answer()
     lang = get_lang(call.from_user.id)
+
+    # Check if we have short-term listings in DB
+    conn = get_apartment_by_id.__module__  # just to import
+    from database.db import get_conn
+    db = get_conn()
+    daily_count = db.execute(
+        "SELECT COUNT(*) FROM apartments WHERE "
+        "(LOWER(title) LIKE '%doby%' OR LOWER(title) LIKE '%dobowy%' OR "
+        "LOWER(title) LIKE '%krótkoterminow%' OR LOWER(title) LIKE '%na doby%' OR "
+        "LOWER(title) LIKE '%noclegi%') AND created_at >= ?",
+        ((datetime.now() - timedelta(days=14)).isoformat(),)
+    ).fetchone()[0]
+    db.close()
+
     days_labels = [
-        ("btn_1day", "1"),
-        ("btn_3days", "3"),
-        ("btn_7days", "7"),
-        ("btn_14days", "14"),
-        ("btn_30days", "30"),
+        ("btn_1day", "1"), ("btn_3days", "3"), ("btn_7days", "7"),
+        ("btn_14days", "14"), ("btn_30days", "30"),
     ]
-    kb = InlineKeyboardMarkup(inline_keyboard=[
+    kb_rows = [
         [InlineKeyboardButton(text=t(lang, k), callback_data=f"daily_days:{d}") for k, d in days_labels[:3]],
         [InlineKeyboardButton(text=t(lang, k), callback_data=f"daily_days:{d}") for k, d in days_labels[3:]],
-    ])
+    ]
+    if daily_count > 0:
+        kb_rows.insert(0, [InlineKeyboardButton(
+            text=f"🏠 Посуточно в базе ({daily_count})",
+            callback_data="daily_from_db"
+        )])
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     await call.message.answer(t(lang, "daily_text"), parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data == "daily_from_db")
+async def cb_daily_from_db(call: CallbackQuery, state: FSMContext):
+    """Show short-term listings from our own DB."""
+    await call.answer()
+    from database.db import get_conn
+    db = get_conn()
+    rows = db.execute(
+        "SELECT * FROM apartments WHERE "
+        "(LOWER(title) LIKE '%doby%' OR LOWER(title) LIKE '%dobowy%' OR "
+        "LOWER(title) LIKE '%krótkoterminow%' OR LOWER(title) LIKE '%na doby%' OR "
+        "LOWER(title) LIKE '%noclegi%') AND created_at >= ? "
+        "ORDER BY price ASC LIMIT 10",
+        ((datetime.now() - timedelta(days=14)).isoformat(),)
+    ).fetchall()
+    db.close()
+
+    if not rows:
+        await call.message.answer("😔 Посуточных объявлений пока нет в базе.")
+        return
+
+    await call.message.answer(f"🏖 <b>Посуточная аренда в Варшаве ({len(rows)}):</b>", parse_mode="HTML")
+    for apt in [dict(r) for r in rows]:
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="❤️ Сохранить", callback_data=f"fav_add:{apt['id']}"),
+            InlineKeyboardButton(text="🔗 Открыть", url=apt["link"]),
+        ]])
+        await call.message.answer(apt_text(apt), reply_markup=kb, parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("daily_days:"))
