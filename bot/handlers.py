@@ -421,16 +421,18 @@ async def show_next_apartment(user_id: int, bot, state: FSMContext, chat_id: int
     apartments = get_apartments(filters=filters, offset=offset, vip=is_vip, exclude_ids=seen_ids)
 
     if not apartments:
-        if offset > 0:
-            # Wrap around — start from beginning
+        # Try without seen_ids first (user may have seen everything)
+        apartments = get_apartments(filters=filters, offset=offset, vip=is_vip, exclude_ids=None)
+        if not apartments and offset > 0:
+            # Wrap around
             await state.update_data(offset=0)
-            apartments = get_apartments(filters=filters, offset=0, vip=is_vip, exclude_ids=seen_ids)
+            apartments = get_apartments(filters=filters, offset=0, vip=is_vip, exclude_ids=None)
             if apartments:
                 await bot.send_message(chat_id, t(lang, "wrap_around"))
             else:
                 await bot.send_message(chat_id, t(lang, "no_apts"))
                 return
-        else:
+        elif not apartments:
             await bot.send_message(chat_id, t(lang, "no_apts_yet"))
             return
 
@@ -3038,17 +3040,30 @@ async def cb_open_map(call: CallbackQuery):
 @router.message(Command("cheap"))
 async def cmd_cheap(message: Message):
     user = get_or_create_user(message.from_user.id)
-    apts = get_cheapest_apartments(limit=5, price_max=2500)
+    # Try progressively higher price limits to always show results
+    for price_max in [2500, 3500, 5000]:
+        apts = get_cheapest_apartments(limit=10, price_max=price_max)
+        if apts:
+            break
     if not apts:
-        await message.answer("😔 Квартир до 2500 zł сейчас нет.\n\nПопробуй /alert — напишу как только появятся!")
+        await message.answer(
+            "😔 Дешёвых квартир сейчас нет в базе.\n\n"
+            "Парсер работает каждые 10 минут — попробуй позже.\n"
+            "Или настрой алерт: /alert"
+        )
         return
-    await message.answer("💚 <b>Самые дешёвые прямо сейчас (до 2500 zł):</b>", parse_mode="HTML")
+    lang = get_lang(message.from_user.id)
+    await message.answer(
+        f"💚 <b>Самые дешёвые прямо сейчас ({len(apts)} шт.):</b>",
+        parse_mode="HTML"
+    )
     for apt in apts:
         kb = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="❤️ Сохранить", callback_data=f"fav_add:{apt['id']}"),
             InlineKeyboardButton(text="🔗 Открыть", url=apt["link"]),
+            InlineKeyboardButton(text="🚨 Мошенник", callback_data=f"scam:{apt['id']}"),
         ]])
-        await message.answer(apt_text(apt), reply_markup=kb, parse_mode="HTML")
+        await message.answer(apt_text(apt, lang), reply_markup=kb, parse_mode="HTML")
 
 
 # ── /similar — похожие квартиры ───────────────────────────────

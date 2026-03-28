@@ -119,8 +119,7 @@ def _is_apartment_listing(title: str, price: int) -> bool:
         "miejsce postojowe", "komórka", "działka", "lokal użytkowy",
         "biuro na wynajem", "magazyn", "hala ", "sprzedam dom",
         "na sprzedaż", "sprzedaż", "skup", "usługi",
-        "na doby", "na godziny", "na noclegi", "noclegi",
-        "na tydzień", "krótkoterminow", "dobowy", "na doby", "/doby", "godz/",
+        "na godziny", "godz/",
         "osuszanie", "pochłaniacz",
     ]
     for kw in junk:
@@ -189,13 +188,8 @@ def get_apartments(filters: dict = None, offset: int = 0, limit: int = 1,
                    vip: bool = False, exclude_ids: list = None) -> list[dict]:
     conn = get_conn()
     c = conn.cursor()
-    query = "SELECT * FROM apartments WHERE 1=1"
+    query = "SELECT * FROM apartments WHERE reported < 10"
     params = []
-
-    # Only show listings from last 30 days — older ones are likely already rented
-    cutoff_old = (datetime.now() - timedelta(days=30)).isoformat()
-    query += " AND created_at >= ?"
-    params.append(cutoff_old)
 
     # Early access: free users only see apartments older than N minutes
     if not vip and VIP_EARLY_ACCESS_MINUTES > 0:
@@ -241,7 +235,7 @@ def get_apartments(filters: dict = None, offset: int = 0, limit: int = 1,
 def count_apartments(filters: dict = None, vip: bool = False) -> int:
     conn = get_conn()
     c = conn.cursor()
-    query = "SELECT COUNT(*) FROM apartments WHERE 1=1"
+    query = "SELECT COUNT(*) FROM apartments WHERE reported < 10"
     params = []
     if not vip and VIP_EARLY_ACCESS_MINUTES > 0:
         cutoff = (datetime.now() - timedelta(minutes=VIP_EARLY_ACCESS_MINUTES)).isoformat()
@@ -1186,7 +1180,8 @@ def get_cheapest_apartments(limit: int = 5, price_max: int = 2500) -> list:
     conn = get_conn()
     rows = conn.execute(f"""
         SELECT * FROM apartments
-        WHERE price > 300 AND price <= ? AND {junk_sql} AND {warsaw_sql} AND {non_warsaw_sql}
+        WHERE price > 300 AND price <= ? AND reported < 10
+          AND {junk_sql} AND {warsaw_sql} AND {non_warsaw_sql}
         ORDER BY price ASC LIMIT ?
     """, (price_max, limit)).fetchall()
     conn.close()
