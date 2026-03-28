@@ -2253,12 +2253,11 @@ async def cb_open_daily(call: CallbackQuery, state: FSMContext):
     ])
     await call.message.answer(
         "🏖 <b>Аренда посуточно в Варшаве</b>\n\n"
-        "Выбери количество дней или настрой параметры:\n\n"
-        "🏨 <b>Booking.com</b> — отели и апартаменты\n"
-        "🏠 <b>Airbnb</b> — квартиры от хозяев\n"
-        "🛏 <b>Nocowanie.pl</b> — польская платформа\n"
-        "🏢 <b>Rentalcars</b> — апартаменты\n\n"
-        "💡 Нажми на количество дней чтобы открыть все платформы сразу.",
+        "Выбери количество дней — я найду самые дешёвые варианты:\n\n"
+        "🔍 Ищу по: OLX · Nocowanie.pl · Booking · Airbnb\n"
+        "💰 Сортирую по цене от дешёвого к дорогому\n"
+        "⚡ Показываю топ-5 лучших предложений\n\n"
+        "📍 Район: <b>Вся Варшава</b>  👥 Гостей: <b>1</b>",
         parse_mode="HTML",
         reply_markup=kb
     )
@@ -2284,8 +2283,37 @@ async def cb_daily_district(call: CallbackQuery):
 async def cb_daily_set_district(call: CallbackQuery, state: FSMContext):
     district = call.data.split(":", 1)[1]
     await state.update_data(daily_district=district)
+    data = await state.get_data()
+    guests = data.get("daily_guests", 1)
     await call.answer(f"✅ Район: {district}", show_alert=False)
-    await call.message.delete()
+    try:
+        await call.message.delete()
+    except Exception:
+        pass
+    # Show updated main menu
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="1️⃣ 1 день",  callback_data="daily_days:1"),
+            InlineKeyboardButton(text="3️⃣ 3 дня",   callback_data="daily_days:3"),
+            InlineKeyboardButton(text="7️⃣ 7 дней",  callback_data="daily_days:7"),
+        ],
+        [
+            InlineKeyboardButton(text="🗓 2 недели", callback_data="daily_days:14"),
+            InlineKeyboardButton(text="📅 1 месяц",  callback_data="daily_days:30"),
+        ],
+        [
+            InlineKeyboardButton(text="📍 Сменить район", callback_data="daily_district"),
+            InlineKeyboardButton(text="👥 Гости",         callback_data="daily_guests"),
+        ],
+        [InlineKeyboardButton(text="🏠 Объявления из базы", callback_data="daily_from_db")],
+    ])
+    await call.message.answer(
+        f"🏖 <b>Аренда посуточно в Варшаве</b>\n\n"
+        f"📍 Район: <b>{district}</b>  👥 Гостей: <b>{guests}</b>\n\n"
+        f"Выбери количество дней — найду самые дешёвые варианты:",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
 
 
 @router.callback_query(F.data == "daily_guests")
@@ -2302,8 +2330,36 @@ async def cb_daily_guests(call: CallbackQuery):
 async def cb_daily_set_guests(call: CallbackQuery, state: FSMContext):
     guests = int(call.data.split(":")[1])
     await state.update_data(daily_guests=guests)
+    data = await state.get_data()
+    district = data.get("daily_district", "Warszawa")
     await call.answer(f"✅ Гостей: {guests}", show_alert=False)
-    await call.message.delete()
+    try:
+        await call.message.delete()
+    except Exception:
+        pass
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="1️⃣ 1 день",  callback_data="daily_days:1"),
+            InlineKeyboardButton(text="3️⃣ 3 дня",   callback_data="daily_days:3"),
+            InlineKeyboardButton(text="7️⃣ 7 дней",  callback_data="daily_days:7"),
+        ],
+        [
+            InlineKeyboardButton(text="🗓 2 недели", callback_data="daily_days:14"),
+            InlineKeyboardButton(text="📅 1 месяц",  callback_data="daily_days:30"),
+        ],
+        [
+            InlineKeyboardButton(text="📍 Сменить район", callback_data="daily_district"),
+            InlineKeyboardButton(text="👥 Гости",         callback_data="daily_guests"),
+        ],
+        [InlineKeyboardButton(text="🏠 Объявления из базы", callback_data="daily_from_db")],
+    ])
+    await call.message.answer(
+        f"🏖 <b>Аренда посуточно в Варшаве</b>\n\n"
+        f"📍 Район: <b>{district}</b>  👥 Гостей: <b>{guests}</b>\n\n"
+        f"Выбери количество дней — найду самые дешёвые варианты:",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
 
 
 @router.callback_query(F.data == "daily_from_db")
@@ -2356,49 +2412,55 @@ async def cb_daily_from_db(call: CallbackQuery, state: FSMContext):
             pass
 
 
-@router.callback_query(F.data.startswith("daily_days:"))
 async def cb_daily_days(call: CallbackQuery, state: FSMContext):
     await call.answer()
-    lang = get_lang(call.from_user.id)
     days = int(call.data.split(":")[1])
-
     data = await state.get_data()
     guests = data.get("daily_guests", 1)
     district = data.get("daily_district", "Warszawa")
 
     checkin = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
     checkout = (datetime.now() + timedelta(days=1 + days)).strftime("%Y-%m-%d")
+    checkin_d = (datetime.now() + timedelta(days=1)).strftime("%d.%m")
+    checkout_d = (datetime.now() + timedelta(days=1 + days)).strftime("%d.%m")
+    nights_word = {1: "ночь", 3: "ночи", 7: "ночей", 14: "ночей", 30: "ночей"}.get(days, "ночей")
 
-    # District mapping for URLs
-    district_booking = urllib.parse.quote(f"{district}, Polska")
-    district_airbnb = urllib.parse.quote(f"{district}, Warszawa, Polska")
-
-    booking_url = (
-        f"https://www.booking.com/searchresults.pl.html"
-        f"?ss={district_booking}&checkin={checkin}&checkout={checkout}"
-        f"&group_adults={guests}&no_rooms=1"
-    )
-    airbnb_url = (
-        f"https://www.airbnb.pl/s/{district_airbnb}/homes"
-        f"?checkin={checkin}&checkout={checkout}&adults={guests}"
-    )
-    nocowanie_url = f"https://nocowanie.pl/noclegi/warszawa/"
-    rentalcars_url = (
-        f"https://www.rentalcars.com/pl/city/pl/warsaw/"
-        f"?checkin={checkin}&checkout={checkout}"
-    )
-    trivago_url = (
-        f"https://www.trivago.pl/pl-PL/lm/hotel/poland-warsaw"
-        f"?checkin={checkin}&checkout={checkout}&adults={guests}"
+    # Show "searching" message
+    msg = await call.message.answer(
+        f"🔍 <b>Ищу лучшие варианты...</b>\n\n"
+        f"📅 {checkin_d} → {checkout_d} ({days} {nights_word})\n"
+        f"📍 {district}  👥 {guests} чел.\n\n"
+        f"⏳ Проверяю OLX и Nocowanie.pl...",
+        parse_mode="HTML"
     )
 
-    # Price estimate
-    avg_price_booking = {"1": "150-300", "3": "400-800", "7": "900-1800", "14": "1500-3000", "30": "2500-5000"}
-    price_est = avg_price_booking.get(str(days), "—")
+    # Real search
+    import asyncio, concurrent.futures
+    from parser.parser_daily import search_daily_rentals
+    loop = asyncio.get_event_loop()
+    try:
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            results = await asyncio.wait_for(
+                loop.run_in_executor(pool, search_daily_rentals, checkin, checkout, guests, district),
+                timeout=20.0
+            )
+    except Exception as e:
+        print(f"[Daily] search error: {e}")
+        results = []
 
-    nights_word = {1: "ночь", 2: "ночи", 3: "ночи", 7: "ночей", 14: "ночей", 30: "ночей"}.get(days, "ночей")
+    try:
+        await msg.delete()
+    except Exception:
+        pass
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[
+    # Platform fallback links
+    d_enc = urllib.parse.quote(f"{district}, Polska")
+    booking_url = f"https://www.booking.com/searchresults.pl.html?ss={d_enc}&checkin={checkin}&checkout={checkout}&group_adults={guests}&no_rooms=1"
+    airbnb_url = f"https://www.airbnb.pl/s/{urllib.parse.quote(district + ', Warszawa')}/homes?checkin={checkin}&checkout={checkout}&adults={guests}"
+    nocowanie_url = "https://nocowanie.pl/noclegi/warszawa/apartamenty/"
+    trivago_url = f"https://www.trivago.pl/pl-PL/lm/hotel/poland-warsaw?checkin={checkin}&checkout={checkout}&adults={guests}"
+
+    platform_kb = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="🏨 Booking.com", url=booking_url),
             InlineKeyboardButton(text="🏠 Airbnb", url=airbnb_url),
@@ -2407,24 +2469,70 @@ async def cb_daily_days(call: CallbackQuery, state: FSMContext):
             InlineKeyboardButton(text="🛏 Nocowanie.pl", url=nocowanie_url),
             InlineKeyboardButton(text="🏢 Trivago", url=trivago_url),
         ],
-        [InlineKeyboardButton(text="🚗 Rentalcars (апарт.)", url=rentalcars_url)],
         [
-            InlineKeyboardButton(text="📍 Сменить район", callback_data="daily_district"),
+            InlineKeyboardButton(text="📍 Район", callback_data="daily_district"),
             InlineKeyboardButton(text="👥 Гости", callback_data="daily_guests"),
+            InlineKeyboardButton(text="◀️ Назад", callback_data="open_daily"),
         ],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="open_daily")],
     ])
 
-    await call.message.answer(
-        f"🏖 <b>Аренда в Варшаве — {days} {nights_word}</b>\n\n"
-        f"📍 Район: <b>{district}</b>\n"
-        f"👥 Гостей: <b>{guests}</b>\n"
-        f"📅 Заезд: <b>{checkin}</b> → Выезд: <b>{checkout}</b>\n"
-        f"💰 Примерная цена: <b>~{price_est} zł</b>\n\n"
-        f"Нажми на платформу чтобы открыть актуальные предложения:",
-        parse_mode="HTML",
-        reply_markup=kb
-    )
+    if results:
+        # Show top-5 cheapest found
+        top = results[:5]
+        cheapest = top[0]
+        total_cheapest = cheapest.get("total_price", cheapest["price_per_night"] * days)
+
+        header = (
+            f"🏆 <b>Топ-{len(top)} дешёвых вариантов</b>\n"
+            f"📅 {checkin_d} → {checkout_d} · {days} {nights_word}\n"
+            f"📍 {district}  👥 {guests} чел.\n\n"
+            f"💰 Самый дешёвый: <b>{cheapest['price_per_night']} zł/ночь</b> "
+            f"(итого ~{total_cheapest} zł)\n"
+        )
+        await call.message.answer(header, parse_mode="HTML")
+
+        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
+        for i, r in enumerate(top):
+            total = r.get("total_price", r["price_per_night"] * days)
+            rating_str = f"⭐ {r['rating']}/10" if r.get("rating") else ""
+            source_icons = {"OLX": "🟠", "Nocowanie.pl": "🛏", "Booking": "🏨", "Airbnb": "🏠"}
+            icon = source_icons.get(r["source"], "📡")
+
+            card_text = (
+                f"{medals[i]} <b>{r['title'][:60]}</b>\n"
+                f"💰 <b>{r['price_per_night']} zł/ночь</b> · итого ~{total} zł\n"
+                f"📍 {r.get('district', district)}  {icon} {r['source']}  {rating_str}"
+            )
+            card_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="🔗 Открыть", url=r["link"]),
+                InlineKeyboardButton(text="❤️ Сохранить", callback_data=f"fav_daily:{i}"),
+            ]])
+            try:
+                if r.get("image"):
+                    await call.message.answer_photo(r["image"], caption=card_text, reply_markup=card_kb, parse_mode="HTML")
+                else:
+                    await call.message.answer(card_text, reply_markup=card_kb, parse_mode="HTML")
+            except Exception:
+                await call.message.answer(card_text, reply_markup=card_kb, parse_mode="HTML")
+
+        await call.message.answer(
+            "🔍 <b>Смотреть ещё на платформах:</b>",
+            parse_mode="HTML",
+            reply_markup=platform_kb
+        )
+    else:
+        # No results from parsers — show platform links
+        price_est = {"1": "150–300", "3": "400–800", "7": "900–1800", "14": "1500–3000", "30": "2500–5000"}.get(str(days), "—")
+        await call.message.answer(
+            f"🏖 <b>Аренда в Варшаве — {days} {nights_word}</b>\n\n"
+            f"📍 {district}  👥 {guests} чел.\n"
+            f"📅 {checkin_d} → {checkout_d}\n"
+            f"💰 Примерная цена: <b>~{price_est} zł</b>\n\n"
+            f"Открой платформу чтобы увидеть актуальные цены:",
+            parse_mode="HTML",
+            reply_markup=platform_kb
+        )
+
 
 
 # ── /compare — сравнение квартир (уникальная фича) ────────────
