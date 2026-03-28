@@ -151,10 +151,68 @@ async def main():
         if WEBHOOK_URL:
             # Webhook mode (Render / production)
             from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+            import json as _json
+            from database.db import get_apartments, get_stats
+
+            async def api_apartments(request):
+                """Public API: GET /api/apartments?district=Mokotow&price_max=3000&rooms=2&limit=10"""
+                try:
+                    district = request.rel_url.query.get("district", "")
+                    price_max = int(request.rel_url.query.get("price_max", 0) or 0)
+                    rooms = int(request.rel_url.query.get("rooms", 0) or 0)
+                    limit = min(int(request.rel_url.query.get("limit", 10) or 10), 20)
+                    filters = {}
+                    if district:
+                        filters["district"] = district
+                    if price_max:
+                        filters["price_max"] = price_max
+                    if rooms:
+                        filters["rooms"] = rooms
+                    apts = get_apartments(filters=filters, offset=0, limit=limit, vip=True)
+                    result = []
+                    for a in apts:
+                        result.append({
+                            "id": a["id"],
+                            "title": a["title"],
+                            "price": a["price"],
+                            "district": a.get("district", "Warszawa"),
+                            "rooms": a.get("rooms"),
+                            "area": a.get("area"),
+                            "source": a.get("source", ""),
+                            "link": a["link"],
+                            "image": a.get("image", ""),
+                            "created_at": a.get("created_at", ""),
+                        })
+                    headers = {
+                        "Access-Control-Allow-Origin": "*",
+                        "Content-Type": "application/json",
+                    }
+                    return web.Response(text=_json.dumps(result, ensure_ascii=False), headers=headers)
+                except Exception as e:
+                    return web.Response(text=_json.dumps({"error": str(e)}), status=500,
+                                        headers={"Access-Control-Allow-Origin": "*", "Content-Type": "application/json"})
+
+            async def api_stats(request):
+                """Public API: GET /api/stats"""
+                try:
+                    s = get_stats()
+                    headers = {"Access-Control-Allow-Origin": "*", "Content-Type": "application/json"}
+                    return web.Response(text=_json.dumps({
+                        "apartments": s["apartments"],
+                        "new_today": s.get("new_today", 0),
+                        "users": s["users"],
+                        "last_parse": s.get("last_parse", ""),
+                    }, ensure_ascii=False), headers=headers)
+                except Exception as e:
+                    return web.Response(text=_json.dumps({"error": str(e)}), status=500,
+                                        headers={"Access-Control-Allow-Origin": "*", "Content-Type": "application/json"})
+
             await bot.set_webhook(WEBHOOK_URL, drop_pending_updates=True, allowed_updates=["message", "callback_query", "pre_checkout_query", "inline_query"])
             app = web.Application()
             SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=WEBHOOK_PATH)
             setup_application(app, dp, bot=bot)
+            app.router.add_get("/api/apartments", api_apartments)
+            app.router.add_get("/api/stats", api_stats)
             runner = web.AppRunner(app)
             await runner.setup()
             site = web.TCPSite(runner, "0.0.0.0", WEBAPP_PORT)
