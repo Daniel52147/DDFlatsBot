@@ -480,7 +480,7 @@ def get_user_subscriptions(user_id: int) -> list:
 def get_subscribers_for_district(district: str) -> list:
     conn = get_conn()
     rows = conn.execute(
-        "SELECT DISTINCT user_id FROM subscriptions WHERE ? LIKE '%' || district || '%'",
+        "SELECT DISTINCT user_id FROM subscriptions WHERE ? LIKE '%' || district || '%' OR district = 'все'",
         (district,)
     ).fetchall()
     conn.close()
@@ -523,7 +523,7 @@ def match_alerts(apartment: dict) -> list:
     query = "SELECT user_id FROM alerts WHERE active=1"
     params = []
     if apartment.get("district"):
-        query += " AND (district IS NULL OR ? LIKE '%' || district || '%')"
+        query += " AND (district IS NULL OR ? LIKE '%' || district || '%' OR district = 'все')"
         params.append(apartment["district"])
     if apartment.get("price"):
         query += " AND (price_min IS NULL OR price_min <= ?)"

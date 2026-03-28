@@ -1,6 +1,6 @@
 import os
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8655267832:AAHG9jPbmT3UmT4TeHA4xy3IuHSPjJiY4cI")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 
 FREE_VIEWS = 5
 VIP_PRICE = 19          # zł / month

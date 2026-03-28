@@ -165,7 +165,6 @@ def apt_text(apt: dict, lang: str = "ru") -> str:
         lines.append(f"👁 <i>Смотрели {apt_views} раз</i>")
 
     # Stale warning
-    from database.db import get_apt_age_days
     age = get_apt_age_days(apt)
     if age >= 14:
         lines.append(f"⚠️ <i>Объявлению {age} дней — возможно уже сдано. Проверь актуальность.</i>")
@@ -2820,17 +2819,6 @@ def _daily_text(district: str, guests: int) -> str:
         f"🏖 <b>Аренда посуточно в Варшаве</b>\n\n"
         f"📍 Район: <b>{district}</b>  👥 Гостей: <b>{guests}</b>\n\n"
         f"Выбери количество ночей — открою лучшие предложения на всех платформах:"
-    )
-
-
-@router.callback_query(F.data == "open_daily")
-async def cb_open_daily(call: CallbackQuery, state: FSMContext):
-    await call.answer()
-    await state.update_data(daily_guests=1, daily_district="Warszawa")
-    await call.message.answer(
-        _daily_text("Warszawa", 1),
-        parse_mode="HTML",
-        reply_markup=_daily_kb("Warszawa", 1)
     )
 
 

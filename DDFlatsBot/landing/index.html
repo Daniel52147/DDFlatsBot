@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="DDFlatsBot — bot Telegram do wynajmu mieszkań w Warszawie. OLX, Otodom, Gratka, Morizon w jednym miejscu. Aktualizacja co 10 minut.">
+  <meta name="keywords" content="mieszkania Warszawa wynajem, bot telegram mieszkania, OLX Otodom Gratka wynajem Warszawa, квартиры Варшава аренда">
+  <meta property="og:title" content="DDFlatsBot — Mieszkania Warszawa">
+  <meta property="og:description" content="Wszystkie ogłoszenia wynajmu w Warszawie w jednym miejscu. OLX + Otodom + Gratka + Morizon. Aktualizacja co 10 minut.">
+  <meta property="og:image" content="https://i.imgur.com/placeholder.png">
+  <title>DDFlatsBot — Mieszkania Warszawa | Квартиры Варшава</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --blue: #2563eb;
+      --blue-dark: #1d4ed8;
+      --green: #16a34a;
+      --bg: #0f172a;
+      --bg2: #1e293b;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --border: #334155;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    /* ── Hero ── */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 2rem 1rem;
+      background: radial-gradient(ellipse at top, #1e3a5f 0%, var(--bg) 60%);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      width: 600px; height: 600px;
+      background: radial-gradient(circle, rgba(37,99,235,0.15) 0%, transparent 70%);
+      top: -100px; left: 50%; transform: translateX(-50%);
+      pointer-events: none;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(37,99,235,0.2);
+      border: 1px solid rgba(37,99,235,0.4);
+      color: #93c5fd;
+      padding: 6px 16px;
+      border-radius: 100px;
+      font-size: 0.85rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .badge .dot {
+      width: 8px; height: 8px;
+      background: #22c55e;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    h1 {
+      font-size: clamp(2.2rem, 6vw, 4rem);
+      font-weight: 800;
+      line-height: 1.1;
+      margin-bottom: 1rem;
+      letter-spacing: -0.02em;
+    }
+
+    h1 span { color: #60a5fa; }
+
+    .subtitle {
+      font-size: clamp(1rem, 2.5vw, 1.25rem);
+      color: var(--muted);
+      max-width: 560px;
+      margin-bottom: 2.5rem;
+    }
+
+    .cta-group {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-bottom: 3rem;
+    }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--blue);
+      color: white;
+      padding: 16px 32px;
+      border-radius: 12px;
+      font-size: 1.1rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s;
+      box-shadow: 0 4px 24px rgba(37,99,235,0.4);
+    }
+
+    .btn-primary:hover {
+      background: var(--blue-dark);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(37,99,235,0.5);
+    }
+
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: transparent;
+      color: var(--text);
+      padding: 16px 32px;
+      border-radius: 12px;
+      font-size: 1.1rem;
+      font-weight: 600;
+      text-decoration: none;
+      border: 1px solid var(--border);
+      transition: all 0.2s;
+    }
+
+    .btn-secondary:hover {
+      background: var(--bg2);
+      border-color: #475569;
+    }
+
+    .tg-icon { font-size: 1.4rem; }
+
+    /* Stats bar */
+    .stats-bar {
+      display: flex;
+      gap: 2rem;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .stat {
+      text-align: center;
+    }
+
+    .stat-num {
+      font-size: 1.8rem;
+      font-weight: 800;
+      color: #60a5fa;
+    }
+
+    .stat-label {
+      font-size: 0.8rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* ── Features ── */
+    .section {
+      padding: 5rem 1rem;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    .section-title {
+      text-align: center;
+      font-size: clamp(1.6rem, 4vw, 2.4rem);
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+    }
+
+    .section-sub {
+      text-align: center;
+      color: var(--muted);
+      margin-bottom: 3rem;
+      font-size: 1.05rem;
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .feature-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1.75rem;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+
+    .feature-card:hover {
+      border-color: #3b82f6;
+      transform: translateY(-3px);
+    }
+
+    .feature-icon {
+      font-size: 2rem;
+      margin-bottom: 1rem;
+    }
+
+    .feature-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+
+    .feature-desc {
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    /* ── Sources ── */
+    .sources-section {
+      background: var(--bg2);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      padding: 4rem 1rem;
+    }
+
+    .sources-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      justify-content: center;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    .source-chip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      padding: 10px 20px;
+      border-radius: 100px;
+      font-weight: 500;
+      font-size: 0.95rem;
+    }
+
+    /* ── How it works ── */
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 2rem;
+      counter-reset: steps;
+    }
+
+    .step {
+      text-align: center;
+      counter-increment: steps;
+    }
+
+    .step-num {
+      width: 48px; height: 48px;
+      background: var(--blue);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.2rem;
+      font-weight: 700;
+      margin: 0 auto 1rem;
+    }
+
+    .step-title {
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+
+    .step-desc { color: var(--muted); font-size: 0.9rem; }
+
+    /* ── Languages ── */
+    .lang-flags {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      font-size: 2.5rem;
+      margin-top: 1rem;
+    }
+
+    /* ── CTA bottom ── */
+    .cta-section {
+      text-align: center;
+      padding: 5rem 1rem;
+      background: radial-gradient(ellipse at center, rgba(37,99,235,0.1) 0%, transparent 70%);
+    }
+
+    .cta-section h2 {
+      font-size: clamp(1.8rem, 4vw, 2.8rem);
+      font-weight: 800;
+      margin-bottom: 1rem;
+    }
+
+    .cta-section p {
+      color: var(--muted);
+      margin-bottom: 2rem;
+      font-size: 1.1rem;
+    }
+
+    /* ── Footer ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 2rem 1rem;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    footer a { color: #60a5fa; text-decoration: none; }
+
+    /* ── Lang switcher ── */
+    .lang-switcher {
+      position: fixed;
+      top: 1rem; right: 1rem;
+      display: flex;
+      gap: 0.5rem;
+      z-index: 100;
+    }
+
+    .lang-btn {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: background 0.2s;
+    }
+
+    .lang-btn:hover, .lang-btn.active { background: var(--blue); border-color: var(--blue); }
+
+    /* ── Responsive ── */
+    @media (max-width: 600px) {
+      .cta-group { flex-direction: column; align-items: center; }
+      .btn-primary, .btn-secondary { width: 100%; justify-content: center; }
+      .stats-bar { gap: 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Language switcher -->
+<div class="lang-switcher">
+  <button class="lang-btn active" onclick="setLang('pl')">🇵🇱 PL</button>
+  <button class="lang-btn" onclick="setLang('ru')">🇷🇺 RU</button>
+  <button class="lang-btn" onclick="setLang('en')">🇬🇧 EN</button>
+</div>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="badge">
+    <span class="dot"></span>
+    <span data-pl="Aktualizacja co 10 minut" data-ru="Обновление каждые 10 минут" data-en="Updates every 10 minutes">Aktualizacja co 10 minut</span>
+  </div>
+
+  <h1>
+    <span data-pl="Wszystkie mieszkania" data-ru="Все квартиры" data-en="All apartments">Wszystkie mieszkania</span><br>
+    <span data-pl="Warszawy w jednym" data-ru="Варшавы в одном" data-en="in Warsaw in one">Warszawy w jednym</span><br>
+    <span>🏙 <span data-pl="miejscu" data-ru="месте" data-en="place">miejscu</span></span>
+  </h1>
+
+  <p class="subtitle" data-pl="OLX · Otodom · Gratka · Morizon · Lento i inne — wszystko w jednym bocie Telegram. Za darmo." data-ru="OLX · Otodom · Gratka · Morizon · Lento и другие — всё в одном Telegram боте. Бесплатно." data-en="OLX · Otodom · Gratka · Morizon · Lento and more — all in one Telegram bot. Free.">
+    OLX · Otodom · Gratka · Morizon · Lento i inne — wszystko w jednym bocie Telegram. Za darmo.
+  </p>
+
+  <div class="cta-group">
+    <a href="https://t.me/DDFlatsBot" class="btn-primary" target="_blank">
+      <span class="tg-icon">✈️</span>
+      <span data-pl="Otwórz w Telegram" data-ru="Открыть в Telegram" data-en="Open in Telegram">Otwórz w Telegram</span>
+    </a>
+    <a href="https://t.me/DDfrets" class="btn-secondary" target="_blank">
+      <span>📢</span>
+      <span data-pl="Kanał z ofertami" data-ru="Канал с квартирами" data-en="Listings channel">Kanał z ofertami</span>
+    </a>
+  </div>
+
+  <div class="stats-bar">
+    <div class="stat">
+      <div class="stat-num">5 000+</div>
+      <div class="stat-label" data-pl="Ogłoszeń" data-ru="Объявлений" data-en="Listings">Ogłoszeń</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">8</div>
+      <div class="stat-label" data-pl="Źródeł" data-ru="Источников" data-en="Sources">Źródeł</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">10 min</div>
+      <div class="stat-label" data-pl="Aktualizacja" data-ru="Обновление" data-en="Update">Aktualizacja</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">3</div>
+      <div class="stat-label" data-pl="Języki" data-ru="Языка" data-en="Languages">Języki</div>
+    </div>
+  </div>
+</section>
+
+<!-- Sources -->
+<div class="sources-section">
+  <p style="text-align:center;color:var(--muted);margin-bottom:1.5rem;font-size:0.9rem;text-transform:uppercase;letter-spacing:0.1em" data-pl="Agregujemy z" data-ru="Агрегируем с" data-en="Aggregating from">Agregujemy z</p>
+  <div class="sources-grid">
+    <div class="source-chip">🟠 OLX.pl</div>
+    <div class="source-chip">🔵 Otodom.pl</div>
+    <div class="source-chip">🟢 Gratka.pl</div>
+    <div class="source-chip">🟣 Morizon.pl</div>
+    <div class="source-chip">🟤 Lento.pl</div>
+    <div class="source-chip">🟡 Adresowo.pl</div>
+    <div class="source-chip">🔷 Szybko.pl</div>
+    <div class="source-chip">🔴 Domiporta.pl</div>
+  </div>
+</div>
+
+<!-- Features -->
+<div class="section">
+  <h2 class="section-title" data-pl="Dlaczego DDFlatsBot?" data-ru="Почему DDFlatsBot?" data-en="Why DDFlatsBot?">Dlaczego DDFlatsBot?</h2>
+  <p class="section-sub" data-pl="Wszystko czego potrzebujesz do znalezienia mieszkania" data-ru="Всё что нужно для поиска квартиры" data-en="Everything you need to find an apartment">Wszystko czego potrzebujesz do znalezienia mieszkania</p>
+
+  <div class="features-grid">
+    <div class="feature-card">
+      <div class="feature-icon">⚡</div>
+      <div class="feature-title" data-pl="Aktualizacja co 10 minut" data-ru="Обновление каждые 10 минут" data-en="Updates every 10 minutes">Aktualizacja co 10 minut</div>
+      <div class="feature-desc" data-pl="Nowe ogłoszenia pojawiają się natychmiast. Bądź pierwszy." data-ru="Новые объявления появляются мгновенно. Будь первым." data-en="New listings appear instantly. Be the first.">Nowe ogłoszenia pojawiają się natychmiast. Bądź pierwszy.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">💡</div>
+      <div class="feature-title" data-pl="Ocena ceny" data-ru="Оценка цены" data-en="Price evaluation">Ocena ceny</div>
+      <div class="feature-desc" data-pl="Bot porównuje cenę z średnią w dzielnicy i mówi czy jest uczciwa." data-ru="Бот сравнивает цену со средней по району и говорит справедливая ли она." data-en="Bot compares price with district average and tells if it's fair.">Bot porównuje cenę z średnią w dzielnicy i mówi czy jest uczciwa.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🔔</div>
+      <div class="feature-title" data-pl="Inteligentne alerty" data-ru="Умные алерты" data-en="Smart alerts">Inteligentne alerty</div>
+      <div class="feature-desc" data-pl="Ustaw parametry i otrzymaj powiadomienie gdy pojawi się idealne mieszkanie." data-ru="Задай параметры и получи уведомление когда появится идеальная квартира." data-en="Set parameters and get notified when the perfect apartment appears.">Ustaw parametry i otrzymaj powiadomienie gdy pojawi się idealne mieszkanie.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🤖</div>
+      <div class="feature-title" data-pl="Wyszukiwanie AI" data-ru="AI поиск" data-en="AI search">Wyszukiwanie AI</div>
+      <div class="feature-desc" data-pl="Napisz po ludzku: '2 pokoje Mokotów do 3000' — bot sam ustawi filtry." data-ru="Напиши по-человечески: '2 комнаты Мокотув до 3000' — бот сам настроит фильтры." data-en="Write naturally: '2 rooms Mokotów up to 3000' — bot sets filters automatically.">Napisz po ludzku: '2 pokoje Mokotów do 3000' — bot sam ustawi filtry.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🏖</div>
+      <div class="feature-title" data-pl="Wynajem krótkoterminowy" data-ru="Аренда посуточно" data-en="Short-term rental">Wynajem krótkoterminowy</div>
+      <div class="feature-desc" data-pl="Szukaj noclegów na Booking, Airbnb, Nocowanie z wyborem dat." data-ru="Ищи жильё на Booking, Airbnb, Nocowanie с выбором дат." data-en="Search accommodation on Booking, Airbnb, Nocowanie with date selection.">Szukaj noclegów na Booking, Airbnb, Nocowanie z wyborem dat.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🌍</div>
+      <div class="feature-title" data-pl="3 języki" data-ru="3 языка" data-en="3 languages">3 języki</div>
+      <div class="feature-desc" data-pl="Polski, Rosyjski, Ukraiński. Bot mówi Twoim językiem." data-ru="Польский, Русский, Украинский. Бот говорит на твоём языке." data-en="Polish, Russian, Ukrainian. Bot speaks your language.">Polski, Rosyjski, Ukraiński. Bot mówi Twoim językiem.</div>
+    </div>
+  </div>
+</div>
+
+<!-- How it works -->
+<div style="background:var(--bg2);border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
+  <div class="section">
+    <h2 class="section-title" data-pl="Jak to działa?" data-ru="Как это работает?" data-en="How it works?">Jak to działa?</h2>
+    <p class="section-sub" data-pl="Trzy kroki do znalezienia mieszkania" data-ru="Три шага до нахождения квартиры" data-en="Three steps to find an apartment">Trzy kroki do znalezienia mieszkania</p>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-title" data-pl="Otwórz bota" data-ru="Открой бота" data-en="Open the bot">Otwórz bota</div>
+        <div class="step-desc" data-pl="Kliknij przycisk i otwórz @DDFlatsBot w Telegram" data-ru="Нажми кнопку и открой @DDFlatsBot в Telegram" data-en="Click the button and open @DDFlatsBot in Telegram">Kliknij przycisk i otwórz @DDFlatsBot w Telegram</div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-title" data-pl="Ustaw filtry" data-ru="Настрой фильтры" data-en="Set filters">Ustaw filtry</div>
+        <div class="step-desc" data-pl="Wybierz dzielnicę, cenę i liczbę pokoi" data-ru="Выбери район, цену и количество комнат" data-en="Choose district, price and number of rooms">Wybierz dzielnicę, cenę i liczbę pokoi</div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-title" data-pl="Otrzymuj oferty" data-ru="Получай предложения" data-en="Get offers">Otrzymuj oferty</div>
+        <div class="step-desc" data-pl="Bot wysyła nowe mieszkania natychmiast po pojawieniu się" data-ru="Бот отправляет новые квартиры сразу после появления" data-en="Bot sends new apartments immediately when they appear">Bot wysyła nowe mieszkania natychmiast po pojawieniu się</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Languages -->
+<div class="section" style="text-align:center">
+  <h2 class="section-title" data-pl="Dostępny w 3 językach" data-ru="Доступен на 3 языках" data-en="Available in 3 languages">Dostępny w 3 językach</h2>
+  <p class="section-sub" data-pl="Dla Polaków, Ukraińców i Rosjan mieszkających w Warszawie" data-ru="Для поляков, украинцев и русских живущих в Варшаве" data-en="For Poles, Ukrainians and Russians living in Warsaw">Dla Polaków, Ukraińców i Rosjan mieszkających w Warszawie</p>
+  <div class="lang-flags">
+    <span title="Polski">🇵🇱</span>
+    <span title="Українська">🇺🇦</span>
+    <span title="Русский">🇷🇺</span>
+  </div>
+</div>
+
+<!-- CTA -->
+<div class="cta-section">
+  <h2 data-pl="Zacznij szukać teraz" data-ru="Начни искать прямо сейчас" data-en="Start searching now">Zacznij szukać teraz</h2>
+  <p data-pl="Bezpłatnie. Bez rejestracji. Tylko Telegram." data-ru="Бесплатно. Без регистрации. Только Telegram." data-en="Free. No registration. Just Telegram.">Bezpłatnie. Bez rejestracji. Tylko Telegram.</p>
+  <a href="https://t.me/DDFlatsBot" class="btn-primary" target="_blank" style="display:inline-flex">
+    <span class="tg-icon">✈️</span>
+    <span data-pl="Otwórz @DDFlatsBot" data-ru="Открыть @DDFlatsBot" data-en="Open @DDFlatsBot">Otwórz @DDFlatsBot</span>
+  </a>
+</div>
+
+<!-- Footer -->
+<footer>
+  <p>© 2025 DDFlatsBot · <a href="https://t.me/DDFlatsBot" target="_blank">@DDFlatsBot</a> · <a href="https://t.me/DDfrets" target="_blank">@DDfrets</a> · <a href="https://t.me/D_ANIEL0507" target="_blank">Kontakt</a></p>
+  <p style="margin-top:0.5rem" data-pl="Bot agreguje ogłoszenia z zewnętrznych serwisów. Nie ponosimy odpowiedzialności za treść ogłoszeń." data-ru="Бот агрегирует объявления с внешних сайтов. Мы не несём ответственности за содержание объявлений." data-en="Bot aggregates listings from external services. We are not responsible for listing content.">Bot agreguje ogłoszenia z zewnętrznych serwisów. Nie ponosimy odpowiedzialności za treść ogłoszeń.</p>
+</footer>
+
+<script>
+  function setLang(lang) {
+    document.querySelectorAll('[data-' + lang + ']').forEach(el => {
+      el.textContent = el.getAttribute('data-' + lang);
+    });
+    document.querySelectorAll('.lang-btn').forEach(btn => btn.classList.remove('active'));
+    event.target.classList.add('active');
+    document.documentElement.lang = lang;
+  }
+</script>
+
+</body>
+</html>
