@@ -2240,10 +2240,463 @@ async def cb_open_drops(call: CallbackQuery):
     await cmd_drops(call.message)
 
 
-# ── Посуточно — единый экран ──────────────────────────────────
+# ── Посуточно — выбор дат, района, гостей ────────────────────
 
-def _daily_kb(district: str, guests: int) -> InlineKeyboardMarkup:
-    """Build the daily rental keyboard with current settings."""
+def _daily_main_kb(district: str, guests: int, checkin: str = "", checkout: str = "") -> InlineKeyboardMarkup:
+    """Main daily rental keyboard."""
+    ci_label = f"📅 Заезд: {checkin}" if checkin else "📅 Выбрать заезд"
+    co_label = f"🏁 Выезд: {checkout}" if checkout else "🏁 Выбрать выезд"
+    rows = [
+        [InlineKeyboardButton(text=ci_label, callback_data="daily_pick_checkin")],
+        [InlineKeyboardButton(text=co_label, callback_data="daily_pick_checkout")],
+        [
+            InlineKeyboardButton(text=f"📍 {district[:14]}", callback_data="daily_pick_district"),
+            InlineKeyboardButton(text=f"👥 {guests} чел.",   callback_data="daily_pick_guests"),
+        ],
+    ]
+    if checkin and checkout:
+        rows.append([InlineKeyboardButton(text="🔍 Найти варианты", callback_data="daily_search")])
+    rows.append([InlineKeyboardButton(text="🏠 Объявления из базы", callback_data="daily_from_db")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _daily_main_text(district: str, guests: int, checkin: str = "", checkout: str = "") -> str:
+    nights = ""
+    if checkin and checkout:
+        try:
+            ci = datetime.strptime(checkin, "%d.%m.%Y")
+            co = datetime.strptime(checkout, "%d.%m.%Y")
+            n = (co - ci).days
+            nights = f"  🌙 {n} ночей" if n > 0 else ""
+        except Exception:
+            pass
+    return (
+        f"🏖 <b>Аренда посуточно в Варшаве</b>\n\n"
+        f"📍 Район: <b>{district}</b>  👥 Гостей: <b>{guests}</b>{nights}\n\n"
+        f"{'✅ Даты выбраны — нажми Найти варианты!' if checkin and checkout else '👇 Выбери даты заезда и выезда:'}"
+    )
+
+
+def _date_picker_kb(prefix: str, year: int, month: int) -> InlineKeyboardMarkup:
+    """Calendar keyboard for date picking."""
+    import calendar
+    rows = []
+    # Header: prev month / month name / next month
+    month_names = ["", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+                   "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
+    prev_m = month - 1 if month > 1 else 12
+    prev_y = year if month > 1 else year - 1
+    next_m = month + 1 if month < 12 else 1
+    next_y = year if month < 12 else year + 1
+    rows.append([
+        InlineKeyboardButton(text="◀️", callback_data=f"{prefix}_nav:{prev_y}:{prev_m}"),
+        InlineKeyboardButton(text=f"{month_names[month]} {year}", callback_data="noop"),
+        InlineKeyboardButton(text="▶️", callback_data=f"{prefix}_nav:{next_y}:{next_m}"),
+    ])
+    # Day names
+    rows.append([InlineKeyboardButton(text=d, callback_data="noop")
+                 for d in ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]])
+    # Days
+    today = datetime.now().date()
+    cal = calendar.monthcalendar(year, month)
+    for week in cal:
+        row = []
+        for day in week:
+            if day == 0:
+                row.append(InlineKeyboardButton(text=" ", callback_data="noop"))
+            else:
+                d = datetime(year, month, day).date()
+                if d < today:
+                    row.append(InlineKeyboardButton(text="·", callback_data="noop"))
+                else:
+                    label = f"{day:02d}"
+                    row.append(InlineKeyboardButton(
+                        text=label,
+                        callback_data=f"{prefix}_pick:{day:02d}.{month:02d}.{year}"
+                    ))
+        rows.append(row)
+    rows.append([InlineKeyboardButton(text="❌ Отмена", callback_data="open_daily")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@router.callback_query(F.data == "open_daily")
+async def cb_open_daily(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    data = await state.get_data()
+    district = data.get("daily_district", "Warszawa")
+    guests = data.get("daily_guests", 1)
+    checkin = data.get("daily_checkin", "")
+    checkout = data.get("daily_checkout", "")
+    # Reset to defaults on fresh open
+    await state.update_data(daily_guests=1, daily_district="Warszawa", daily_checkin="", daily_checkout="")
+    await call.message.answer(
+        _daily_main_text("Warszawa", 1),
+        parse_mode="HTML",
+        reply_markup=_daily_main_kb("Warszawa", 1)
+    )
+
+
+@router.callback_query(F.data == "daily_pick_checkin")
+async def cb_daily_pick_checkin(call: CallbackQuery):
+    await call.answer()
+    now = datetime.now()
+    try:
+        await call.message.edit_text(
+            "📅 <b>Выбери дату заезда:</b>",
+            parse_mode="HTML",
+            reply_markup=_date_picker_kb("dci", now.year, now.month)
+        )
+    except Exception:
+        await call.message.answer(
+            "📅 <b>Выбери дату заезда:</b>",
+            parse_mode="HTML",
+            reply_markup=_date_picker_kb("dci", now.year, now.month)
+        )
+
+
+@router.callback_query(F.data.startswith("dci_nav:"))
+async def cb_dci_nav(call: CallbackQuery):
+    await call.answer()
+    _, year, month = call.data.split(":")
+    try:
+        await call.message.edit_reply_markup(
+            reply_markup=_date_picker_kb("dci", int(year), int(month))
+        )
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data.startswith("dci_pick:"))
+async def cb_dci_pick(call: CallbackQuery, state: FSMContext):
+    date_str = call.data.split(":", 1)[1]
+    await state.update_data(daily_checkin=date_str)
+    data = await state.get_data()
+    district = data.get("daily_district", "Warszawa")
+    guests = data.get("daily_guests", 1)
+    checkout = data.get("daily_checkout", "")
+    await call.answer(f"✅ Заезд: {date_str}")
+    try:
+        await call.message.edit_text(
+            _daily_main_text(district, guests, date_str, checkout),
+            parse_mode="HTML",
+            reply_markup=_daily_main_kb(district, guests, date_str, checkout)
+        )
+    except Exception:
+        await call.message.answer(
+            _daily_main_text(district, guests, date_str, checkout),
+            parse_mode="HTML",
+            reply_markup=_daily_main_kb(district, guests, date_str, checkout)
+        )
+
+
+@router.callback_query(F.data == "daily_pick_checkout")
+async def cb_daily_pick_checkout(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    data = await state.get_data()
+    checkin = data.get("daily_checkin", "")
+    # Start calendar from checkin date or today
+    try:
+        start = datetime.strptime(checkin, "%d.%m.%Y") if checkin else datetime.now()
+    except Exception:
+        start = datetime.now()
+    try:
+        await call.message.edit_text(
+            "🏁 <b>Выбери дату выезда:</b>",
+            parse_mode="HTML",
+            reply_markup=_date_picker_kb("dco", start.year, start.month)
+        )
+    except Exception:
+        await call.message.answer(
+            "🏁 <b>Выбери дату выезда:</b>",
+            parse_mode="HTML",
+            reply_markup=_date_picker_kb("dco", start.year, start.month)
+        )
+
+
+@router.callback_query(F.data.startswith("dco_nav:"))
+async def cb_dco_nav(call: CallbackQuery):
+    await call.answer()
+    _, year, month = call.data.split(":")
+    try:
+        await call.message.edit_reply_markup(
+            reply_markup=_date_picker_kb("dco", int(year), int(month))
+        )
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data.startswith("dco_pick:"))
+async def cb_dco_pick(call: CallbackQuery, state: FSMContext):
+    date_str = call.data.split(":", 1)[1]
+    await state.update_data(daily_checkout=date_str)
+    data = await state.get_data()
+    district = data.get("daily_district", "Warszawa")
+    guests = data.get("daily_guests", 1)
+    checkin = data.get("daily_checkin", "")
+    # Validate: checkout must be after checkin
+    if checkin:
+        try:
+            ci = datetime.strptime(checkin, "%d.%m.%Y")
+            co = datetime.strptime(date_str, "%d.%m.%Y")
+            if co <= ci:
+                await call.answer("⚠️ Выезд должен быть позже заезда!", show_alert=True)
+                return
+        except Exception:
+            pass
+    await call.answer(f"✅ Выезд: {date_str}")
+    try:
+        await call.message.edit_text(
+            _daily_main_text(district, guests, checkin, date_str),
+            parse_mode="HTML",
+            reply_markup=_daily_main_kb(district, guests, checkin, date_str)
+        )
+    except Exception:
+        await call.message.answer(
+            _daily_main_text(district, guests, checkin, date_str),
+            parse_mode="HTML",
+            reply_markup=_daily_main_kb(district, guests, checkin, date_str)
+        )
+
+
+@router.callback_query(F.data == "daily_pick_district")
+async def cb_daily_pick_district(call: CallbackQuery):
+    await call.answer()
+    districts = [
+        ("🏙 Центр",    "Śródmieście"), ("🌿 Мокотув",  "Mokotów"),
+        ("🌳 Урсинув",  "Ursynów"),     ("🏭 Воля",     "Wola"),
+        ("🌉 Прага",    "Praga-Południe"), ("🎓 Жолибож", "Żoliborz"),
+        ("🏖 Виланув",  "Wilanów"),     ("🌲 Бяловека", "Białołęka"),
+        ("🌍 Вся Варшава", "Warszawa"),
+    ]
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=label, callback_data=f"daily_set_d:{dist}")]
+        for label, dist in districts
+    ])
+    try:
+        await call.message.edit_reply_markup(reply_markup=kb)
+    except Exception:
+        await call.message.answer("📍 Выбери район:", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("daily_set_d:"))
+async def cb_daily_set_d(call: CallbackQuery, state: FSMContext):
+    district = call.data.split(":", 1)[1]
+    await state.update_data(daily_district=district)
+    data = await state.get_data()
+    guests = data.get("daily_guests", 1)
+    checkin = data.get("daily_checkin", "")
+    checkout = data.get("daily_checkout", "")
+    await call.answer(f"✅ {district}")
+    try:
+        await call.message.edit_text(
+            _daily_main_text(district, guests, checkin, checkout),
+            parse_mode="HTML",
+            reply_markup=_daily_main_kb(district, guests, checkin, checkout)
+        )
+    except Exception:
+        await call.message.answer(
+            _daily_main_text(district, guests, checkin, checkout),
+            parse_mode="HTML",
+            reply_markup=_daily_main_kb(district, guests, checkin, checkout)
+        )
+
+
+@router.callback_query(F.data == "daily_pick_guests")
+async def cb_daily_pick_guests(call: CallbackQuery):
+    await call.answer()
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=f"{i} чел.", callback_data=f"daily_set_g:{i}")
+        for i in range(1, 6)
+    ]])
+    try:
+        await call.message.edit_reply_markup(reply_markup=kb)
+    except Exception:
+        await call.message.answer("👥 Сколько гостей?", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("daily_set_g:"))
+async def cb_daily_set_g(call: CallbackQuery, state: FSMContext):
+    guests = int(call.data.split(":")[1])
+    await state.update_data(daily_guests=guests)
+    data = await state.get_data()
+    district = data.get("daily_district", "Warszawa")
+    checkin = data.get("daily_checkin", "")
+    checkout = data.get("daily_checkout", "")
+    await call.answer(f"✅ {guests} чел.")
+    try:
+        await call.message.edit_text(
+            _daily_main_text(district, guests, checkin, checkout),
+            parse_mode="HTML",
+            reply_markup=_daily_main_kb(district, guests, checkin, checkout)
+        )
+    except Exception:
+        await call.message.answer(
+            _daily_main_text(district, guests, checkin, checkout),
+            parse_mode="HTML",
+            reply_markup=_daily_main_kb(district, guests, checkin, checkout)
+        )
+
+
+@router.callback_query(F.data == "daily_from_db")
+async def cb_daily_from_db(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    from database.db import get_conn
+    try:
+        db = get_conn()
+        rows = db.execute(
+            "SELECT * FROM apartments WHERE "
+            "(LOWER(title) LIKE '%doby%' OR LOWER(title) LIKE '%noclegi%' OR "
+            "LOWER(title) LIKE '%dobowy%' OR LOWER(title) LIKE '%krotkoterminow%') "
+            "AND reported < 10 ORDER BY price ASC LIMIT 10"
+        ).fetchall()
+        db.close()
+    except Exception:
+        rows = []
+    lang = get_lang(call.from_user.id)
+    if not rows:
+        await call.message.answer(
+            "😔 Посуточных объявлений пока нет в базе.\n\n"
+            "Используй кнопку 🔍 Найти варианты — открою Booking, Airbnb и другие.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="◀️ Назад", callback_data="open_daily")
+            ]])
+        )
+        return
+    await call.message.answer(f"🏖 <b>Посуточно в Варшаве ({len(rows)}):</b>", parse_mode="HTML")
+    for apt in [dict(r) for r in rows]:
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="❤️ Сохранить", callback_data=f"fav_add:{apt['id']}"),
+            InlineKeyboardButton(text="🔗 Открыть", url=apt["link"]),
+        ]])
+        try:
+            await call.message.answer(apt_text(apt, lang), reply_markup=kb, parse_mode="HTML")
+        except Exception:
+            pass
+
+
+@router.callback_query(F.data == "daily_search")
+async def cb_daily_search(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    data = await state.get_data()
+    guests = data.get("daily_guests", 1)
+    district = data.get("daily_district", "Warszawa")
+    checkin_str = data.get("daily_checkin", "")
+    checkout_str = data.get("daily_checkout", "")
+
+    # Convert DD.MM.YYYY → YYYY-MM-DD for URLs
+    try:
+        ci_dt = datetime.strptime(checkin_str, "%d.%m.%Y")
+        co_dt = datetime.strptime(checkout_str, "%d.%m.%Y")
+        checkin = ci_dt.strftime("%Y-%m-%d")
+        checkout = co_dt.strftime("%Y-%m-%d")
+        days = (co_dt - ci_dt).days
+    except Exception:
+        await call.message.answer("⚠️ Выбери даты заезда и выезда.")
+        return
+
+    nights_word = {1: "ночь", 2: "ночи", 3: "ночи", 4: "ночи", 7: "ночей"}.get(days, "ночей")
+
+    msg = await call.message.answer(
+        f"🔍 <b>Ищу варианты...</b>\n"
+        f"📅 {checkin_str} → {checkout_str} ({days} {nights_word})\n"
+        f"📍 {district}  👥 {guests} чел.",
+        parse_mode="HTML"
+    )
+
+    # Real search
+    import asyncio, concurrent.futures
+    from parser.parser_daily import search_daily_rentals
+    try:
+        loop = asyncio.get_event_loop()
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            results = await asyncio.wait_for(
+                loop.run_in_executor(pool, search_daily_rentals, checkin, checkout, guests, district),
+                timeout=18.0
+            )
+    except Exception as e:
+        print(f"[Daily] {e}")
+        results = []
+
+    try:
+        await msg.delete()
+    except Exception:
+        pass
+
+    # Platform links with real dates
+    d_enc = urllib.parse.quote(f"{district}, Polska")
+    booking_url = f"https://www.booking.com/searchresults.pl.html?ss={d_enc}&checkin={checkin}&checkout={checkout}&group_adults={guests}&no_rooms=1"
+    airbnb_url = f"https://www.airbnb.pl/s/{urllib.parse.quote(district + ', Warszawa')}/homes?checkin={checkin}&checkout={checkout}&adults={guests}"
+    nocowanie_url = f"https://nocowanie.pl/noclegi/warszawa/apartamenty/?data_od={checkin_str.replace('.', '.')}&data_do={checkout_str}&osoby={guests}"
+    trivago_url = f"https://www.trivago.pl/pl-PL/lm/hotel/poland-warsaw?checkin={checkin}&checkout={checkout}&adults={guests}"
+
+    platform_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🏨 Booking.com", url=booking_url),
+            InlineKeyboardButton(text="🏠 Airbnb", url=airbnb_url),
+        ],
+        [
+            InlineKeyboardButton(text="🛏 Nocowanie.pl", url=nocowanie_url),
+            InlineKeyboardButton(text="🏢 Trivago", url=trivago_url),
+        ],
+        [InlineKeyboardButton(text="◀️ Изменить даты", callback_data="open_daily")],
+    ])
+
+    if results:
+        top = results[:5]
+        cheapest = top[0]
+        total_cheapest = cheapest.get("total_price", cheapest["price_per_night"] * days)
+        await call.message.answer(
+            f"🏆 <b>Топ-{len(top)} дешёвых вариантов</b>\n"
+            f"📅 {checkin_str} → {checkout_str} · {days} {nights_word}\n"
+            f"📍 {district}  👥 {guests} чел.\n"
+            f"💰 Самый дешёвый: <b>{cheapest['price_per_night']} zł/ночь</b> (~{total_cheapest} zł итого)",
+            parse_mode="HTML"
+        )
+        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
+        for i, r in enumerate(top):
+            total = r.get("total_price", r["price_per_night"] * days)
+            rating_str = f"⭐ {r['rating']}/10" if r.get("rating") else ""
+            icon = {"OLX": "🟠", "Nocowanie.pl": "🛏"}.get(r["source"], "📡")
+            card_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="🔗 Открыть", url=r["link"]),
+            ]])
+            card = (
+                f"{medals[i]} <b>{r['title'][:55]}</b>\n"
+                f"💰 <b>{r['price_per_night']} zł/ночь</b> · ~{total} zł  {icon}  {rating_str}"
+            )
+            try:
+                if r.get("image"):
+                    await call.message.answer_photo(r["image"], caption=card, reply_markup=card_kb, parse_mode="HTML")
+                else:
+                    await call.message.answer(card, reply_markup=card_kb, parse_mode="HTML")
+            except Exception:
+                await call.message.answer(card, reply_markup=card_kb, parse_mode="HTML")
+        await call.message.answer("🔍 <b>Смотреть ещё:</b>", parse_mode="HTML", reply_markup=platform_kb)
+    else:
+        price_per_night_est = max(80, 150 - days * 5)
+        total_est = price_per_night_est * days
+        await call.message.answer(
+            f"🏖 <b>{days} {nights_word} в Варшаве</b>\n"
+            f"📍 {district}  👥 {guests} чел.\n"
+            f"📅 {checkin_str} → {checkout_str}\n"
+            f"💰 Примерная цена: <b>~{price_per_night_est}–{price_per_night_est*2} zł/ночь</b>\n\n"
+            f"Выбери платформу:",
+            parse_mode="HTML",
+            reply_markup=platform_kb
+        )
+
+
+# Убираем старые daily_days handlers — теперь используем daily_search
+@router.callback_query(F.data.startswith("daily_days:"))
+async def cb_daily_days_legacy(call: CallbackQuery, state: FSMContext):
+    """Legacy handler — redirect to new flow."""
+    days = int(call.data.split(":")[1])
+    checkin = (datetime.now() + timedelta(days=1)).strftime("%d.%m.%Y")
+    checkout = (datetime.now() + timedelta(days=1 + days)).strftime("%d.%m.%Y")
+    await state.update_data(daily_checkin=checkin, daily_checkout=checkout)
+    await cb_daily_search(call, state)
+
+
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="1 ночь",   callback_data="daily_days:1"),
@@ -2404,224 +2857,6 @@ async def cb_daily_from_db(call: CallbackQuery, state: FSMContext):
             pass
 
 
-@router.callback_query(F.data.startswith("daily_days:"))
-async def cb_daily_days(call: CallbackQuery, state: FSMContext):
-    await call.answer()
-    days = int(call.data.split(":")[1])
-    data = await state.get_data()
-    guests = data.get("daily_guests", 1)
-    district = data.get("daily_district", "Warszawa")
-
-    checkin = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-    checkout = (datetime.now() + timedelta(days=1 + days)).strftime("%Y-%m-%d")
-    checkin_d = (datetime.now() + timedelta(days=1)).strftime("%d.%m")
-    checkout_d = (datetime.now() + timedelta(days=1 + days)).strftime("%d.%m")
-    nights_word = {1: "ночь", 3: "ночи", 7: "ночей", 14: "ночей", 30: "ночей"}.get(days, "ночей")
-
-    # Show searching
-    msg = await call.message.answer(
-        f"🔍 <b>Ищу варианты...</b>\n"
-        f"📅 {checkin_d} → {checkout_d}  📍 {district}  👥 {guests} чел.",
-        parse_mode="HTML"
-    )
-
-    # Real search
-    import asyncio, concurrent.futures
-    from parser.parser_daily import search_daily_rentals
-    try:
-        loop = asyncio.get_event_loop()
-        with concurrent.futures.ThreadPoolExecutor() as pool:
-            results = await asyncio.wait_for(
-                loop.run_in_executor(pool, search_daily_rentals, checkin, checkout, guests, district),
-                timeout=18.0
-            )
-    except Exception as e:
-        print(f"[Daily] {e}")
-        results = []
-
-    try:
-        await msg.delete()
-    except Exception:
-        pass
-
-    # Platform links
-    d_enc = urllib.parse.quote(f"{district}, Polska")
-    booking_url = f"https://www.booking.com/searchresults.pl.html?ss={d_enc}&checkin={checkin}&checkout={checkout}&group_adults={guests}&no_rooms=1"
-    airbnb_url = f"https://www.airbnb.pl/s/{urllib.parse.quote(district + ', Warszawa')}/homes?checkin={checkin}&checkout={checkout}&adults={guests}"
-    nocowanie_url = "https://nocowanie.pl/noclegi/warszawa/apartamenty/"
-    trivago_url = f"https://www.trivago.pl/pl-PL/lm/hotel/poland-warsaw?checkin={checkin}&checkout={checkout}&adults={guests}"
-
-    platform_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="🏨 Booking.com", url=booking_url),
-            InlineKeyboardButton(text="🏠 Airbnb", url=airbnb_url),
-        ],
-        [
-            InlineKeyboardButton(text="🛏 Nocowanie.pl", url=nocowanie_url),
-            InlineKeyboardButton(text="🏢 Trivago", url=trivago_url),
-        ],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="open_daily")],
-    ])
-
-    if results:
-        top = results[:5]
-        cheapest = top[0]
-        total_cheapest = cheapest.get("total_price", cheapest["price_per_night"] * days)
-        await call.message.answer(
-            f"🏆 <b>Топ-{len(top)} дешёвых вариантов</b>\n"
-            f"📅 {checkin_d} → {checkout_d} · {days} {nights_word}\n"
-            f"📍 {district}  👥 {guests} чел.\n"
-            f"💰 Самый дешёвый: <b>{cheapest['price_per_night']} zł/ночь</b> (~{total_cheapest} zł итого)",
-            parse_mode="HTML"
-        )
-        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
-        for i, r in enumerate(top):
-            total = r.get("total_price", r["price_per_night"] * days)
-            rating_str = f"⭐ {r['rating']}/10" if r.get("rating") else ""
-            icon = {"OLX": "🟠", "Nocowanie.pl": "🛏"}.get(r["source"], "📡")
-            card_kb = InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="🔗 Открыть", url=r["link"]),
-            ]])
-            card = (
-                f"{medals[i]} <b>{r['title'][:55]}</b>\n"
-                f"💰 <b>{r['price_per_night']} zł/ночь</b> · ~{total} zł  {icon} {r['source']}  {rating_str}"
-            )
-            try:
-                if r.get("image"):
-                    await call.message.answer_photo(r["image"], caption=card, reply_markup=card_kb, parse_mode="HTML")
-                else:
-                    await call.message.answer(card, reply_markup=card_kb, parse_mode="HTML")
-            except Exception:
-                await call.message.answer(card, reply_markup=card_kb, parse_mode="HTML")
-        await call.message.answer("🔍 <b>Смотреть ещё:</b>", parse_mode="HTML", reply_markup=platform_kb)
-    else:
-        price_est = {"1": "150–300", "3": "400–800", "7": "900–1800", "14": "1500–3000", "30": "2500–5000"}.get(str(days), "—")
-        await call.message.answer(
-            f"🏖 <b>{days} {nights_word} в Варшаве</b>\n"
-            f"📍 {district}  👥 {guests} чел.  📅 {checkin_d}→{checkout_d}\n"
-            f"💰 Примерная цена: <b>~{price_est} zł</b>\n\n"
-            f"Выбери платформу:",
-            parse_mode="HTML",
-            reply_markup=platform_kb
-        )
-    days = int(call.data.split(":")[1])
-    data = await state.get_data()
-    guests = data.get("daily_guests", 1)
-    district = data.get("daily_district", "Warszawa")
-
-    checkin = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-    checkout = (datetime.now() + timedelta(days=1 + days)).strftime("%Y-%m-%d")
-    checkin_d = (datetime.now() + timedelta(days=1)).strftime("%d.%m")
-    checkout_d = (datetime.now() + timedelta(days=1 + days)).strftime("%d.%m")
-    nights_word = {1: "ночь", 3: "ночи", 7: "ночей", 14: "ночей", 30: "ночей"}.get(days, "ночей")
-
-    # Show "searching" message
-    msg = await call.message.answer(
-        f"🔍 <b>Ищу лучшие варианты...</b>\n\n"
-        f"📅 {checkin_d} → {checkout_d} ({days} {nights_word})\n"
-        f"📍 {district}  👥 {guests} чел.\n\n"
-        f"⏳ Проверяю OLX и Nocowanie.pl...",
-        parse_mode="HTML"
-    )
-
-    # Real search
-    import asyncio, concurrent.futures
-    from parser.parser_daily import search_daily_rentals
-    loop = asyncio.get_event_loop()
-    try:
-        with concurrent.futures.ThreadPoolExecutor() as pool:
-            results = await asyncio.wait_for(
-                loop.run_in_executor(pool, search_daily_rentals, checkin, checkout, guests, district),
-                timeout=20.0
-            )
-    except Exception as e:
-        print(f"[Daily] search error: {e}")
-        results = []
-
-    try:
-        await msg.delete()
-    except Exception:
-        pass
-
-    # Platform fallback links
-    d_enc = urllib.parse.quote(f"{district}, Polska")
-    booking_url = f"https://www.booking.com/searchresults.pl.html?ss={d_enc}&checkin={checkin}&checkout={checkout}&group_adults={guests}&no_rooms=1"
-    airbnb_url = f"https://www.airbnb.pl/s/{urllib.parse.quote(district + ', Warszawa')}/homes?checkin={checkin}&checkout={checkout}&adults={guests}"
-    nocowanie_url = "https://nocowanie.pl/noclegi/warszawa/apartamenty/"
-    trivago_url = f"https://www.trivago.pl/pl-PL/lm/hotel/poland-warsaw?checkin={checkin}&checkout={checkout}&adults={guests}"
-
-    platform_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="🏨 Booking.com", url=booking_url),
-            InlineKeyboardButton(text="🏠 Airbnb", url=airbnb_url),
-        ],
-        [
-            InlineKeyboardButton(text="🛏 Nocowanie.pl", url=nocowanie_url),
-            InlineKeyboardButton(text="🏢 Trivago", url=trivago_url),
-        ],
-        [
-            InlineKeyboardButton(text="📍 Район", callback_data="daily_district"),
-            InlineKeyboardButton(text="👥 Гости", callback_data="daily_guests"),
-            InlineKeyboardButton(text="◀️ Назад", callback_data="open_daily"),
-        ],
-    ])
-
-    if results:
-        # Show top-5 cheapest found
-        top = results[:5]
-        cheapest = top[0]
-        total_cheapest = cheapest.get("total_price", cheapest["price_per_night"] * days)
-
-        header = (
-            f"🏆 <b>Топ-{len(top)} дешёвых вариантов</b>\n"
-            f"📅 {checkin_d} → {checkout_d} · {days} {nights_word}\n"
-            f"📍 {district}  👥 {guests} чел.\n\n"
-            f"💰 Самый дешёвый: <b>{cheapest['price_per_night']} zł/ночь</b> "
-            f"(итого ~{total_cheapest} zł)\n"
-        )
-        await call.message.answer(header, parse_mode="HTML")
-
-        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
-        for i, r in enumerate(top):
-            total = r.get("total_price", r["price_per_night"] * days)
-            rating_str = f"⭐ {r['rating']}/10" if r.get("rating") else ""
-            source_icons = {"OLX": "🟠", "Nocowanie.pl": "🛏", "Booking": "🏨", "Airbnb": "🏠"}
-            icon = source_icons.get(r["source"], "📡")
-
-            card_text = (
-                f"{medals[i]} <b>{r['title'][:60]}</b>\n"
-                f"💰 <b>{r['price_per_night']} zł/ночь</b> · итого ~{total} zł\n"
-                f"📍 {r.get('district', district)}  {icon} {r['source']}  {rating_str}"
-            )
-            card_kb = InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="🔗 Открыть", url=r["link"]),
-                InlineKeyboardButton(text="❤️ Сохранить", callback_data=f"fav_daily:{i}"),
-            ]])
-            try:
-                if r.get("image"):
-                    await call.message.answer_photo(r["image"], caption=card_text, reply_markup=card_kb, parse_mode="HTML")
-                else:
-                    await call.message.answer(card_text, reply_markup=card_kb, parse_mode="HTML")
-            except Exception:
-                await call.message.answer(card_text, reply_markup=card_kb, parse_mode="HTML")
-
-        await call.message.answer(
-            "🔍 <b>Смотреть ещё на платформах:</b>",
-            parse_mode="HTML",
-            reply_markup=platform_kb
-        )
-    else:
-        # No results from parsers — show platform links
-        price_est = {"1": "150–300", "3": "400–800", "7": "900–1800", "14": "1500–3000", "30": "2500–5000"}.get(str(days), "—")
-        await call.message.answer(
-            f"🏖 <b>Аренда в Варшаве — {days} {nights_word}</b>\n\n"
-            f"📍 {district}  👥 {guests} чел.\n"
-            f"📅 {checkin_d} → {checkout_d}\n"
-            f"💰 Примерная цена: <b>~{price_est} zł</b>\n\n"
-            f"Открой платформу чтобы увидеть актуальные цены:",
-            parse_mode="HTML",
-            reply_markup=platform_kb
-        )
 
 
 
