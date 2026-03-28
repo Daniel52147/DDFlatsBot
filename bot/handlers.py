@@ -308,22 +308,45 @@ async def cb_onboard_lang(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("onboard_accept:"))
 async def cb_onboard_accept(call: CallbackQuery, state: FSMContext):
-    """Step 2 complete: disclaimer accepted → show main menu."""
+    """Step 2 complete: disclaimer accepted → show first apartment immediately."""
     lang = call.data.split(":")[1]
     await call.answer("✅")
-    await call.message.delete()
+    try:
+        await call.message.delete()
+    except Exception:
+        pass
 
     # Apply referral if any
     data = await state.get_data()
     pending_ref = data.get("pending_ref", "")
     if pending_ref and pending_ref.startswith("ref_"):
-        ref_code = pending_ref[4:]
-        rewarded = apply_referral(call.from_user.id, ref_code)
+        rewarded = apply_referral(call.from_user.id, pending_ref[4:])
         if rewarded:
             await call.message.answer(t(lang, "ref_bonus"))
 
     user = get_or_create_user(call.from_user.id)
-    await _show_main_menu(call.message, user, from_user=call.from_user)
+    name = call.from_user.first_name or "друг"
+
+    # VIP badge
+    if not user["vip"]:
+        bar = "🟩" * min(user["views"], FREE_VIEWS) + "⬜" * max(0, FREE_VIEWS - user["views"])
+        vip_badge = t(lang, "free_badge", bar=bar, used=user["views"], total=FREE_VIEWS)
+    else:
+        vip_until = user.get("vip_until", "")[:10] if user.get("vip_until") else "∞"
+        vip_badge = t(lang, "vip_badge", until=vip_until)
+
+    # Welcome + show first apartment right away
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🏠 Смотреть квартиры", callback_data="next"),
+        InlineKeyboardButton(text="🔍 Настроить фильтры", callback_data="open_filter"),
+    ]])
+    await call.message.answer(
+        t(lang, "start_greeting", name=name, badge=vip_badge),
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+    # Show first apartment immediately — no extra clicks needed
+    await show_next_apartment(call.from_user.id, call.bot, state, call.message.chat.id)
 
 
 @router.callback_query(F.data == "onboard_decline")
@@ -398,13 +421,10 @@ async def _show_main_menu(message, user: dict, from_user=None):
         ],
         [
             InlineKeyboardButton(text=t(lang, "btn_cheap"),     callback_data="open_cheap"),
-            InlineKeyboardButton(text=t(lang, "btn_hot"),       callback_data="open_hot"),
-        ],
-        [
             InlineKeyboardButton(text=t(lang, "btn_drops"),     callback_data="open_drops"),
-            InlineKeyboardButton(text=t(lang, "btn_daily"),     callback_data="open_daily"),
         ],
         [
+            InlineKeyboardButton(text=t(lang, "btn_daily"),     callback_data="open_daily"),
             InlineKeyboardButton(text=t(lang, "btn_mystats"),   callback_data="open_stats"),
         ],
     ])
@@ -436,22 +456,21 @@ async def show_next_apartment(user_id: int, bot, state: FSMContext, chat_id: int
 
     offset = data.get("offset", 0)
     filters = data.get("filters", {})
-    seen_ids = get_seen_ids(user_id)
-    apartments = get_apartments(filters=filters, offset=offset, vip=is_vip, exclude_ids=seen_ids)
+
+    # Fetch without seen_ids — seen_ids caused false "no apartments" when user viewed many
+    apartments = get_apartments(filters=filters, offset=offset, vip=is_vip)
 
     if not apartments:
-        # Try without seen_ids first (user may have seen everything)
-        apartments = get_apartments(filters=filters, offset=offset, vip=is_vip, exclude_ids=None)
-        if not apartments and offset > 0:
-            # Wrap around
+        if offset > 0:
+            # Wrap around to beginning
             await state.update_data(offset=0)
-            apartments = get_apartments(filters=filters, offset=0, vip=is_vip, exclude_ids=None)
+            apartments = get_apartments(filters=filters, offset=0, vip=is_vip)
             if apartments:
                 await bot.send_message(chat_id, t(lang, "wrap_around"))
             else:
                 await bot.send_message(chat_id, t(lang, "no_apts"))
                 return
-        elif not apartments:
+        else:
             await bot.send_message(chat_id, t(lang, "no_apts_yet"))
             return
 
@@ -467,28 +486,28 @@ async def show_next_apartment(user_id: int, bot, state: FSMContext, chat_id: int
     if remaining > 0:
         text += t(lang, "remaining", n=remaining)
 
-    # Warn when 1 view left before hitting limit
-    views_after = user["views"] + 1
-    if not is_vip and views_after == FREE_VIEWS - 1:
+    if not is_vip and user["views"] + 1 == FREE_VIEWS - 1:
         text += f"\n\n⚠️ <b>Осталась 1 квартира</b> из бесплатных {FREE_VIEWS}. Потом нужен VIP."
 
     kb = apt_keyboard(apt["id"], lang=lang)
-    # Map button: build Google Maps link from district/title
     map_url = f"https://www.google.com/maps/search/{apt.get('district','')},+Warszawa"
     kb.inline_keyboard.append([
         InlineKeyboardButton(text=t(lang, "btn_on_map"), url=map_url),
-        InlineKeyboardButton(text=t(lang, "btn_note"), callback_data=f"note:{apt['id']}"),
-    ])
-    kb.inline_keyboard.append([
         InlineKeyboardButton(text=t(lang, "btn_similar"), callback_data=f"similar:{apt['id']}"),
     ])
-    if apt.get("image"):
+
+    # Try to send with photo — validate URL first
+    image = apt.get("image", "")
+    sent = False
+    if image and image.startswith("http") and len(image) > 10:
         try:
-            await bot.send_photo(chat_id, apt["image"], caption=text, reply_markup=kb, parse_mode="HTML")
-            return
+            await bot.send_photo(chat_id, image, caption=text, reply_markup=kb, parse_mode="HTML")
+            sent = True
         except Exception:
+            # Photo failed (expired URL, wrong format) — fall through to text
             pass
-    await bot.send_message(chat_id, text, reply_markup=kb, parse_mode="HTML")
+    if not sent:
+        await bot.send_message(chat_id, text, reply_markup=kb, parse_mode="HTML")
 
 @router.message(Command("next"))
 async def cmd_next(message: Message, state: FSMContext):
