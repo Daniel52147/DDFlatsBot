@@ -88,7 +88,7 @@ footer{border-top:1px solid var(--border);padding:2.5rem 1.5rem;text-align:cente
 .float-btn{position:fixed;bottom:2rem;right:2rem;z-index:200;background:var(--blue);color:#fff;padding:14px 22px;border-radius:100px;font-weight:700;text-decoration:none;display:flex;align-items:center;gap:8px;box-shadow:0 8px 32px rgba(37,99,235,.5)}
 @media(max-width:768px){.nav-r .hm{display:none}.btns{flex-direction:column;align-items:center}.bp,.bs{width:100%;max-width:320px;justify-content:center}.stats{gap:1.5rem}.sec{padding:4rem 1rem}}
 </style>
-</head>
+<style>.anim{opacity:0;transform:translateY(30px);transition:opacity .5s,transform .5s}.anim.show{opacity:1;transform:none}@media(max-width:700px){.chat-grid{grid-template-columns:1fr!important}.chat-side{display:none}}</style></head>
 <body>
 <a href="https://t.me/DDFlatsBot" target="_blank" class="float-btn">✈️ Open bot</a>
 <nav>
@@ -197,7 +197,7 @@ var ac=5000;setInterval(function(){ac+=Math.floor(Math.random()*3);document.getE
 <div style="max-width:900px;margin:0 auto">
 <h2 style="text-align:center;font-size:clamp(1.8rem,4vw,2.6rem);font-weight:800;margin-bottom:.75rem">Wyprobuj bota teraz</h2>
 <p style="text-align:center;color:#94a3b8;margin-bottom:2.5rem">Interaktywne demo — prawdziwe mieszkania z naszej bazy</p>
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:2rem;align-items:start">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:2rem;align-items:start" class="chat-grid">
 <div style="background:#060b18;border:2px solid #1e3a5f;border-radius:20px;overflow:hidden;max-width:360px;margin:0 auto">
 <div style="background:#111827;padding:1rem 1.25rem;display:flex;align-items:center;gap:.75rem;border-bottom:1px solid #1e3a5f">
 <div style="width:36px;height:36px;background:linear-gradient(135deg,#2563eb,#7c3aed);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1rem">🏠</div>
@@ -322,7 +322,8 @@ function chatSend(){
     .then(function(data){showApts(data.length?data:DEMO_APTS.slice(0,3))})
     .catch(function(){showApts(DEMO_APTS.slice(0,3))});
 }
-</script></body>
+</script><script>var io=new IntersectionObserver(function(e){e.forEach(function(x){if(x.isIntersecting)x.target.classList.add("show")})},{threshold:0.12});document.querySelectorAll(".fc,.step,.rv,.fq,.pc").forEach(function(el){el.classList.add("anim");io.observe(el)});</script></body>
 </html>
+
 
 
