@@ -2240,140 +2240,126 @@ async def cb_open_drops(call: CallbackQuery):
     await cmd_drops(call.message)
 
 
-# ── Посуточно / Short-term rental ────────────────────────────
+# ── Посуточно — единый экран ──────────────────────────────────
 
-@router.callback_query(F.data == "open_daily")
-async def cb_open_daily(call: CallbackQuery, state: FSMContext):
-    await call.answer()
-    await state.update_data(daily_guests=1, daily_district="Warszawa")
-
-    kb = InlineKeyboardMarkup(inline_keyboard=[
+def _daily_kb(district: str, guests: int) -> InlineKeyboardMarkup:
+    """Build the daily rental keyboard with current settings."""
+    return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="1️⃣ 1 день",   callback_data="daily_days:1"),
-            InlineKeyboardButton(text="3️⃣ 3 дня",    callback_data="daily_days:3"),
-            InlineKeyboardButton(text="7️⃣ 7 дней",   callback_data="daily_days:7"),
+            InlineKeyboardButton(text="1 ночь",   callback_data="daily_days:1"),
+            InlineKeyboardButton(text="3 ночи",   callback_data="daily_days:3"),
+            InlineKeyboardButton(text="7 ночей",  callback_data="daily_days:7"),
         ],
         [
-            InlineKeyboardButton(text="🗓 2 недели",  callback_data="daily_days:14"),
-            InlineKeyboardButton(text="📅 1 месяц",   callback_data="daily_days:30"),
+            InlineKeyboardButton(text="14 ночей", callback_data="daily_days:14"),
+            InlineKeyboardButton(text="30 ночей", callback_data="daily_days:30"),
         ],
         [
-            InlineKeyboardButton(text="📍 Выбрать район", callback_data="daily_district"),
-            InlineKeyboardButton(text="👥 Гости",         callback_data="daily_guests"),
+            InlineKeyboardButton(text=f"📍 {district[:12]}", callback_data="daily_pick_district"),
+            InlineKeyboardButton(text=f"👥 {guests} чел.",   callback_data="daily_pick_guests"),
         ],
         [
             InlineKeyboardButton(text="🏠 Объявления из базы", callback_data="daily_from_db"),
         ],
     ])
-    await call.message.answer(
-        "🏖 <b>Аренда посуточно в Варшаве</b>\n\n"
-        "Выбери количество дней — я найду самые дешёвые варианты:\n\n"
-        "🔍 Ищу по: OLX · Nocowanie.pl · Booking · Airbnb\n"
-        "💰 Сортирую по цене от дешёвого к дорогому\n"
-        "⚡ Показываю топ-5 лучших предложений\n\n"
-        "📍 Район: <b>Вся Варшава</b>  👥 Гостей: <b>1</b>",
-        parse_mode="HTML",
-        reply_markup=kb
+
+
+def _daily_text(district: str, guests: int) -> str:
+    return (
+        f"🏖 <b>Аренда посуточно в Варшаве</b>\n\n"
+        f"📍 Район: <b>{district}</b>  👥 Гостей: <b>{guests}</b>\n\n"
+        f"Выбери количество ночей — открою лучшие предложения на всех платформах:"
     )
 
 
-@router.callback_query(F.data == "daily_district")
-async def cb_daily_district(call: CallbackQuery):
+@router.callback_query(F.data == "open_daily")
+async def cb_open_daily(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    await state.update_data(daily_guests=1, daily_district="Warszawa")
+    await call.message.answer(
+        _daily_text("Warszawa", 1),
+        parse_mode="HTML",
+        reply_markup=_daily_kb("Warszawa", 1)
+    )
+
+
+@router.callback_query(F.data == "daily_pick_district")
+async def cb_daily_pick_district(call: CallbackQuery):
     await call.answer()
     districts = [
-        ("🏙 Центр", "Śródmieście"), ("🌿 Мокотув", "Mokotów"),
-        ("🌳 Урсинув", "Ursynów"),   ("🏭 Воля", "Wola"),
-        ("🌉 Прага", "Praga-Południe"), ("🎓 Жолибож", "Żoliborz"),
-        ("🏖 Виланув", "Wilanów"),   ("🌲 Бяловека", "Białołęka"),
+        ("🏙 Центр",    "Śródmieście"),
+        ("🌿 Мокотув",  "Mokotów"),
+        ("🌳 Урсинув",  "Ursynów"),
+        ("🏭 Воля",     "Wola"),
+        ("🌉 Прага",    "Praga-Południe"),
+        ("🎓 Жолибож",  "Żoliborz"),
+        ("🏖 Виланув",  "Wilanów"),
+        ("🌲 Бяловека", "Białołęka"),
+        ("🌍 Вся Варшава", "Warszawa"),
     ]
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=label, callback_data=f"daily_set_district:{dist}")]
+        [InlineKeyboardButton(text=label, callback_data=f"daily_set_d:{dist}")]
         for label, dist in districts
-    ] + [[InlineKeyboardButton(text="🌍 Вся Варшава", callback_data="daily_set_district:Warszawa")]])
-    await call.message.answer("📍 Выбери район для посуточной аренды:", reply_markup=kb)
+    ])
+    try:
+        await call.message.edit_reply_markup(reply_markup=kb)
+    except Exception:
+        await call.message.answer("📍 Выбери район:", reply_markup=kb)
 
 
-@router.callback_query(F.data.startswith("daily_set_district:"))
-async def cb_daily_set_district(call: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data.startswith("daily_set_d:"))
+async def cb_daily_set_d(call: CallbackQuery, state: FSMContext):
     district = call.data.split(":", 1)[1]
     await state.update_data(daily_district=district)
     data = await state.get_data()
     guests = data.get("daily_guests", 1)
-    await call.answer(f"✅ Район: {district}", show_alert=False)
+    await call.answer(f"✅ {district}")
     try:
-        await call.message.delete()
+        await call.message.edit_text(
+            _daily_text(district, guests),
+            parse_mode="HTML",
+            reply_markup=_daily_kb(district, guests)
+        )
     except Exception:
-        pass
-    # Show updated main menu
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="1️⃣ 1 день",  callback_data="daily_days:1"),
-            InlineKeyboardButton(text="3️⃣ 3 дня",   callback_data="daily_days:3"),
-            InlineKeyboardButton(text="7️⃣ 7 дней",  callback_data="daily_days:7"),
-        ],
-        [
-            InlineKeyboardButton(text="🗓 2 недели", callback_data="daily_days:14"),
-            InlineKeyboardButton(text="📅 1 месяц",  callback_data="daily_days:30"),
-        ],
-        [
-            InlineKeyboardButton(text="📍 Сменить район", callback_data="daily_district"),
-            InlineKeyboardButton(text="👥 Гости",         callback_data="daily_guests"),
-        ],
-        [InlineKeyboardButton(text="🏠 Объявления из базы", callback_data="daily_from_db")],
-    ])
-    await call.message.answer(
-        f"🏖 <b>Аренда посуточно в Варшаве</b>\n\n"
-        f"📍 Район: <b>{district}</b>  👥 Гостей: <b>{guests}</b>\n\n"
-        f"Выбери количество дней — найду самые дешёвые варианты:",
-        parse_mode="HTML",
-        reply_markup=kb
-    )
+        await call.message.answer(
+            _daily_text(district, guests),
+            parse_mode="HTML",
+            reply_markup=_daily_kb(district, guests)
+        )
 
 
-@router.callback_query(F.data == "daily_guests")
-async def cb_daily_guests(call: CallbackQuery):
+@router.callback_query(F.data == "daily_pick_guests")
+async def cb_daily_pick_guests(call: CallbackQuery):
     await call.answer()
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=f"{i} чел.", callback_data=f"daily_set_guests:{i}")
+        InlineKeyboardButton(text=f"{i} чел.", callback_data=f"daily_set_g:{i}")
         for i in range(1, 5)
     ]])
-    await call.message.answer("👥 Сколько гостей?", reply_markup=kb)
+    try:
+        await call.message.edit_reply_markup(reply_markup=kb)
+    except Exception:
+        await call.message.answer("👥 Сколько гостей?", reply_markup=kb)
 
 
-@router.callback_query(F.data.startswith("daily_set_guests:"))
-async def cb_daily_set_guests(call: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data.startswith("daily_set_g:"))
+async def cb_daily_set_g(call: CallbackQuery, state: FSMContext):
     guests = int(call.data.split(":")[1])
     await state.update_data(daily_guests=guests)
     data = await state.get_data()
     district = data.get("daily_district", "Warszawa")
-    await call.answer(f"✅ Гостей: {guests}", show_alert=False)
+    await call.answer(f"✅ {guests} чел.")
     try:
-        await call.message.delete()
+        await call.message.edit_text(
+            _daily_text(district, guests),
+            parse_mode="HTML",
+            reply_markup=_daily_kb(district, guests)
+        )
     except Exception:
-        pass
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="1️⃣ 1 день",  callback_data="daily_days:1"),
-            InlineKeyboardButton(text="3️⃣ 3 дня",   callback_data="daily_days:3"),
-            InlineKeyboardButton(text="7️⃣ 7 дней",  callback_data="daily_days:7"),
-        ],
-        [
-            InlineKeyboardButton(text="🗓 2 недели", callback_data="daily_days:14"),
-            InlineKeyboardButton(text="📅 1 месяц",  callback_data="daily_days:30"),
-        ],
-        [
-            InlineKeyboardButton(text="📍 Сменить район", callback_data="daily_district"),
-            InlineKeyboardButton(text="👥 Гости",         callback_data="daily_guests"),
-        ],
-        [InlineKeyboardButton(text="🏠 Объявления из базы", callback_data="daily_from_db")],
-    ])
-    await call.message.answer(
-        f"🏖 <b>Аренда посуточно в Варшаве</b>\n\n"
-        f"📍 Район: <b>{district}</b>  👥 Гостей: <b>{guests}</b>\n\n"
-        f"Выбери количество дней — найду самые дешёвые варианты:",
-        parse_mode="HTML",
-        reply_markup=kb
-    )
+        await call.message.answer(
+            _daily_text(district, guests),
+            parse_mode="HTML",
+            reply_markup=_daily_kb(district, guests)
+        )
 
 
 @router.callback_query(F.data == "daily_from_db")
@@ -2384,11 +2370,9 @@ async def cb_daily_from_db(call: CallbackQuery, state: FSMContext):
         db = get_conn()
         rows = db.execute(
             "SELECT * FROM apartments WHERE "
-            "(LOWER(title) LIKE '%doby%' OR LOWER(title) LIKE '%dobowy%' OR "
-            "LOWER(title) LIKE '%krotkoterminow%' OR LOWER(title) LIKE '%na doby%' OR "
-            "LOWER(title) LIKE '%noclegi%' OR LOWER(title) LIKE '%krótkoterminow%') "
-            "AND created_at >= ? ORDER BY price ASC LIMIT 10",
-            ((datetime.now() - timedelta(days=30)).isoformat(),)
+            "(LOWER(title) LIKE '%doby%' OR LOWER(title) LIKE '%noclegi%' OR "
+            "LOWER(title) LIKE '%dobowy%' OR LOWER(title) LIKE '%krotkoterminow%') "
+            "AND reported < 10 ORDER BY price ASC LIMIT 10"
         ).fetchall()
         db.close()
     except Exception:
@@ -2402,20 +2386,14 @@ async def cb_daily_from_db(call: CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="◀️ Назад", callback_data="open_daily")],
         ])
         await call.message.answer(
-            "😔 <b>Посуточных объявлений пока нет в нашей базе.</b>\n\n"
-            "Это нормально — такие объявления редко появляются на OLX/Otodom.\n"
-            "Используй специализированные платформы:",
-            parse_mode="HTML",
+            "😔 Посуточных объявлений пока нет в базе.\n\n"
+            "Используй платформы ниже:",
             reply_markup=kb
         )
         return
 
-    await call.message.answer(
-        f"🏖 <b>Посуточная аренда в Варшаве — {len(rows)} объявлений:</b>",
-        parse_mode="HTML"
-    )
+    await call.message.answer(f"🏖 <b>Посуточно в Варшаве ({len(rows)}):</b>", parse_mode="HTML")
     for apt in [dict(r) for r in rows]:
-        price_per_day = apt.get("price", 0)
         kb = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="❤️ Сохранить", callback_data=f"fav_add:{apt['id']}"),
             InlineKeyboardButton(text="🔗 Открыть", url=apt["link"]),
@@ -2426,8 +2404,106 @@ async def cb_daily_from_db(call: CallbackQuery, state: FSMContext):
             pass
 
 
+@router.callback_query(F.data.startswith("daily_days:"))
 async def cb_daily_days(call: CallbackQuery, state: FSMContext):
     await call.answer()
+    days = int(call.data.split(":")[1])
+    data = await state.get_data()
+    guests = data.get("daily_guests", 1)
+    district = data.get("daily_district", "Warszawa")
+
+    checkin = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+    checkout = (datetime.now() + timedelta(days=1 + days)).strftime("%Y-%m-%d")
+    checkin_d = (datetime.now() + timedelta(days=1)).strftime("%d.%m")
+    checkout_d = (datetime.now() + timedelta(days=1 + days)).strftime("%d.%m")
+    nights_word = {1: "ночь", 3: "ночи", 7: "ночей", 14: "ночей", 30: "ночей"}.get(days, "ночей")
+
+    # Show searching
+    msg = await call.message.answer(
+        f"🔍 <b>Ищу варианты...</b>\n"
+        f"📅 {checkin_d} → {checkout_d}  📍 {district}  👥 {guests} чел.",
+        parse_mode="HTML"
+    )
+
+    # Real search
+    import asyncio, concurrent.futures
+    from parser.parser_daily import search_daily_rentals
+    try:
+        loop = asyncio.get_event_loop()
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            results = await asyncio.wait_for(
+                loop.run_in_executor(pool, search_daily_rentals, checkin, checkout, guests, district),
+                timeout=18.0
+            )
+    except Exception as e:
+        print(f"[Daily] {e}")
+        results = []
+
+    try:
+        await msg.delete()
+    except Exception:
+        pass
+
+    # Platform links
+    d_enc = urllib.parse.quote(f"{district}, Polska")
+    booking_url = f"https://www.booking.com/searchresults.pl.html?ss={d_enc}&checkin={checkin}&checkout={checkout}&group_adults={guests}&no_rooms=1"
+    airbnb_url = f"https://www.airbnb.pl/s/{urllib.parse.quote(district + ', Warszawa')}/homes?checkin={checkin}&checkout={checkout}&adults={guests}"
+    nocowanie_url = "https://nocowanie.pl/noclegi/warszawa/apartamenty/"
+    trivago_url = f"https://www.trivago.pl/pl-PL/lm/hotel/poland-warsaw?checkin={checkin}&checkout={checkout}&adults={guests}"
+
+    platform_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🏨 Booking.com", url=booking_url),
+            InlineKeyboardButton(text="🏠 Airbnb", url=airbnb_url),
+        ],
+        [
+            InlineKeyboardButton(text="🛏 Nocowanie.pl", url=nocowanie_url),
+            InlineKeyboardButton(text="🏢 Trivago", url=trivago_url),
+        ],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="open_daily")],
+    ])
+
+    if results:
+        top = results[:5]
+        cheapest = top[0]
+        total_cheapest = cheapest.get("total_price", cheapest["price_per_night"] * days)
+        await call.message.answer(
+            f"🏆 <b>Топ-{len(top)} дешёвых вариантов</b>\n"
+            f"📅 {checkin_d} → {checkout_d} · {days} {nights_word}\n"
+            f"📍 {district}  👥 {guests} чел.\n"
+            f"💰 Самый дешёвый: <b>{cheapest['price_per_night']} zł/ночь</b> (~{total_cheapest} zł итого)",
+            parse_mode="HTML"
+        )
+        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
+        for i, r in enumerate(top):
+            total = r.get("total_price", r["price_per_night"] * days)
+            rating_str = f"⭐ {r['rating']}/10" if r.get("rating") else ""
+            icon = {"OLX": "🟠", "Nocowanie.pl": "🛏"}.get(r["source"], "📡")
+            card_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="🔗 Открыть", url=r["link"]),
+            ]])
+            card = (
+                f"{medals[i]} <b>{r['title'][:55]}</b>\n"
+                f"💰 <b>{r['price_per_night']} zł/ночь</b> · ~{total} zł  {icon} {r['source']}  {rating_str}"
+            )
+            try:
+                if r.get("image"):
+                    await call.message.answer_photo(r["image"], caption=card, reply_markup=card_kb, parse_mode="HTML")
+                else:
+                    await call.message.answer(card, reply_markup=card_kb, parse_mode="HTML")
+            except Exception:
+                await call.message.answer(card, reply_markup=card_kb, parse_mode="HTML")
+        await call.message.answer("🔍 <b>Смотреть ещё:</b>", parse_mode="HTML", reply_markup=platform_kb)
+    else:
+        price_est = {"1": "150–300", "3": "400–800", "7": "900–1800", "14": "1500–3000", "30": "2500–5000"}.get(str(days), "—")
+        await call.message.answer(
+            f"🏖 <b>{days} {nights_word} в Варшаве</b>\n"
+            f"📍 {district}  👥 {guests} чел.  📅 {checkin_d}→{checkout_d}\n"
+            f"💰 Примерная цена: <b>~{price_est} zł</b>\n\n"
+            f"Выбери платформу:",
+            parse_mode="HTML",
+            reply_markup=platform_kb
+        )
     days = int(call.data.split(":")[1])
     data = await state.get_data()
     guests = data.get("daily_guests", 1)
