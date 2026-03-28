@@ -1,144 +1,177 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="pl">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="DDFlatsBot — bot Telegram do wynajmu mieszkań w Warszawie. OLX, Otodom, Gratka, Morizon w jednym miejscu. Aktualizacja co 10 minut. Bezpłatnie.">
-<meta name="keywords" content="mieszkania Warszawa wynajem, bot telegram mieszkania, OLX Otodom wynajem Warszawa, квартиры Варшава аренда телеграм бот">
-<meta property="og:title" content="DDFlatsBot — Mieszkania Warszawa">
-<meta property="og:description" content="Wszystkie ogłoszenia wynajmu w Warszawie w jednym bocie Telegram. OLX + Otodom + Gratka + Morizon. Aktualizacja co 10 minut. Za darmo.">
-<meta property="og:type" content="website">
-<meta name="theme-color" content="#2563eb">
-<title>DDFlatsBot — Mieszkania Warszawa | Квартиры Варшава</title>
+<meta name="description" content="DDFlatsBot — bot Telegram do wynajmu mieszkan w Warszawie. OLX, Otodom, Gratka, Morizon. Aktualizacja co 10 minut.">
+<title>DDFlatsBot — Mieszkania Warszawa</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-:root{
-  --blue:#2563eb;--blue-light:#3b82f6;--blue-dark:#1d4ed8;
-  --green:#22c55e;--yellow:#f59e0b;--red:#ef4444;
-  --bg:#060b18;--bg2:#0d1526;--bg3:#111827;
-  --card:#131f35;--border:#1e3a5f;--border2:#243b55;
-  --text:#f8fafc;--muted:#94a3b8;--muted2:#64748b;
-}
-html{scroll-behavior:smooth}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);overflow-x:hidden;line-height:1.6}
-
-/* ── NAV ── */
-nav{position:fixed;top:0;left:0;right:0;z-index:100;padding:1rem 2rem;display:flex;align-items:center;justify-content:space-between;backdrop-filter:blur(20px);background:rgba(6,11,24,0.8);border-bottom:1px solid rgba(30,58,95,0.5)}
-.nav-logo{font-size:1.2rem;font-weight:800;color:var(--text);text-decoration:none;display:flex;align-items:center;gap:8px}
-.nav-logo span{color:var(--blue-light)}
-.nav-links{display:flex;gap:1.5rem;align-items:center}
-.nav-links a{color:var(--muted);text-decoration:none;font-size:0.9rem;transition:color .2s}
-.nav-links a:hover{color:var(--text)}
-.nav-cta{background:var(--blue);color:#fff!important;padding:8px 20px;border-radius:8px;font-weight:600!important;transition:background .2s!important}
-.nav-cta:hover{background:var(--blue-dark)!important}
-.lang-sw{display:flex;gap:4px}
-.lb{background:transparent;border:1px solid var(--border2);color:var(--muted);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:0.8rem;transition:all .2s}
-.lb:hover,.lb.on{background:var(--blue);border-color:var(--blue);color:#fff}
-
-/* ── HERO ── */
-.hero{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:6rem 1.5rem 4rem;position:relative;overflow:hidden}
-.hero-bg{position:absolute;inset:0;background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(37,99,235,0.18) 0%,transparent 70%);pointer-events:none}
-.hero-grid{position:absolute;inset:0;background-image:linear-gradient(rgba(30,58,95,0.15) 1px,transparent 1px),linear-gradient(90deg,rgba(30,58,95,0.15) 1px,transparent 1px);background-size:60px 60px;pointer-events:none;mask-image:radial-gradient(ellipse at center,black 30%,transparent 80%)}
-.badge{display:inline-flex;align-items:center;gap:8px;background:rgba(37,99,235,0.12);border:1px solid rgba(59,130,246,0.3);color:#93c5fd;padding:6px 18px;border-radius:100px;font-size:0.82rem;font-weight:500;margin-bottom:2rem;letter-spacing:0.02em}
+:root{--blue:#2563eb;--bg:#060b18;--bg2:#0d1526;--card:#111827;--border:#1e3a5f;--text:#f8fafc;--muted:#94a3b8;--green:#22c55e}
+body{font-family:-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.6}
+nav{position:fixed;top:0;left:0;right:0;z-index:100;padding:.9rem 2rem;display:flex;align-items:center;justify-content:space-between;backdrop-filter:blur(20px);background:rgba(6,11,24,.9);border-bottom:1px solid var(--border)}
+.logo{font-size:1.2rem;font-weight:800;color:var(--text);text-decoration:none}.logo em{color:#60a5fa;font-style:normal}
+.nav-r{display:flex;align-items:center;gap:1rem}
+.nav-r a{color:var(--muted);text-decoration:none;font-size:.88rem}
+.nav-cta{background:var(--blue)!important;color:#fff!important;padding:8px 18px;border-radius:8px;font-weight:600!important}
+.lsw{display:flex;gap:4px}
+.lb{background:transparent;border:1px solid var(--border);color:var(--muted);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:.75rem;font-family:inherit}
+.lb.on{background:var(--blue);border-color:var(--blue);color:#fff}
+.hero{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:7rem 1.5rem 5rem;background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(37,99,235,.18),transparent 70%)}
+.badge{display:inline-flex;align-items:center;gap:8px;background:rgba(37,99,235,.12);border:1px solid rgba(59,130,246,.3);color:#93c5fd;padding:6px 18px;border-radius:100px;font-size:.82rem;margin-bottom:2rem}
 .dot{width:7px;height:7px;background:var(--green);border-radius:50%;animation:blink 2s infinite}
-@keyframes blink{0%,100%{opacity:1;box-shadow:0 0 6px var(--green)}50%{opacity:.4;box-shadow:none}}
-h1{font-size:clamp(2.4rem,7vw,5rem);font-weight:900;line-height:1.05;letter-spacing:-0.03em;margin-bottom:1.5rem}
-h1 .hl{background:linear-gradient(135deg,#60a5fa,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-.hero-sub{font-size:clamp(1rem,2.5vw,1.3rem);color:var(--muted);max-width:600px;margin-bottom:3rem;line-height:1.7}
-.hero-sub strong{color:var(--text)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+h1{font-size:clamp(2.4rem,7vw,5rem);font-weight:900;line-height:1.05;letter-spacing:-.03em;margin-bottom:1.5rem}
+.hl{background:linear-gradient(135deg,#60a5fa,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hsub{font-size:clamp(1rem,2.5vw,1.25rem);color:var(--muted);max-width:580px;margin-bottom:3rem}
 .btns{display:flex;gap:1rem;flex-wrap:wrap;justify-content:center;margin-bottom:4rem}
-.btn-p{display:inline-flex;align-items:center;gap:10px;background:var(--blue);color:#fff;padding:16px 36px;border-radius:14px;font-size:1.05rem;font-weight:700;text-decoration:none;transition:all .25s;box-shadow:0 0 40px rgba(37,99,235,0.35)}
-.btn-p:hover{background:var(--blue-dark);transform:translateY(-3px);box-shadow:0 8px 40px rgba(37,99,235,0.5)}
-.btn-s{display:inline-flex;align-items:center;gap:10px;background:rgba(255,255,255,0.05);color:var(--text);padding:16px 36px;border-radius:14px;font-size:1.05rem;font-weight:600;text-decoration:none;border:1px solid var(--border2);transition:all .25s;backdrop-filter:blur(10px)}
-.btn-s:hover{background:rgba(255,255,255,0.1);transform:translateY(-3px)}
+.bp{display:inline-flex;align-items:center;gap:10px;background:var(--blue);color:#fff;padding:16px 36px;border-radius:14px;font-size:1.05rem;font-weight:700;text-decoration:none;box-shadow:0 0 40px rgba(37,99,235,.35)}
+.bs{display:inline-flex;align-items:center;gap:10px;background:rgba(255,255,255,.05);color:var(--text);padding:16px 36px;border-radius:14px;font-size:1.05rem;font-weight:600;text-decoration:none;border:1px solid rgba(255,255,255,.1)}
 .stats{display:flex;gap:3rem;flex-wrap:wrap;justify-content:center}
-.stat{text-align:center}
-.sn{font-size:2.2rem;font-weight:900;background:linear-gradient(135deg,#60a5fa,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-.sl{font-size:0.75rem;color:var(--muted2);text-transform:uppercase;letter-spacing:0.08em;margin-top:2px}
-
-/* ── SOURCES ── */
-.sources{padding:3rem 1.5rem;border-top:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--bg2)}
-.src-label{text-align:center;color:var(--muted2);font-size:0.8rem;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:1.5rem}
-.src-row{display:flex;flex-wrap:wrap;gap:.75rem;justify-content:center;max-width:900px;margin:0 auto}
-.src{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--border);padding:10px 20px;border-radius:100px;font-size:.9rem;font-weight:500;transition:border-color .2s,transform .2s}
-.src:hover{border-color:var(--blue-light);transform:translateY(-2px)}
-
-/* ── SECTION ── */
-.sec{padding:6rem 1.5rem;max-width:1200px;margin:0 auto}
-.sec-t{text-align:center;font-size:clamp(1.8rem,4vw,2.8rem);font-weight:800;margin-bottom:.75rem;letter-spacing:-0.02em}
-.sec-s{text-align:center;color:var(--muted);margin-bottom:3.5rem;font-size:1.05rem;max-width:560px;margin-left:auto;margin-right:auto}
-
-/* ── FEATURES ── */
-.feat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1.5rem}
-.feat{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:2rem;transition:all .3s;position:relative;overflow:hidden}
-.feat::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(37,99,235,0.05),transparent);opacity:0;transition:opacity .3s}
-.feat:hover{border-color:var(--blue-light);transform:translateY(-4px);box-shadow:0 20px 60px rgba(37,99,235,0.15)}
-.feat:hover::before{opacity:1}
-.fi{font-size:2.2rem;margin-bottom:1.2rem;display:block}
-.ft{font-size:1.1rem;font-weight:700;margin-bottom:.6rem}
-.fd{color:var(--muted);font-size:.95rem;line-height:1.6}
-.feat-badge{display:inline-block;background:rgba(34,197,94,0.15);color:#4ade80;border:1px solid rgba(34,197,94,0.3);padding:2px 10px;border-radius:100px;font-size:.75rem;font-weight:600;margin-top:.75rem}
-
-/* ── PHONE MOCKUP ── */
-.demo-wrap{display:grid;grid-template-columns:1fr 1fr;gap:4rem;align-items:center;max-width:1100px;margin:0 auto}
-.phone{width:280px;margin:0 auto;background:var(--bg3);border:2px solid var(--border2);border-radius:36px;padding:1.5rem 1rem;box-shadow:0 40px 80px rgba(0,0,0,0.5),0 0 0 1px rgba(255,255,255,0.05);position:relative}
-.phone-notch{width:80px;height:6px;background:var(--border2);border-radius:3px;margin:0 auto 1.5rem}
-.msg{margin-bottom:.75rem;display:flex;flex-direction:column}
-.msg.bot .bubble{background:var(--card);border:1px solid var(--border);border-radius:16px 16px 16px 4px;padding:.75rem 1rem;font-size:.8rem;line-height:1.5;max-width:90%;align-self:flex-start}
-.msg.user .bubble{background:var(--blue);border-radius:16px 16px 4px 16px;padding:.75rem 1rem;font-size:.8rem;line-height:1.5;max-width:80%;align-self:flex-end}
-.apt-card{background:linear-gradient(135deg,var(--bg2),var(--card));border:1px solid var(--border2);border-radius:12px;padding:.75rem;margin-top:.5rem;font-size:.75rem}
-.apt-price{font-size:1rem;font-weight:800;color:#60a5fa}
-.apt-badge{display:inline-block;background:rgba(34,197,94,0.2);color:#4ade80;padding:2px 8px;border-radius:6px;font-size:.7rem;font-weight:600;margin-top:4px}
-.demo-text h3{font-size:1.8rem;font-weight:800;margin-bottom:1rem;line-height:1.2}
-.demo-text p{color:var(--muted);margin-bottom:1.5rem;line-height:1.7}
-.check-list{list-style:none;display:flex;flex-direction:column;gap:.6rem}
-.check-list li{display:flex;align-items:center;gap:.75rem;color:var(--muted);font-size:.95rem}
-.check-list li::before{content:'✓';color:var(--green);font-weight:700;font-size:1rem;flex-shrink:0}
-
-/* ── STEPS ── */
-.steps-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:2rem}
-.step{text-align:center;padding:2rem 1.5rem;background:var(--card);border:1px solid var(--border);border-radius:20px;transition:transform .2s}
-.step:hover{transform:translateY(-4px)}
-.step-n{width:52px;height:52px;background:linear-gradient(135deg,var(--blue),#7c3aed);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.3rem;font-weight:800;margin:0 auto 1.2rem}
-.step-t{font-weight:700;margin-bottom:.5rem;font-size:1.05rem}
-.step-d{color:var(--muted);font-size:.9rem}
-
-/* ── PRICING ── */
-.price-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1.5rem;max-width:800px;margin:0 auto}
-.price-card{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:2rem;text-align:center}
-.price-card.featured{border-color:var(--blue-light);background:linear-gradient(135deg,rgba(37,99,235,0.1),var(--card));box-shadow:0 0 40px rgba(37,99,235,0.2)}
-.price-name{font-size:.85rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:.75rem}
-.price-val{font-size:3rem;font-weight:900;margin-bottom:.25rem}
-.price-val span{font-size:1rem;font-weight:400;color:var(--muted)}
-.price-desc{color:var(--muted);font-size:.9rem;margin-bottom:1.5rem}
-.price-feats{list-style:none;text-align:left;display:flex;flex-direction:column;gap:.6rem;margin-bottom:2rem}
-.price-feats li{display:flex;align-items:center;gap:.6rem;font-size:.9rem;color:var(--muted)}
-.price-feats li.on{color:var(--text)}
-.price-feats li.on::before{content:'✓';color:var(--green);font-weight:700}
-.price-feats li.off::before{content:'✗';color:var(--muted2)}
-
-/* ── CTA ── */
-.cta-sec{text-align:center;padding:6rem 1.5rem;background:radial-gradient(ellipse 70% 50% at 50% 50%,rgba(37,99,235,0.12),transparent)}
-.cta-sec h2{font-size:clamp(2rem,5vw,3.5rem);font-weight:900;margin-bottom:1rem;letter-spacing:-0.02em}
+.sn{font-size:2.2rem;font-weight:900;background:linear-gradient(135deg,#60a5fa,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;text-align:center}
+.sl{font-size:.72rem;color:#64748b;text-transform:uppercase;letter-spacing:.08em;text-align:center}
+.sources{padding:3rem 1.5rem;border-top:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--bg2);text-align:center}
+.src-row{display:flex;flex-wrap:wrap;gap:.75rem;justify-content:center;max-width:900px;margin:.75rem auto 0}
+.src{background:var(--card);border:1px solid var(--border);padding:10px 20px;border-radius:100px;font-size:.88rem}
+.sec{padding:5rem 1.5rem;max-width:1200px;margin:0 auto}
+.sec-t{text-align:center;font-size:clamp(1.8rem,4vw,2.8rem);font-weight:800;margin-bottom:.75rem}
+.sec-s{text-align:center;color:var(--muted);margin-bottom:3rem;max-width:560px;margin-left:auto;margin-right:auto}
+.fg{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:1.5rem}
+.fc{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:2rem;transition:all .3s}
+.fc:hover{border-color:#3b82f6;transform:translateY(-4px)}
+.fi{font-size:2.2rem;margin-bottom:1rem;display:block}
+.ft{font-size:1.1rem;font-weight:700;margin-bottom:.5rem}
+.fd{color:var(--muted);font-size:.93rem}
+.fb{display:inline-block;background:rgba(34,197,94,.15);color:#4ade80;border:1px solid rgba(34,197,94,.3);padding:2px 10px;border-radius:100px;font-size:.72rem;font-weight:600;margin-top:.75rem}
+.steps-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:2rem}
+.step{text-align:center;padding:2rem;background:var(--card);border:1px solid var(--border);border-radius:20px}
+.stn{width:52px;height:52px;background:linear-gradient(135deg,#2563eb,#7c3aed);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.3rem;font-weight:800;margin:0 auto 1rem}
+.stt{font-weight:700;margin-bottom:.5rem}
+.std{color:var(--muted);font-size:.9rem}
+.price-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1.5rem;max-width:760px;margin:0 auto}
+.pc{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:2rem;text-align:center}
+.pc.hot{border-color:#3b82f6;box-shadow:0 0 40px rgba(37,99,235,.2)}
+.pc-name{font-size:.8rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:.75rem}
+.pc-val{font-size:3rem;font-weight:900;margin-bottom:.25rem}
+.pc-val small{font-size:1rem;font-weight:400;color:var(--muted)}
+.pc-desc{color:var(--muted);font-size:.88rem;margin-bottom:1.5rem}
+.pc-list{list-style:none;text-align:left;display:flex;flex-direction:column;gap:.6rem;margin-bottom:2rem}
+.pc-list li{display:flex;align-items:center;gap:.6rem;font-size:.9rem}
+.pc-list li.y::before{content:"✓";color:var(--green);font-weight:700}
+.pc-list li.n{color:#64748b}
+.pc-list li.n::before{content:"✗";color:#64748b}
+.cta-sec{text-align:center;padding:6rem 1.5rem;background:radial-gradient(ellipse 70% 50% at 50% 50%,rgba(37,99,235,.12),transparent)}
+.cta-sec h2{font-size:clamp(2rem,5vw,3.5rem);font-weight:900;margin-bottom:1rem}
 .cta-sec p{color:var(--muted);font-size:1.1rem;margin-bottom:2.5rem}
-
-/* ── FOOTER ── */
 footer{border-top:1px solid var(--border);padding:2.5rem 1.5rem;text-align:center}
 .foot-links{display:flex;gap:1.5rem;justify-content:center;flex-wrap:wrap;margin-bottom:1rem}
-.foot-links a{color:var(--muted);text-decoration:none;font-size:.9rem;transition:color .2s}
-.foot-links a:hover{color:var(--text)}
-.foot-copy{color:var(--muted2);font-size:.8rem}
-
-/* ── RESPONSIVE ── */
-@media(max-width:768px){
-  nav{padding:.75rem 1rem}
-  .nav-links{display:none}
-  .demo-wrap{grid-template-columns:1fr}
-  .phone{order:-1}
-  .btns{flex-direction:column;align-items:center}
-  .btn-p,.btn-s{width:100%;justify-content:center}
-  .stats{gap:2rem}
-}
+.foot-links a{color:var(--muted);text-decoration:none;font-size:.88rem}
+.foot-copy{color:#64748b;font-size:.78rem}
+.dark-sec{background:var(--bg2);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+@media(max-width:768px){.nav-r .hm{display:none}.btns{flex-direction:column;align-items:center}.bp,.bs{width:100%;max-width:320px;justify-content:center}.stats{gap:1.5rem}}
 </style>
 </head>
 <body>
+<nav>
+  <a href="#" class="logo">DD<em>Flats</em>Bot</a>
+  <div class="nav-r">
+    <a href="#features" class="hm" data-pl="Funkcje" data-ru="Функции" data-en="Features">Funkcje</a>
+    <a href="#pricing" class="hm" data-pl="Cennik" data-ru="Цены" data-en="Pricing">Cennik</a>
+    <div class="lsw">
+      <button class="lb on" onclick="setLang('pl',this)">PL</button>
+      <button class="lb" onclick="setLang('ru',this)">RU</button>
+      <button class="lb" onclick="setLang('en',this)">EN</button>
+    </div>
+    <a href="https://t.me/DDFlatsBot" target="_blank" class="nav-cta" data-pl="Otwórz bota" data-ru="Открыть бота" data-en="Open bot">Otwórz bota</a>
+  </div>
+</nav>
+<section class="hero">
+  <div class="badge"><span class="dot"></span><span data-pl="Aktualizacja co 10 minut" data-ru="Обновление каждые 10 минут" data-en="Updates every 10 minutes">Aktualizacja co 10 minut</span></div>
+  <h1><span data-pl="Wszystkie mieszkania" data-ru="Все квартиры" data-en="All apartments">Wszystkie mieszkania</span><br><span class="hl" data-pl="Warszawy w jednym miejscu" data-ru="Варшавы в одном месте" data-en="in Warsaw in one place">Warszawy w jednym miejscu</span></h1>
+  <p class="hsub" data-pl="OLX, Otodom, Gratka, Morizon i inne — wszystko w jednym bocie Telegram. Bezplatnie." data-ru="OLX, Otodom, Gratka, Morizon и другие — всё в одном Telegram боте. Бесплатно." data-en="OLX, Otodom, Gratka, Morizon and more — all in one Telegram bot. Free.">OLX, Otodom, Gratka, Morizon i inne — wszystko w jednym bocie Telegram. Bezplatnie.</p>
+  <div class="btns">
+    <a href="https://t.me/DDFlatsBot" target="_blank" class="bp">✈️ <span data-pl="Otworz @DDFlatsBot" data-ru="Открыть @DDFlatsBot" data-en="Open @DDFlatsBot">Otworz @DDFlatsBot</span></a>
+    <a href="https://t.me/DDfrets" target="_blank" class="bs">📢 <span data-pl="Kanal z ofertami" data-ru="Канал с квартирами" data-en="Listings channel">Kanal z ofertami</span></a>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="sn">5000+</div><div class="sl" data-pl="Ogloszen" data-ru="Объявлений" data-en="Listings">Ogloszen</div></div>
+    <div class="stat"><div class="sn">8</div><div class="sl" data-pl="Zrodel" data-ru="Источников" data-en="Sources">Zrodel</div></div>
+    <div class="stat"><div class="sn">10 min</div><div class="sl" data-pl="Aktualizacja" data-ru="Обновление" data-en="Update">Aktualizacja</div></div>
+    <div class="stat"><div class="sn">3</div><div class="sl" data-pl="Jezyki" data-ru="Языка" data-en="Languages">Jezyki</div></div>
+  </div>
+</section>
+<div class="sources">
+  <p style="color:#64748b;font-size:.75rem;text-transform:uppercase;letter-spacing:.1em" data-pl="Agregujemy z" data-ru="Агрегируем с" data-en="Aggregating from">Agregujemy z</p>
+  <div class="src-row"><span class="src">🟠 OLX</span><span class="src">🔵 Otodom</span><span class="src">🟢 Gratka</span><span class="src">🟣 Morizon</span><span class="src">🟤 Lento</span><span class="src">🟡 Adresowo</span><span class="src">🔷 Szybko</span><span class="src">🔴 Domiporta</span></div>
+</div>
+<div id="features" class="sec">
+  <h2 class="sec-t" data-pl="Dlaczego DDFlatsBot?" data-ru="Почему DDFlatsBot?" data-en="Why DDFlatsBot?">Dlaczego DDFlatsBot?</h2>
+  <p class="sec-s" data-pl="Wszystko czego potrzebujesz do znalezienia mieszkania" data-ru="Всё что нужно для поиска квартиры" data-en="Everything you need to find an apartment">Wszystko czego potrzebujesz do znalezienia mieszkania</p>
+  <div class="fg">
+    <div class="fc"><span class="fi">⚡</span><div class="ft" data-pl="Aktualizacja co 10 minut" data-ru="Обновление каждые 10 минут" data-en="Updates every 10 min">Aktualizacja co 10 minut</div><div class="fd" data-pl="Nowe ogloszenia pojawiaja sie natychmiast." data-ru="Новые объявления появляются мгновенно." data-en="New listings appear instantly.">Nowe ogloszenia pojawiaja sie natychmiast.</div><span class="fb" data-pl="Tylko u nas" data-ru="Только у нас" data-en="Exclusive">Tylko u nas</span></div>
+    <div class="fc"><span class="fi">💡</span><div class="ft" data-pl="Ocena ceny" data-ru="Оценка цены" data-en="Price evaluation">Ocena ceny</div><div class="fd" data-pl="Bot porownuje cene z srednia w dzielnicy — tania, uczciwa lub zawyzona." data-ru="Бот сравнивает цену со средней по району — дёшево, справедливо или завышено." data-en="Bot compares price with district average — cheap, fair or overpriced.">Bot porownuje cene z srednia w dzielnicy.</div></div>
+    <div class="fc"><span class="fi">🔔</span><div class="ft" data-pl="Inteligentne alerty" data-ru="Умные алерты" data-en="Smart alerts">Inteligentne alerty</div><div class="fd" data-pl="Ustaw parametry i otrzymaj powiadomienie gdy pojawi sie idealne mieszkanie." data-ru="Задай параметры и получи уведомление когда появится идеальная квартира." data-en="Set parameters and get notified when the perfect apartment appears.">Ustaw parametry i otrzymaj powiadomienie.</div><span class="fb">VIP</span></div>
+    <div class="fc"><span class="fi">🤖</span><div class="ft" data-pl="Wyszukiwanie AI" data-ru="AI поиск" data-en="AI search">Wyszukiwanie AI</div><div class="fd" data-pl="Napisz: /ask 2 pokoje Mokotow do 3000 — bot sam ustawi filtry." data-ru="Напиши: /ask 2 комнаты Мокотув до 3000 — бот сам настроит фильтры." data-en="Write: /ask 2 rooms Mokotow up to 3000 — bot sets filters automatically.">Napisz: /ask 2 pokoje Mokotow do 3000</div></div>
+    <div class="fc"><span class="fi">🏖</span><div class="ft" data-pl="Wynajem krotkoterminowy" data-ru="Аренда посуточно" data-en="Short-term rental">Wynajem krotkoterminowy</div><div class="fd" data-pl="Szukaj noclegow z wyborem dat. Booking, Airbnb, Nocowanie." data-ru="Ищи жильё с выбором дат. Booking, Airbnb, Nocowanie." data-en="Search accommodation with date selection. Booking, Airbnb, Nocowanie.">Szukaj noclegow z wyborem dat.</div></div>
+    <div class="fc"><span class="fi">��</span><div class="ft" data-pl="3 jezyki" data-ru="3 языка" data-en="3 languages">3 jezyki</div><div class="fd" data-pl="Polski, Rosyjski, Ukrainski. Bot automatycznie wykrywa Twoj jezyk." data-ru="Польский, Русский, Украинский. Бот автоматически определяет твой язык." data-en="Polish, Russian, Ukrainian. Bot automatically detects your language.">Polski, Rosyjski, Ukrainski.</div></div>
+  </div>
+</div>
+<div class="dark-sec">
+  <div class="sec">
+    <h2 class="sec-t" data-pl="Jak to dziala?" data-ru="Как это работает?" data-en="How it works?">Jak to dziala?</h2>
+    <div class="steps-g">
+      <div class="step"><div class="stn">1</div><div class="stt" data-pl="Otworz bota" data-ru="Открой бота" data-en="Open the bot">Otworz bota</div><div class="std" data-pl="Kliknij i otworz @DDFlatsBot w Telegram" data-ru="Нажми и открой @DDFlatsBot в Telegram" data-en="Click and open @DDFlatsBot in Telegram">Kliknij i otworz @DDFlatsBot w Telegram</div></div>
+      <div class="step"><div class="stn">2</div><div class="stt" data-pl="Ustaw filtry" data-ru="Настрой фильтры" data-en="Set filters">Ustaw filtry</div><div class="std" data-pl="Wybierz dzielnice, cene i liczbe pokoi" data-ru="Выбери район, цену и комнаты" data-en="Choose district, price and rooms">Wybierz dzielnice, cene i liczbe pokoi</div></div>
+      <div class="step"><div class="stn">3</div><div class="stt" data-pl="Otrzymuj oferty" data-ru="Получай предложения" data-en="Get offers">Otrzymuj oferty</div><div class="std" data-pl="Bot wysyla nowe mieszkania natychmiast z ocena ceny" data-ru="Бот отправляет новые квартиры сразу с оценкой цены" data-en="Bot sends new apartments immediately with price evaluation">Bot wysyla nowe mieszkania natychmiast</div></div>
+    </div>
+  </div>
+</div>
+<div id="pricing" class="dark-sec">
+  <div class="sec">
+    <h2 class="sec-t" data-pl="Prosty cennik" data-ru="Простые цены" data-en="Simple pricing">Prosty cennik</h2>
+    <div class="price-g">
+      <div class="pc">
+        <div class="pc-name" data-pl="Bezplatny" data-ru="Бесплатный" data-en="Free">Bezplatny</div>
+        <div class="pc-val">0 <small>zl</small></div>
+        <ul class="pc-list">
+          <li class="y" data-pl="5 mieszkan dziennie" data-ru="5 квартир в день" data-en="5 apartments/day">5 mieszkan dziennie</li>
+          <li class="y" data-pl="Filtry i AI" data-ru="Фильтры и AI" data-en="Filters and AI">Filtry i AI</li>
+          <li class="y" data-pl="Ocena ceny" data-ru="Оценка цены" data-en="Price evaluation">Ocena ceny</li>
+          <li class="n" data-pl="Bez limitu" data-ru="Без лимита" data-en="Unlimited">Bez limitu</li>
+          <li class="n" data-pl="Alerty" data-ru="Алерты" data-en="Alerts">Alerty</li>
+        </ul>
+        <a href="https://t.me/DDFlatsBot" target="_blank" class="bs" style="display:flex;justify-content:center" data-pl="Zacznij za darmo" data-ru="Начать бесплатно" data-en="Start free">Zacznij za darmo</a>
+      </div>
+      <div class="pc hot">
+        <div class="pc-name">VIP</div>
+        <div class="pc-val">19 <small>zl/mies</small></div>
+        <div class="pc-desc" data-pl="lub 190 Telegram Stars" data-ru="или 190 Telegram Stars" data-en="or 190 Telegram Stars">lub 190 Telegram Stars</div>
+        <ul class="pc-list">
+          <li class="y" data-pl="Bez limitu mieszkan" data-ru="Без лимита квартир" data-en="Unlimited apartments">Bez limitu mieszkan</li>
+          <li class="y" data-pl="Inteligentne alerty" data-ru="Умные алерты" data-en="Smart alerts">Inteligentne alerty</li>
+          <li class="y" data-pl="Powiadomienia o obnizce cen" data-ru="Уведомления о снижении цен" data-en="Price drop notifications">Powiadomienia o obnizce cen</li>
+          <li class="y" data-pl="Subskrypcja dzielnicy" data-ru="Подписка на район" data-en="District subscription">Subskrypcja dzielnicy</li>
+        </ul>
+        <a href="https://t.me/DDFlatsBot" target="_blank" class="bp" style="display:flex;justify-content:center" data-pl="Aktywuj VIP" data-ru="Активировать VIP" data-en="Activate VIP">Aktywuj VIP</a>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="cta-sec">
+  <h2 data-pl="Zacznij szukac teraz" data-ru="Начни искать прямо сейчас" data-en="Start searching now">Zacznij szukac teraz</h2>
+  <p data-pl="Bezplatnie. Bez rejestracji. Tylko Telegram." data-ru="Бесплатно. Без регистрации. Только Telegram." data-en="Free. No registration. Just Telegram.">Bezplatnie. Bez rejestracji. Tylko Telegram.</p>
+  <a href="https://t.me/DDFlatsBot" target="_blank" class="bp" style="display:inline-flex">✈️ @DDFlatsBot</a>
+</div>
+<footer>
+  <div class="foot-links">
+    <a href="https://t.me/DDFlatsBot" target="_blank">@DDFlatsBot</a>
+    <a href="https://t.me/DDfrets" target="_blank">@DDfrets</a>
+    <a href="https://t.me/D_ANIEL0507" target="_blank">Kontakt</a>
+  </div>
+  <div class="foot-copy">2025 DDFlatsBot</div>
+</footer>
+<script>
+function setLang(l,b){document.querySelectorAll('[data-'+l+']').forEach(function(e){e.textContent=e.getAttribute('data-'+l)});document.querySelectorAll('.lb').forEach(function(x){x.classList.remove('on')});b.classList.add('on')}
+</script>
+</body>
+</html>
