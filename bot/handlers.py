@@ -24,6 +24,7 @@ from database.db import (
     add_user_note, get_user_notes, get_similar_apartments, get_new_today_count,
     increment_apt_views, mark_seen, get_seen_ids, record_conversion, get_conversion_stats,
     get_new_since, update_last_visit, get_last_visit,
+    block_apartment, get_apt_age_days, is_stale,
 )
 from config import FREE_VIEWS, VIP_PRICE, DISTRICTS, ADMIN_IDS, CHANNEL_LINK, MODERATOR_IDS
 from config import REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS
@@ -113,12 +114,11 @@ def apt_text(apt: dict, lang: str = "ru") -> str:
 
     verified = "✅ <b>Проверено модератором</b>\n" if apt.get("verified") else ""
 
-    source_icons = {"OLX": "🟠", "Otodom": "🔵", "Gratka": "🟢", "Morizon": "🟣", "Adresowo": "🟡", "Domiporta": "🔴", "Lento": "🟤"}
+    source_icons = {"OLX": "🟠", "Otodom": "🔵", "Gratka": "🟢", "Morizon": "🟣", "Adresowo": "🟡", "Domiporta": "🔴", "Lento": "🟤", "Szybko": "🔷"}
     source_icon = source_icons.get(apt.get("source", ""), "📡")
 
     price = apt.get("price", 0)
     if price:
-        # Price per m² if area known
         price_per_m = f" · {int(price / apt['area'])} zł/м²" if apt.get("area") and apt["area"] > 0 else ""
         price_line = f"💰 <b>{price} zł/мес</b>{price_per_m}"
     else:
@@ -137,10 +137,22 @@ def apt_text(apt: dict, lang: str = "ru") -> str:
         lines.append(f"📉 <b>Цена снижена!</b> {drop['old']} → {drop['new']} zł (−{drop['drop']} zł)")
 
     lines.append(f"🔗 <a href=\"{apt['link']}\">Открыть объявление</a>  {source_icon} {apt.get('source','')}")
-    # Views counter — creates FOMO
+
+    # FOMO: views counter
     apt_views = apt.get("apt_views", 0) or 0
-    if apt_views >= 3:
+    if apt_views >= 10:
+        lines.append(f"🔥 <b>Смотрели {apt_views} раз — популярное!</b>")
+    elif apt_views >= 3:
         lines.append(f"👁 <i>Смотрели {apt_views} раз</i>")
+
+    # Stale warning
+    from database.db import get_apt_age_days
+    age = get_apt_age_days(apt)
+    if age >= 14:
+        lines.append(f"⚠️ <i>Объявлению {age} дней — возможно уже сдано. Проверь актуальность.</i>")
+    elif age >= 7:
+        lines.append(f"🕐 <i>Объявлению {age} дней — уточни актуальность у хозяина.</i>")
+
     lines.append(f"\n<i>⚠️ {t(lang, 'warn_check')}</i>")
     return "\n".join(lines)
 
@@ -153,12 +165,12 @@ def apt_keyboard(apt_id: int, lat=None, lon=None, lang: str = "ru") -> InlineKey
     row2 = [
         InlineKeyboardButton(text="👍", callback_data=f"rate:1:{apt_id}"),
         InlineKeyboardButton(text="👎", callback_data=f"rate:-1:{apt_id}"),
-        InlineKeyboardButton(text="🚩", callback_data=f"report:{apt_id}"),
         InlineKeyboardButton(text="📤 Поделиться", callback_data=f"share:{apt_id}"),
     ]
     row3 = [
         InlineKeyboardButton(text="👁 Уже смотрел", callback_data=f"seen:{apt_id}"),
         InlineKeyboardButton(text="✅ Нашёл!", callback_data=f"found:{apt_id}"),
+        InlineKeyboardButton(text="🚨 Мошенник", callback_data=f"scam:{apt_id}"),
     ]
     rows = [row1, row2, row3]
     if lat and lon:
@@ -2654,6 +2666,37 @@ async def cb_report_start(call: CallbackQuery, state: FSMContext):
     ])
     await call.answer()
     await call.message.answer("🚩 <b>Причина жалобы:</b>", parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("scam:"))
+async def cb_scam_report(call: CallbackQuery):
+    """Quick scam report — one tap, no menu."""
+    apt_id = int(call.data.split(":")[1])
+    await call.answer("🚨 Жалоба на мошенника отправлена!", show_alert=True)
+
+    # Block immediately + report
+    block_apartment(apt_id, reason="scam")
+    report_apartment(call.from_user.id, apt_id, "МОШЕННИК — быстрая жалоба")
+
+    # Notify admins immediately
+    apt = get_apartment_by_id(apt_id)
+    for admin_id in ADMIN_IDS:
+        try:
+            kb_admin = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="🗑 Удалить", callback_data=f"mod_delete:{apt_id}"),
+                InlineKeyboardButton(text="✅ Оставить", callback_data=f"mod_verify:{apt_id}"),
+            ]])
+            apt_info = f"🏠 {apt['title']}\n💰 {apt.get('price',0)} zł\n🔗 {apt.get('link','')}" if apt else f"apt_id={apt_id}"
+            await call.bot.send_message(
+                admin_id,
+                f"🚨 <b>МОШЕННИК — быстрая жалоба!</b>\n\n"
+                f"{apt_info}\n\n"
+                f"👤 От: <code>{call.from_user.id}</code> @{call.from_user.username or 'нет'}",
+                parse_mode="HTML",
+                reply_markup=kb_admin
+            )
+        except Exception:
+            pass
 
 
 @router.callback_query(F.data.startswith("report_reason:"))

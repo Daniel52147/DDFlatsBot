@@ -1256,3 +1256,80 @@ def get_conversion_stats() -> dict:
         "today": today_count,
         "by_source": [dict(r) for r in by_source],
     }
+
+
+# ── Stale listings ────────────────────────────────────────────
+
+def get_apt_age_days(apt: dict) -> int:
+    """Return how many days ago apartment was added."""
+    try:
+        created = apt.get("created_at", "")
+        if not created:
+            return 0
+        return (datetime.now() - datetime.fromisoformat(created)).days
+    except Exception:
+        return 0
+
+
+def is_stale(apt: dict, days: int = 7) -> bool:
+    """Return True if apartment is older than N days."""
+    return get_apt_age_days(apt) >= days
+
+
+def get_stale_count() -> int:
+    """Count apartments older than 7 days still in DB."""
+    cutoff = (datetime.now() - timedelta(days=7)).isoformat()
+    conn = get_conn()
+    count = conn.execute(
+        "SELECT COUNT(*) FROM apartments WHERE created_at < ?", (cutoff,)
+    ).fetchone()[0]
+    conn.close()
+    return count
+
+
+def block_apartment(apt_id: int, reason: str = "scam"):
+    """Mark apartment as blocked (scam/fraud report)."""
+    conn = get_conn()
+    try:
+        conn.execute(
+            "UPDATE apartments SET reported=999, score=-100 WHERE id=?", (apt_id,)
+        )
+        conn.execute(
+            "INSERT INTO reports (user_id, apartment_id, reason, created_at) VALUES (0,?,?,?)",
+            (apt_id, f"BLOCKED:{reason}", datetime.now().isoformat())
+        )
+        conn.commit()
+    except Exception:
+        pass
+    conn.close()
+
+
+def get_apt_views_today(apt_id: int) -> int:
+    """Get how many times apartment was viewed today."""
+    conn = get_conn()
+    today = datetime.now().date().isoformat()
+    try:
+        row = conn.execute(
+            "SELECT apt_views FROM apartments WHERE id=?", (apt_id,)
+        ).fetchone()
+        conn.close()
+        return row["apt_views"] if row else 0
+    except Exception:
+        conn.close()
+        return 0
+
+
+def get_morning_push_apts(limit: int = 3) -> list:
+    """Top N cheapest new apartments added in last 24h for morning push."""
+    since = (datetime.now() - timedelta(hours=24)).isoformat()
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT * FROM apartments
+        WHERE price > 0 AND price <= 5000
+          AND created_at >= ?
+          AND reported < 3
+        ORDER BY price ASC
+        LIMIT ?
+    """, (since, limit)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]

@@ -18,7 +18,7 @@ from database.db import (
     save_apartment, get_latest_apartments, get_all_user_ids,
     get_all_vip_user_ids, get_subscribers_for_district, log_parse,
     match_alerts, check_vip_expiry, get_daily_digest, check_auto_vip_conditions,
-    get_cheapest_apartments, get_conn,
+    get_cheapest_apartments, get_conn, get_morning_push_apts,
 )
 from config import CHANNEL_ID, DB_PATH, ADMIN_IDS
 
@@ -301,41 +301,64 @@ async def _auto_vip_check():
 
 async def _daily_digest():
     digest = get_daily_digest()
-    if not digest["new_today"]:
+    top_apts = get_morning_push_apts(limit=3)
+    user_ids = get_all_user_ids()
+
+    if not digest["new_today"] and not top_apts:
         return
 
     from database.db import get_price_drops_today
-    drops = get_price_drops_today(limit=3)
+    drops = get_price_drops_today(limit=2)
 
-    user_ids = get_all_user_ids()
-    text = (
+    header = (
         f"☀️ <b>Доброе утро! Дайджест за сегодня:</b>\n\n"
         f"🏠 Новых квартир: <b>{digest['new_today']}</b>\n"
     )
     if digest["avg_price"]:
-        text += f"💰 Средняя цена: <b>{digest['avg_price']} zł</b>\n"
-    if digest["cheapest"]:
-        c = digest["cheapest"]
-        text += (
-            f"\n🏆 <b>Самая дешёвая сегодня:</b>\n"
-            f"🏠 {c['title']}\n"
-            f"💰 {c['price']} zł/мес · 📍 {c.get('district','Warszawa')}\n"
-            f"🔗 <a href=\"{c['link']}\">Открыть</a>\n"
-        )
+        header += f"💰 Средняя цена: <b>{digest['avg_price']} zł</b>\n"
     if drops:
-        text += f"\n📉 Снижение цен: {len(drops)} объявл. → /drops\n"
-    text += "\n👇 /next — смотреть квартиры"
+        header += f"📉 Снижений цен: <b>{len(drops)}</b> → /drops\n"
+    if top_apts:
+        header += f"\n🏆 <b>Топ-{len(top_apts)} дешёвых за последние 24ч:</b>"
 
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="🏠 Смотреть квартиры", callback_data="next"),
-        InlineKeyboardButton(text="📉 Снижения цен", callback_data="open_drops"),
+    header_kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🏠 Смотреть все", callback_data="next"),
+        InlineKeyboardButton(text="📉 Снижения", callback_data="open_drops"),
     ]])
+
+    source_icons = {"OLX": "🟠", "Otodom": "🔵", "Gratka": "🟢", "Morizon": "🟣", "Szybko": "🔷", "Lento": "🟤"}
 
     for uid in user_ids:
         try:
-            await _bot.send_message(uid, text, parse_mode="HTML", reply_markup=kb)
-            await asyncio.sleep(0.05)
+            await _bot.send_message(uid, header, parse_mode="HTML", reply_markup=header_kb)
+            # Send top-3 apartments with inline buttons
+            for apt in top_apts:
+                icon = source_icons.get(apt.get("source", ""), "📡")
+                rooms_str = f" · {apt['rooms']} комн." if apt.get("rooms") else ""
+                area_str = f" · {apt['area']} м²" if apt.get("area") else ""
+                card = (
+                    f"🏠 <b>{apt['title'][:60]}</b>\n"
+                    f"💰 <b>{apt['price']} zł/мес</b>{rooms_str}{area_str}\n"
+                    f"📍 {apt.get('district', 'Warszawa')}  {icon} {apt.get('source','')}\n"
+                    f"🔗 <a href=\"{apt['link']}\">Открыть объявление</a>"
+                )
+                card_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="❤️ Сохранить", callback_data=f"fav_add:{apt['id']}"),
+                    InlineKeyboardButton(text="➡️ Следующая", callback_data="next"),
+                ]])
+                try:
+                    if apt.get("image"):
+                        await _bot.send_photo(uid, apt["image"], caption=card, reply_markup=card_kb, parse_mode="HTML")
+                    else:
+                        await _bot.send_message(uid, card, reply_markup=card_kb, parse_mode="HTML")
+                except Exception:
+                    try:
+                        await _bot.send_message(uid, card, reply_markup=card_kb, parse_mode="HTML")
+                    except Exception:
+                        pass
+                await asyncio.sleep(0.03)
+            await asyncio.sleep(0.1)
         except Exception:
             pass
 
