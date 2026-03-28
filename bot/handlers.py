@@ -25,6 +25,7 @@ from database.db import (
     increment_apt_views, mark_seen, get_seen_ids, record_conversion, get_conversion_stats,
     get_new_since, update_last_visit, get_last_visit,
     block_apartment, get_apt_age_days, is_stale,
+    evaluate_price, parse_natural_query,
 )
 from config import FREE_VIEWS, VIP_PRICE, DISTRICTS, ADMIN_IDS, CHANNEL_LINK, MODERATOR_IDS
 from config import REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS
@@ -137,6 +138,24 @@ def apt_text(apt: dict, lang: str = "ru") -> str:
         lines.append(f"📉 <b>Цена снижена!</b> {drop['old']} → {drop['new']} zł (−{drop['drop']} zł)")
 
     lines.append(f"🔗 <a href=\"{apt['link']}\">Открыть объявление</a>  {source_icon} {apt.get('source','')}")
+
+    # Price fairness badge
+    if price and apt.get("district"):
+        try:
+            ev = evaluate_price(price, apt.get("district", ""), apt.get("rooms"))
+            verdict_icons = {
+                "cheap":      "🟢 Очень дёшево",
+                "below_avg":  "🟡 Ниже среднего",
+                "fair":       "✅ Справедливая цена",
+                "above_avg":  "🟠 Выше среднего",
+                "overpriced": "🔴 Цена завышена",
+            }
+            if ev.get("verdict") and ev["verdict"] != "unknown" and ev.get("avg"):
+                sign = "+" if ev["diff_pct"] > 0 else ""
+                badge = verdict_icons.get(ev["verdict"], "")
+                lines.append(f"💡 {badge} ({sign}{ev['diff_pct']}% от среднего {ev['avg']} zł)")
+        except Exception:
+            pass
 
     # FOMO: views counter
     apt_views = apt.get("apt_views", 0) or 0
@@ -605,6 +624,66 @@ async def search_keyword(message: Message, state: FSMContext):
     user = get_or_create_user(message.from_user.id)
     total = count_apartments({"keyword": keyword}, vip=bool(user["vip"]))
     await message.answer(f"🔍 «{keyword}» — найдено {total}\n\nНажми /next")
+
+
+# ── /ask — умный поиск на естественном языке ─────────────────
+
+@router.message(Command("ask"))
+async def cmd_ask(message: Message, state: FSMContext):
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        await message.answer(
+            "🤖 <b>Умный поиск</b>\n\n"
+            "Напиши что ищешь на любом языке:\n\n"
+            "<i>Примеры:</i>\n"
+            "• <code>/ask 2 комнаты Мокотув до 3000</code>\n"
+            "• <code>/ask однушка в центре до 2500 zł</code>\n"
+            "• <code>/ask studio Wola 2000</code>\n"
+            "• <code>/ask 3 pokoje Ursynów meblowane</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    query = args[1].strip()
+    filters = parse_natural_query(query)
+
+    if not filters:
+        await message.answer(
+            "😔 Не смог распознать параметры.\n\n"
+            "Попробуй: <code>/ask 2 комнаты Мокотув до 3000</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    user = get_or_create_user(message.from_user.id)
+    await state.update_data(filters=filters, offset=0)
+    total = count_apartments(filters, vip=bool(user["vip"]))
+
+    # Build human-readable summary
+    parts = []
+    if filters.get("rooms"):
+        parts.append(f"🛏 {filters['rooms']} комн.")
+    if filters.get("district"):
+        parts.append(f"📍 {filters['district']}")
+    if filters.get("price_max"):
+        parts.append(f"💰 до {filters['price_max']} zł")
+    if filters.get("furnished") == 1:
+        parts.append("🛋 меблированная")
+    elif filters.get("furnished") == 0:
+        parts.append("🚫 без мебели")
+
+    summary = "  ·  ".join(parts) if parts else "все квартиры"
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=f"🏠 Смотреть ({total})", callback_data="next"),
+        InlineKeyboardButton(text="🔍 Изменить", callback_data="open_filter"),
+    ]])
+    await message.answer(
+        f"🤖 <b>Понял! Ищу:</b>\n{summary}\n\n"
+        f"🏠 Найдено: <b>{total}</b> квартир",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
 
 
 # ── /alert ───────────────────────────────────────────────────

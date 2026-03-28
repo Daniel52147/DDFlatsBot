@@ -1328,3 +1328,144 @@ def get_morning_push_apts(limit: int = 3) -> list:
     """, (since, limit)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# ── Price fairness evaluation ─────────────────────────────────
+
+def get_district_avg_price(district: str, rooms: int = None) -> dict:
+    """Get avg/min/max price for a district (optionally filtered by rooms)."""
+    conn = get_conn()
+    base = "SELECT AVG(price), MIN(price), MAX(price), COUNT(*) FROM apartments WHERE price >= 500 AND price <= 25000"
+    params = []
+    if district and district.lower() not in ("warszawa", ""):
+        base += " AND district LIKE ?"
+        params.append(f"%{district}%")
+    if rooms:
+        base += " AND rooms = ?"
+        params.append(rooms)
+    row = conn.execute(base, params).fetchone()
+    conn.close()
+    if not row or not row[0]:
+        return {}
+    return {
+        "avg": int(row[0]),
+        "min": int(row[1]),
+        "max": int(row[2]),
+        "count": row[3],
+    }
+
+
+def evaluate_price(price: int, district: str, rooms: int = None) -> dict:
+    """
+    Compare apartment price to district average.
+    Returns: verdict (cheap/fair/expensive/overpriced), diff_pct, avg_price
+    """
+    stats = get_district_avg_price(district, rooms)
+    if not stats or stats["count"] < 3:
+        # Fallback: use overall Warsaw stats
+        stats = get_district_avg_price("", rooms)
+    if not stats or not stats.get("avg"):
+        return {"verdict": "unknown", "diff_pct": 0, "avg": 0}
+
+    avg = stats["avg"]
+    diff_pct = round((price - avg) / avg * 100)
+
+    if diff_pct <= -20:
+        verdict = "cheap"       # 🟢 Очень дёшево
+    elif diff_pct <= -5:
+        verdict = "below_avg"   # 🟡 Ниже среднего
+    elif diff_pct <= 10:
+        verdict = "fair"        # ✅ Справедливая цена
+    elif diff_pct <= 30:
+        verdict = "above_avg"   # 🟠 Выше среднего
+    else:
+        verdict = "overpriced"  # 🔴 Завышена
+
+    return {
+        "verdict": verdict,
+        "diff_pct": diff_pct,
+        "avg": avg,
+        "count": stats["count"],
+    }
+
+
+# ── NLP filter parsing ────────────────────────────────────────
+
+def parse_natural_query(text: str) -> dict:
+    """
+    Parse natural language query into filters.
+    Examples:
+      "2 комнаты Мокотув до 3000" → {rooms:2, district:"Mokotów", price_max:3000}
+      "однушка Воля 2500 zł"      → {rooms:1, district:"Wola", price_max:2500}
+      "studio centrum"            → {rooms:1, district:"Śródmieście"}
+    """
+    import re
+    from config import DISTRICTS
+
+    text_lower = text.lower()
+    filters = {}
+
+    # Rooms
+    room_patterns = [
+        (r'\b1\s*(?:pok|комн|комнат|room|pokój|studio|однушк|kawalerka)\b', 1),
+        (r'\b(?:studio|kawalerka|однушк|студи)\b', 1),
+        (r'\b2\s*(?:pok|комн|комнат|room|pokój)\b', 2),
+        (r'\b(?:двушк|двухкомнат)\b', 2),
+        (r'\b3\s*(?:pok|комн|комнат|room|pokój)\b', 3),
+        (r'\b(?:трёшк|трехкомнат|трьохкімнат)\b', 3),
+        (r'\b4\s*(?:pok|комн|комнат|room|pokój)\b', 4),
+    ]
+    for pattern, rooms in room_patterns:
+        if re.search(pattern, text_lower):
+            filters["rooms"] = rooms
+            break
+
+    # Price max — look for numbers near zł/pln/zl or standalone
+    price_m = re.search(r'(?:do|max|до|не\s*более|не\s*дороже|poniżej)\s*(\d{3,5})', text_lower)
+    if not price_m:
+        price_m = re.search(r'(\d{3,5})\s*(?:zł|zl|pln|злот)', text_lower)
+    if not price_m:
+        # standalone number that looks like a price
+        nums = re.findall(r'\b(\d{3,5})\b', text_lower)
+        for n in nums:
+            if 500 <= int(n) <= 20000:
+                price_m = type('m', (), {'group': lambda self, x: n})()
+                break
+    if price_m:
+        try:
+            filters["price_max"] = int(price_m.group(1))
+        except Exception:
+            pass
+
+    # District — match against known districts
+    district_aliases = {
+        "mokotów": "Mokotów", "mokotow": "Mokotów", "мокотув": "Mokotów",
+        "wola": "Wola", "воля": "Wola",
+        "śródmieście": "Śródmieście", "srodmiescie": "Śródmieście",
+        "centrum": "Śródmieście", "центр": "Śródmieście", "центру": "Śródmieście",
+        "ursynów": "Ursynów", "ursynow": "Ursynów", "урсинув": "Ursynów",
+        "wilanów": "Wilanów", "wilanow": "Wilanów", "виланув": "Wilanów",
+        "żoliborz": "Żoliborz", "zoliborz": "Żoliborz", "жолибож": "Żoliborz",
+        "bielany": "Bielany", "беляны": "Bielany",
+        "bemowo": "Bemowo", "бемово": "Bemowo",
+        "ochota": "Ochota", "охота": "Ochota",
+        "targówek": "Targówek", "targowek": "Targówek", "таргувек": "Targówek",
+        "białołęka": "Białołęka", "bialoleka": "Białołęka", "бяловека": "Białołęka",
+        "ursus": "Ursus", "урсус": "Ursus",
+        "włochy": "Włochy", "wlochy": "Włochy",
+        "praga": "Praga-Południe", "прага": "Praga-Południe",
+        "rembertów": "Rembertów", "rembertow": "Rembertów",
+        "wawer": "Wawer", "вавер": "Wawer",
+    }
+    for alias, district in district_aliases.items():
+        if alias in text_lower:
+            filters["district"] = district
+            break
+
+    # Furnished
+    if re.search(r'\b(?:umeblowane|meblowane|furnished|меблирован|з меблями)\b', text_lower):
+        filters["furnished"] = 1
+    elif re.search(r'\b(?:bez mebli|unfurnished|без мебели|без меблів)\b', text_lower):
+        filters["furnished"] = 0
+
+    return filters

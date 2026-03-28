@@ -374,12 +374,20 @@ async def _notify(apartments: list):
         alert_users = match_alerts(apt)
         for uid in alert_users:
             try:
+                from database.db import evaluate_price
+                ev = evaluate_price(apt.get("price", 0), apt.get("district", ""), apt.get("rooms"))
+                price_badge = ""
+                if ev.get("verdict") == "cheap":
+                    price_badge = "\n🟢 <b>Очень дёшево!</b>"
+                elif ev.get("verdict") == "below_avg":
+                    price_badge = "\n🟡 Ниже среднего"
+
                 await _bot.send_message(
                     uid,
                     f"🎯 <b>Алерт сработал!</b>\n\n"
                     f"🏠 {apt['title']}\n"
-                    f"💰 {apt['price']} zł/мес\n"
-                    f"📍 {apt['district']}\n"
+                    f"💰 {apt['price']} zł/мес{price_badge}\n"
+                    f"📍 {apt.get('district', 'Warszawa')}\n"
                     f"🔗 <a href=\"{apt['link']}\">Открыть</a>",
                     parse_mode="HTML"
                 )
@@ -396,7 +404,7 @@ async def _notify(apartments: list):
             try:
                 await _bot.send_message(
                     uid,
-                    f"🔔 <b>Новая квартира в {apt['district']}!</b>\n\n"
+                    f"🔔 <b>Новая квартира в {apt.get('district', 'Warszawa')}!</b>\n\n"
                     f"🏠 {apt['title']}\n"
                     f"💰 {apt['price']} zł/мес\n"
                     f"🔗 <a href=\"{apt['link']}\">Открыть</a>",
@@ -407,20 +415,45 @@ async def _notify(apartments: list):
             except Exception:
                 pass
 
-    # 3. VIP notification — only if 5+ new apartments
-    if len(apartments) >= 5:
-        vip_ids = get_all_vip_user_ids()
-        for uid in vip_ids:
-            if uid not in notified:
-                try:
-                    await _bot.send_message(
-                        uid,
-                        f"🏠 Добавлено <b>{len(apartments)}</b> новых квартир!\nНажми /next",
-                        parse_mode="HTML"
-                    )
-                    await asyncio.sleep(0.05)
-                except Exception:
-                    pass
+    # 3. VIP — notify about cheap new apartments (price below district avg)
+    if apartments:
+        from database.db import evaluate_price
+        cheap_apts = [
+            a for a in apartments
+            if a.get("price") and evaluate_price(a["price"], a.get("district", ""), a.get("rooms")).get("verdict") in ("cheap", "below_avg")
+        ]
+        if cheap_apts:
+            vip_ids = get_all_vip_user_ids()
+            for uid in vip_ids:
+                if uid not in notified:
+                    try:
+                        best = cheap_apts[0]
+                        await _bot.send_message(
+                            uid,
+                            f"🟢 <b>Дешёвая квартира!</b>\n\n"
+                            f"🏠 {best['title']}\n"
+                            f"💰 <b>{best['price']} zł/мес</b> — ниже среднего!\n"
+                            f"📍 {best.get('district', 'Warszawa')}\n"
+                            f"🔗 <a href=\"{best['link']}\">Открыть</a>\n\n"
+                            f"+ ещё {len(cheap_apts)-1} дешёвых → /next",
+                            parse_mode="HTML"
+                        )
+                        await asyncio.sleep(0.05)
+                    except Exception:
+                        pass
+        elif len(apartments) >= 5:
+            vip_ids = get_all_vip_user_ids()
+            for uid in vip_ids:
+                if uid not in notified:
+                    try:
+                        await _bot.send_message(
+                            uid,
+                            f"🏠 Добавлено <b>{len(apartments)}</b> новых квартир!\nНажми /next",
+                            parse_mode="HTML"
+                        )
+                        await asyncio.sleep(0.05)
+                    except Exception:
+                        pass
 
 
 async def _vip_expiry_reminders():

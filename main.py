@@ -73,6 +73,7 @@ async def setup_bot_commands():
         BotCommand(command="start",      description="🏠 Главная / перезапуск"),
         BotCommand(command="next",       description="➡️ Следующая квартира"),
         BotCommand(command="filter",     description="🔍 Фильтры (район, цена, комнаты)"),
+        BotCommand(command="ask",        description="🤖 Умный поиск: /ask 2 комнаты Мокотув до 3000"),
         BotCommand(command="favorites",  description="❤️ Моё избранное"),
         BotCommand(command="vip",        description="⭐ VIP подписка — 19 zł/мес"),
         BotCommand(command="mystats",    description="📊 Моя статистика"),
