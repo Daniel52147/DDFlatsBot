@@ -12,8 +12,13 @@ from config import DB_PATH, VIP_EARLY_ACCESS_MINUTES, REFERRAL_REWARD_DAYS, EARL
 
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
+    # WAL mode: better concurrency for multi-threaded bot
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA cache_size=10000")
+    conn.execute("PRAGMA temp_store=MEMORY")
     return conn
 
 
@@ -928,7 +933,7 @@ def get_pending_reports(limit: int = 20) -> list:
     return [dict(r) for r in rows]
 
 
-def verify_apartment(apartment_id: int, mod_id: int):
+def verify_apartment(apartment_id: int, mod_id: int = 0):
     conn = get_conn()
     conn.execute("UPDATE apartments SET verified=1 WHERE id=?", (apartment_id,))
     conn.execute(
@@ -939,7 +944,7 @@ def verify_apartment(apartment_id: int, mod_id: int):
     conn.close()
 
 
-def delete_apartment(apartment_id: int, mod_id: int, note: str = ""):
+def delete_apartment(apartment_id: int, mod_id: int = 0, note: str = ""):
     conn = get_conn()
     conn.execute("DELETE FROM apartments WHERE id=?", (apartment_id,))
     conn.execute(
@@ -1409,11 +1414,16 @@ def parse_natural_query(text: str) -> dict:
     room_patterns = [
         (r'\b1\s*(?:pok|комн|комнат|room|pokój|studio|однушк|kawalerka)\b', 1),
         (r'\b(?:studio|kawalerka|однушк|студи)\b', 1),
-        (r'\b2\s*(?:pok|комн|комнат|room|pokój)\b', 2),
-        (r'\b(?:двушк|двухкомнат)\b', 2),
-        (r'\b3\s*(?:pok|комн|комнат|room|pokój)\b', 3),
+        (r'\b2\s*(?:pok|комн|комнат|room|pokój|pokoje|pokoi)\b', 2),
+        (r'\b(?:двушк|двухкомнат|двокімнат)\b', 2),
+        (r'\b3\s*(?:pok|комн|комнат|room|pokój|pokoje|pokoi)\b', 3),
         (r'\b(?:трёшк|трехкомнат|трьохкімнат)\b', 3),
-        (r'\b4\s*(?:pok|комн|комнат|room|pokój)\b', 4),
+        (r'\b4\s*(?:pok|комн|комнат|room|pokój|pokoje|pokoi)\b', 4),
+        # standalone digit + комнат(ы) — e.g. "2 комнаты"
+        (r'\b2\s+комнат', 2),
+        (r'\b3\s+комнат', 3),
+        (r'\b4\s+комнат', 4),
+        (r'\b1\s+комнат', 1),
     ]
     for pattern, rooms in room_patterns:
         if re.search(pattern, text_lower):

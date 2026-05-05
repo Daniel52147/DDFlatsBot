@@ -1,35 +1,19 @@
 """
 Lento.pl parser — Warsaw apartments for rent.
-URL: https://warszawa.lento.pl/nieruchomosci/mieszkania/do-wynajecia.html
-Cards use class="tablelist-tr", title in <a class="title-list-item">,
-price in <span class="price-list-item">, image in <img src="...">.
+Uses retry + close connection to prevent hangs.
 """
 import random
 import re
 import time
-import requests
-from config import USER_AGENTS
+from parser._retry import make_session, fetch_with_retry
 
 BASE_URL = "https://warszawa.lento.pl/nieruchomosci/mieszkania/do-wynajecia.html"
-
-
-def _session():
-    s = requests.Session()
-    s.headers.update({
-        "User-Agent": random.choice(USER_AGENTS),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "pl-PL,pl;q=0.9,en;q=0.8",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Referer": "https://warszawa.lento.pl/",
-        "Connection": "keep-alive",
-    })
-    return s
 
 
 def _price(val) -> int:
     if not val:
         return 0
-    cleaned = str(val).replace("\xa0", "").replace(" ", "").replace("\u00a0", "")
+    cleaned = str(val).replace("\xa0", "").replace("\u00a0", "").replace(" ", "")
     try:
         return int(float(cleaned.replace(",", ".")))
     except Exception:
@@ -39,39 +23,38 @@ def _price(val) -> int:
 
 def _parse_page(html: str) -> list:
     results = []
-
-    # Each listing card: <div class="tablelist-tr ..." data-id="NNNN">
-    # Split by tablelist-tr to get individual cards
+    # Split by card boundary
     cards = re.findall(
         r'<div[^>]*class="tablelist-tr[^"]*"[^>]*data-id="\d+".*?(?=<div[^>]*class="tablelist-tr|$)',
         html, re.DOTALL
     )
-
     for card in cards:
         try:
-            # Title + link
-            link_m = re.search(
+            # Title + link — try multiple patterns
+            url, title = "", ""
+            # Pattern 1: href before class
+            m = re.search(
                 r'href="(https://warszawa\.lento\.pl/[^"]+,\d+\.html)"[^>]*class="title-list-item"[^>]*>([^<]{5,150})<',
                 card
             )
-            if not link_m:
-                link_m = re.search(
+            if m:
+                url, title = m.group(1), m.group(2).strip()
+            else:
+                # Pattern 2: class before href
+                m = re.search(
                     r'class="title-list-item"[^>]*href="(https://warszawa\.lento\.pl/[^"]+,\d+\.html)"[^>]*>([^<]{5,150})<',
                     card
                 )
-            if not link_m:
-                # Try any title-list-item
-                title_m2 = re.search(r'class="title-list-item"[^>]*>([^<]{5,150})<', card)
-                url_m2 = re.search(r'href="(https://warszawa\.lento\.pl/[^"]+,\d+\.html)"', card)
-                if not title_m2 or not url_m2:
-                    continue
-                title = title_m2.group(1).strip()
-                url = url_m2.group(1)
-            else:
-                url = link_m.group(1)
-                title = link_m.group(2).strip()
+                if m:
+                    url, title = m.group(1), m.group(2).strip()
+                else:
+                    # Pattern 3: separate
+                    tm = re.search(r'class="title-list-item"[^>]*>([^<]{5,150})<', card)
+                    um = re.search(r'href="(https://warszawa\.lento\.pl/[^"]+,\d+\.html)"', card)
+                    if tm and um:
+                        title, url = tm.group(1).strip(), um.group(1)
 
-            if len(title) < 5:
+            if not url or not title or len(title) < 5:
                 continue
 
             # Price
@@ -84,11 +67,11 @@ def _parse_page(html: str) -> list:
                 if pm2:
                     price = _price(pm2.group(1))
 
-            # District / location
+            # District
             district = "Warszawa"
-            loc_m = re.search(r'class="[^"]*(?:licon-pin|mark-pointer)[^"]*"[^>]*>([^<]{3,60})<', card, re.I)
-            if loc_m:
-                district = loc_m.group(1).strip() or "Warszawa"
+            lm = re.search(r'class="[^"]*(?:licon-pin|mark-pointer)[^"]*"[^>]*>([^<]{3,60})<', card, re.I)
+            if lm:
+                district = lm.group(1).strip() or "Warszawa"
 
             # Area
             area = None
@@ -99,7 +82,7 @@ def _parse_page(html: str) -> list:
                 except Exception:
                     pass
 
-            # Rooms — from param block "2 pokoje" or title
+            # Rooms
             rooms = None
             rm = re.search(r'(\d)\s*pokoje?|(\d)\s*pok\.', card, re.I)
             if rm:
@@ -115,7 +98,7 @@ def _parse_page(html: str) -> list:
                     except Exception:
                         pass
 
-            # Image — try regular src first, then data-src (lazy)
+            # Image — src first, then data-src (lazy load)
             img_m = re.search(
                 r'<img[^>]+src="(https://st-lento\.pl/adpics/[^"]+\.(?:jpg|jpeg|png)[^"]*)"',
                 card, re.I
@@ -128,27 +111,18 @@ def _parse_page(html: str) -> list:
             image = img_m.group(1) if img_m else ""
 
             results.append({
-                "title": title,
-                "price": price,
-                "district": district,
-                "rooms": rooms,
-                "area": area,
-                "floor": None,
-                "furnished": 0,
-                "link": url,
-                "image": image,
-                "source": "Lento",
+                "title": title, "price": price, "district": district,
+                "rooms": rooms, "area": area, "floor": None, "furnished": 0,
+                "link": url, "image": image, "source": "Lento",
             })
         except Exception:
             continue
-
     return results
 
 
 def parse_lento() -> list:
     results = []
     seen = set()
-    session = _session()
 
     def add(items):
         n = 0
@@ -159,22 +133,21 @@ def parse_lento() -> list:
                 n += 1
         return n
 
+    # close=True prevents keep-alive hangs on Lento
+    session = make_session(referer="https://warszawa.lento.pl/", close=True)
+
     for page in range(1, 6):
         url = BASE_URL if page == 1 else f"{BASE_URL}?page={page}"
-        try:
-            r = session.get(url, timeout=25)
-            print(f"[Lento] page={page} status={r.status_code} size={len(r.text)}")
-            if r.status_code != 200:
-                break
-            items = _parse_page(r.text)
-            new = add(items)
-            print(f"[Lento] page={page}: {new} new listings")
-            if new == 0:
-                break
-            time.sleep(random.uniform(1.5, 2.5))
-        except Exception as e:
-            print(f"[Lento] page={page} error: {e}")
+        status, html = fetch_with_retry(session, url, max_retries=3, timeout=20, backoff_base=2.5)
+        print(f"[Lento] page={page} status={status} size={len(html)}")
+        if status != 200:
             break
+        items = _parse_page(html)
+        new = add(items)
+        print(f"[Lento] page={page}: {new} new")
+        if new == 0:
+            break
+        time.sleep(random.uniform(1.5, 2.5))
 
-    print(f"[Lento] Total: {len(results)} listings")
+    print(f"[Lento] Total: {len(results)}")
     return results

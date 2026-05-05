@@ -1,31 +1,16 @@
 """
-Gratka parser — scrapes listing page with JSON-LD + HTML card fallback.
-Falls back to domiporta.pl if Gratka is blocked.
+Gratka parser — JSON-LD + HTML cards + Domiporta fallback.
+Uses retry with exponential backoff to handle blocks.
 """
 import random
 import re
 import json
 import time
-import requests
-from config import USER_AGENTS
+from parser._retry import make_session, fetch_with_retry
 
-GRATKA_BASE = "https://gratka.pl/nieruchomosci/mieszkania/warszawa/wynajem?sort=newest"
+GRATKA_BASE      = "https://gratka.pl/nieruchomosci/mieszkania/warszawa/wynajem?sort=newest"
 GRATKA_PRICE_ASC = "https://gratka.pl/nieruchomosci/mieszkania/warszawa/wynajem?sort=price_asc"
-DOMIPORTA_BASE = "https://www.domiporta.pl/mieszkanie/wynajme/mazowieckie/warszawa"
-
-
-def _session(referer: str = "https://gratka.pl/"):
-    s = requests.Session()
-    s.headers.update({
-        "User-Agent": random.choice(USER_AGENTS),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "pl-PL,pl;q=0.9,en;q=0.8",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Referer": referer,
-        "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-    })
-    return s
+DOMIPORTA_BASE   = "https://www.domiporta.pl/mieszkanie/wynajme/mazowieckie/warszawa"
 
 
 def _price(val) -> int:
@@ -38,11 +23,24 @@ def _price(val) -> int:
         return int(digits) if digits else 0
 
 
-# ── Gratka parsers ────────────────────────────────────────────
+def _rooms(text: str):
+    m = re.search(r'(\d)\s*-?\s*(?:pok|pokój|pokoje|pokoi)', text, re.I)
+    return int(m.group(1)) if m else None
 
-def _parse_gratka_json_ld(html: str) -> list:
+
+def _area(text: str):
+    m = re.search(r'(\d+(?:[.,]\d+)?)\s*m[²2]', text, re.I)
+    if m:
+        try:
+            return float(m.group(1).replace(",", "."))
+        except Exception:
+            pass
+    return None
+
+
+def _parse_json_ld(html: str, source: str = "Gratka") -> list:
     results = []
-    blocks = re.findall(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL)
+    blocks = re.findall(r'<script[^>]*ld\+json[^>]*>([^<]{10,80000})</script>', html)
     for block in blocks:
         try:
             data = json.loads(block)
@@ -58,8 +56,8 @@ def _parse_gratka_json_ld(html: str) -> list:
                 if not isinstance(offer, dict):
                     continue
                 name = (offer.get("name") or "").strip()
-                url = offer.get("url") or ""
-                if not name or not url or len(name) < 10:
+                url  = offer.get("url") or ""
+                if not name or len(name) < 8 or not url:
                     continue
                 price = _price(offer.get("price", 0))
                 image = offer.get("image") or ""
@@ -71,21 +69,11 @@ def _parse_gratka_json_ld(html: str) -> list:
                     addr = io.get("address") or {}
                     if isinstance(addr, dict):
                         district = addr.get("addressLocality") or "Warszawa"
-                rooms = None
-                rm = re.search(r'(\d)\s*-?\s*(?:pok|pokój|pokoje|pokoi)', name, re.I)
-                if rm:
-                    rooms = int(rm.group(1))
-                area = None
-                am = re.search(r'(\d+(?:[.,]\d+)?)\s*m[²2]', name)
-                if am:
-                    try:
-                        area = float(am.group(1).replace(",", "."))
-                    except Exception:
-                        pass
                 results.append({
                     "title": name, "price": price, "district": district,
-                    "rooms": rooms, "area": area, "floor": None, "furnished": 0,
-                    "link": url, "image": image, "source": "Gratka",
+                    "rooms": _rooms(name), "area": _area(name),
+                    "floor": None, "furnished": 0,
+                    "link": url, "image": str(image), "source": source,
                 })
 
         # Pattern 2: ItemList
@@ -93,20 +81,23 @@ def _parse_gratka_json_ld(html: str) -> list:
             for el in data.get("itemListElement", []):
                 item = el.get("item", el) if isinstance(el, dict) else {}
                 name = (item.get("name") or "").strip()
-                url = item.get("url") or ""
-                if not name or not url or len(name) < 10:
+                url  = item.get("url") or ""
+                if not name or len(name) < 8 or not url:
                     continue
                 price_spec = item.get("offers") or {}
                 price = _price(price_spec.get("price", 0) if isinstance(price_spec, dict) else 0)
+                addr = item.get("address") or {}
+                district = (addr.get("addressLocality") or "Warszawa") if isinstance(addr, dict) else "Warszawa"
                 results.append({
-                    "title": name, "price": price, "district": "Warszawa",
-                    "rooms": None, "area": None, "floor": None, "furnished": 0,
-                    "link": url, "image": "", "source": "Gratka",
+                    "title": name, "price": price, "district": district,
+                    "rooms": _rooms(name), "area": _area(name),
+                    "floor": None, "furnished": 0,
+                    "link": url, "image": "", "source": source,
                 })
     return results
 
 
-def _parse_gratka_html_cards(html: str) -> list:
+def _parse_html_cards(html: str, source: str = "Gratka") -> list:
     results = []
     articles = re.findall(r'<article[^>]*>(.*?)</article>', html, re.DOTALL | re.IGNORECASE)
     for article in articles:
@@ -114,7 +105,7 @@ def _parse_gratka_html_cards(html: str) -> list:
             url_m = re.search(r'href="(https://gratka\.pl/nieruchomosci/[^"]+)"', article)
             if not url_m or url_m.group(1).count("/") < 5:
                 continue
-            url = url_m.group(1)
+            url = url_m.group(1).split("?")[0]
             title_m = (
                 re.search(r'<(?:h2|h3)[^>]*>([^<]{5,120})<', article, re.I) or
                 re.search(r'title="([^"]{10,120})"', article)
@@ -127,68 +118,37 @@ def _parse_gratka_html_cards(html: str) -> list:
             if pm:
                 price = _price(pm.group(1))
             district = "Warszawa"
-            lm = re.search(r'<[^>]*class="[^"]*location[^"]*"[^>]*>([^<]{3,60})<', article, re.I)
+            lm = re.search(r'class="[^"]*location[^"]*"[^>]*>([^<]{3,60})<', article, re.I)
             if lm:
-                district = lm.group(1).strip()
-            rooms = None
-            rm = re.search(r'(\d)\s*-?\s*(?:pok|pokój|pokoje|pokoi)', title, re.I)
-            if rm:
-                rooms = int(rm.group(1))
-            # Image
+                district = lm.group(1).strip() or "Warszawa"
             img_m = re.search(r'<img[^>]+src="(https?://[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"', article, re.I)
             image = img_m.group(1) if img_m else ""
             results.append({
                 "title": title, "price": price, "district": district,
-                "rooms": rooms, "area": None, "floor": None, "furnished": 0,
-                "link": url, "image": image, "source": "Gratka",
+                "rooms": _rooms(title), "area": _area(title),
+                "floor": None, "furnished": 0,
+                "link": url, "image": image, "source": source,
             })
         except Exception:
             continue
     return results
 
 
-# ── Domiporta fallback ────────────────────────────────────────
-
-def _parse_domiporta_page(html: str) -> list:
-    results = []
-
-    # Try JSON-LD first
-    blocks = re.findall(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL)
-    for block in blocks:
-        try:
-            data = json.loads(block)
-            if not isinstance(data, dict):
-                continue
-            if data.get("@type") == "ItemList":
-                for el in data.get("itemListElement", []):
-                    item = el.get("item", el) if isinstance(el, dict) else {}
-                    name = (item.get("name") or "").strip()
-                    url = item.get("url") or ""
-                    if not name or not url or len(name) < 10:
-                        continue
-                    price_spec = item.get("offers") or {}
-                    price = _price(price_spec.get("price", 0) if isinstance(price_spec, dict) else 0)
-                    addr = item.get("address") or {}
-                    district = (addr.get("addressLocality") or "Warszawa") if isinstance(addr, dict) else "Warszawa"
-                    results.append({
-                        "title": name, "price": price, "district": district,
-                        "rooms": None, "area": None, "floor": None, "furnished": 0,
-                        "link": url, "image": "", "source": "Gratka",
-                    })
-        except Exception:
-            continue
-
+def _parse_domiporta(html: str) -> list:
+    results = _parse_json_ld(html, source="Gratka")
     if results:
         return results
-
-    # HTML card fallback
-    cards = re.findall(r'<(?:article|div)[^>]*class="[^"]*(?:listing|offer|property)[^"]*"[^>]*>(.*?)</(?:article|div)>', html, re.DOTALL | re.IGNORECASE)
+    # HTML fallback
+    cards = re.findall(
+        r'<(?:article|div)[^>]*class="[^"]*(?:listing|offer|property)[^"]*"[^>]*>(.*?)</(?:article|div)>',
+        html, re.DOTALL | re.IGNORECASE
+    )
     for card in cards:
         try:
             url_m = re.search(r'href="(https://www\.domiporta\.pl/[^"]+)"', card)
             if not url_m:
                 continue
-            url = url_m.group(1)
+            url = url_m.group(1).split("?")[0]
             title_m = re.search(r'<(?:h2|h3|h4)[^>]*>([^<]{5,120})<', card, re.I)
             if not title_m:
                 continue
@@ -199,7 +159,8 @@ def _parse_domiporta_page(html: str) -> list:
                 price = _price(pm.group(1))
             results.append({
                 "title": title, "price": price, "district": "Warszawa",
-                "rooms": None, "area": None, "floor": None, "furnished": 0,
+                "rooms": _rooms(title), "area": None,
+                "floor": None, "furnished": 0,
                 "link": url, "image": "", "source": "Gratka",
             })
         except Exception:
@@ -212,68 +173,47 @@ def parse_gratka() -> list:
     seen = set()
 
     def add(items):
+        n = 0
         for apt in items:
             if apt["link"] not in seen:
                 seen.add(apt["link"])
                 results.append(apt)
+                n += 1
+        return n
 
-    # Two passes: newest first, then price_asc (catches different listings)
-    urls_to_try = [GRATKA_BASE, GRATKA_PRICE_ASC]
     gratka_ok = False
-
-    for base_url in urls_to_try:
-        session = _session("https://gratka.pl/")
-        # Only 3 pages per sort — we run every 10 min so page 1-3 is enough for new listings
+    for base_url in [GRATKA_BASE, GRATKA_PRICE_ASC]:
+        session = make_session(referer="https://gratka.pl/")
         for page in range(1, 4):
             url = base_url if page == 1 else f"{base_url}&page={page}"
-            try:
-                r = session.get(url, timeout=25)
-                html = r.text
-                print(f"[Gratka] Page {page} status={r.status_code} size={len(html)}")
-
-                if r.status_code != 200:
-                    print(f"[Gratka] Blocked (status {r.status_code})")
-                    break
-
-                page_results = _parse_gratka_json_ld(html)
-                if not page_results:
-                    page_results = _parse_gratka_html_cards(html)
-
-                if page_results:
-                    add(page_results)
-                    gratka_ok = True
-                    print(f"[Gratka] Page {page}: {len(page_results)} listings")
-                else:
-                    snippet = html[:300].replace("\n", " ")
-                    print(f"[Gratka] Page {page}: 0 listings. Snippet: {snippet}")
-                    if page == 1:
-                        break
-
-                time.sleep(random.uniform(1.5, 2.5))
-            except Exception as e:
-                print(f"[Gratka] Page {page} error: {e}")
+            status, html = fetch_with_retry(session, url, max_retries=3, backoff_base=3.0)
+            print(f"[Gratka] page={page} status={status} size={len(html)}")
+            if status != 200:
                 break
+            items = _parse_json_ld(html) or _parse_html_cards(html)
+            new = add(items)
+            print(f"[Gratka] page={page}: {new} new")
+            if new > 0:
+                gratka_ok = True
+            elif page >= 2:
+                break
+            time.sleep(random.uniform(2.0, 3.5))
 
-    # Fallback: Domiporta
     if not gratka_ok:
         print("[Gratka] Trying Domiporta fallback...")
-        session2 = _session("https://www.domiporta.pl/")
+        session2 = make_session(referer="https://www.domiporta.pl/")
         for page in range(1, 4):
             url = DOMIPORTA_BASE if page == 1 else f"{DOMIPORTA_BASE}?PageNumber={page}"
-            try:
-                r = session2.get(url, timeout=25)
-                html = r.text
-                print(f"[Domiporta] Page {page} status={r.status_code} size={len(html)}")
-                page_results = _parse_domiporta_page(html)
-                if page_results:
-                    add(page_results)
-                    print(f"[Domiporta] Page {page}: {len(page_results)} listings")
-                else:
-                    snippet = html[:300].replace("\n", " ")
-                    print(f"[Domiporta] Page {page}: 0. Snippet: {snippet}")
-                time.sleep(random.uniform(1.5, 2.5))
-            except Exception as e:
-                print(f"[Domiporta] Page {page} error: {e}")
+            status, html = fetch_with_retry(session2, url, max_retries=2)
+            print(f"[Domiporta] page={page} status={status} size={len(html)}")
+            if status != 200:
+                break
+            items = _parse_domiporta(html)
+            new = add(items)
+            print(f"[Domiporta] page={page}: {new} new")
+            if new == 0 and page >= 2:
+                break
+            time.sleep(random.uniform(2.0, 3.0))
 
-    print(f"[Gratka] Found {len(results)} listings")
+    print(f"[Gratka] Total: {len(results)}")
     return results

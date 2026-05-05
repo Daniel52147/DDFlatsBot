@@ -14,6 +14,10 @@ services:
         value: "@ddflots"
       - key: DATA_DIR
         value: /var/data
+      - key: PYTHONUNBUFFERED
+        value: "1"           # Flush logs immediately — see output in real time
+      - key: PYTHONDONTWRITEBYTECODE
+        value: "1"
     disk:
       name: flatsbot-data
       mountPath: /var/data

@@ -314,7 +314,7 @@ async def _daily_digest():
         f"☀️ <b>Доброе утро! Дайджест за сегодня:</b>\n\n"
         f"🏠 Новых квартир: <b>{digest['new_today']}</b>\n"
     )
-    if digest["avg_price"]:
+    if digest.get("avg_price"):
         header += f"💰 Средняя цена: <b>{digest['avg_price']} zł</b>\n"
     if drops:
         header += f"📉 Снижений цен: <b>{len(drops)}</b> → /drops\n"
@@ -324,19 +324,22 @@ async def _daily_digest():
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     header_kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="🏠 Смотреть все", callback_data="next"),
-        InlineKeyboardButton(text="📉 Снижения", callback_data="open_drops"),
+        InlineKeyboardButton(text="📉 Снижения",     callback_data="open_drops"),
     ]])
 
-    source_icons = {"OLX": "🟠", "Otodom": "🔵", "Gratka": "🟢", "Morizon": "🟣", "Szybko": "🔷", "Lento": "🟤"}
+    source_icons = {
+        "OLX": "🟠", "Otodom": "🔵", "Gratka": "🟢",
+        "Morizon": "🟣", "Szybko": "🔷", "Lento": "🟤",
+    }
 
-    for uid in user_ids:
+    # Rate-limited batch send
+    for i, uid in enumerate(user_ids):
         try:
-            await _bot.send_message(uid, header, parse_mode="HTML", reply_markup=header_kb)
-            # Send top-3 apartments with inline buttons
+            await _safe_send(uid, header, parse_mode="HTML", reply_markup=header_kb)
             for apt in top_apts:
                 icon = source_icons.get(apt.get("source", ""), "📡")
                 rooms_str = f" · {apt['rooms']} комн." if apt.get("rooms") else ""
-                area_str = f" · {apt['area']} м²" if apt.get("area") else ""
+                area_str  = f" · {apt['area']} м²" if apt.get("area") else ""
                 card = (
                     f"🏠 <b>{apt['title'][:60]}</b>\n"
                     f"💰 <b>{apt['price']} zł/мес</b>{rooms_str}{area_str}\n"
@@ -347,20 +350,55 @@ async def _daily_digest():
                     InlineKeyboardButton(text="❤️ Сохранить", callback_data=f"fav_add:{apt['id']}"),
                     InlineKeyboardButton(text="➡️ Следующая", callback_data="next"),
                 ]])
-                try:
-                    if apt.get("image"):
-                        await _bot.send_photo(uid, apt["image"], caption=card, reply_markup=card_kb, parse_mode="HTML")
-                    else:
-                        await _bot.send_message(uid, card, reply_markup=card_kb, parse_mode="HTML")
-                except Exception:
+                if apt.get("image"):
                     try:
-                        await _bot.send_message(uid, card, reply_markup=card_kb, parse_mode="HTML")
+                        await _bot.send_photo(uid, apt["image"], caption=card, reply_markup=card_kb, parse_mode="HTML")
                     except Exception:
-                        pass
+                        await _safe_send(uid, card, reply_markup=card_kb, parse_mode="HTML")
+                else:
+                    await _safe_send(uid, card, reply_markup=card_kb, parse_mode="HTML")
                 await asyncio.sleep(0.03)
-            await asyncio.sleep(0.1)
         except Exception:
             pass
+
+        # Rate limit: 1 sec pause every 25 users
+        if (i + 1) % 25 == 0:
+            await asyncio.sleep(1.0)
+        else:
+            await asyncio.sleep(0.05)
+
+
+async def _safe_send(uid: int, text: str, **kwargs) -> bool:
+    """Send message with error handling. Returns True on success."""
+    try:
+        await _bot.send_message(uid, text, **kwargs)
+        return True
+    except Exception as e:
+        err = str(e).lower()
+        # Silently skip blocked/deactivated users
+        if any(x in err for x in ("blocked", "deactivated", "not found", "forbidden", "kicked")):
+            return False
+        print(f"[Notify] send error uid={uid}: {e}")
+        return False
+
+
+async def _batch_send(user_ids: list, text: str, rate: float = 0.05, **kwargs):
+    """
+    Send message to a list of users with rate limiting.
+    rate = seconds between sends (0.05 = 20 msg/sec, safe for Telegram).
+    Telegram limit: 30 msg/sec globally, 1 msg/sec per chat.
+    """
+    sent = 0
+    for i, uid in enumerate(user_ids):
+        ok = await _safe_send(uid, text, **kwargs)
+        if ok:
+            sent += 1
+        # Rate limit: pause every 25 sends to stay under Telegram limits
+        if (i + 1) % 25 == 0:
+            await asyncio.sleep(1.0)
+        else:
+            await asyncio.sleep(rate)
+    return sent
 
 
 async def _notify(apartments: list):
@@ -368,92 +406,78 @@ async def _notify(apartments: list):
         return
 
     notified = set()
+    from database.db import evaluate_price
 
     for apt in apartments:
-        # 1. Smart alerts
+        # 1. Smart alerts — highest priority
         alert_users = match_alerts(apt)
         for uid in alert_users:
-            try:
-                from database.db import evaluate_price
-                ev = evaluate_price(apt.get("price", 0), apt.get("district", ""), apt.get("rooms"))
-                price_badge = ""
-                if ev.get("verdict") == "cheap":
-                    price_badge = "\n🟢 <b>Очень дёшево!</b>"
-                elif ev.get("verdict") == "below_avg":
-                    price_badge = "\n🟡 Ниже среднего"
-
-                await _bot.send_message(
-                    uid,
-                    f"🎯 <b>Алерт сработал!</b>\n\n"
-                    f"🏠 {apt['title']}\n"
-                    f"💰 {apt['price']} zł/мес{price_badge}\n"
-                    f"📍 {apt.get('district', 'Warszawa')}\n"
-                    f"🔗 <a href=\"{apt['link']}\">Открыть</a>",
-                    parse_mode="HTML"
-                )
+            ev = evaluate_price(apt.get("price", 0), apt.get("district", ""), apt.get("rooms"))
+            price_badge = ""
+            if ev.get("verdict") == "cheap":
+                price_badge = "\n🟢 <b>Очень дёшево!</b>"
+            elif ev.get("verdict") == "below_avg":
+                price_badge = "\n🟡 Ниже среднего"
+            ok = await _safe_send(
+                uid,
+                f"🎯 <b>Алерт сработал!</b>\n\n"
+                f"🏠 {apt['title']}\n"
+                f"💰 {apt['price']} zł/мес{price_badge}\n"
+                f"📍 {apt.get('district', 'Warszawa')}\n"
+                f"🔗 <a href=\"{apt['link']}\">Открыть</a>",
+                parse_mode="HTML"
+            )
+            if ok:
                 notified.add(uid)
-                await asyncio.sleep(0.05)
-            except Exception:
-                pass
+            await asyncio.sleep(0.05)
 
         # 2. District subscribers
         subscribers = get_subscribers_for_district(apt.get("district", ""))
         for uid in subscribers:
             if uid in notified:
                 continue
-            try:
-                await _bot.send_message(
-                    uid,
-                    f"🔔 <b>Новая квартира в {apt.get('district', 'Warszawa')}!</b>\n\n"
-                    f"🏠 {apt['title']}\n"
-                    f"💰 {apt['price']} zł/мес\n"
-                    f"🔗 <a href=\"{apt['link']}\">Открыть</a>",
-                    parse_mode="HTML"
-                )
+            ok = await _safe_send(
+                uid,
+                f"🔔 <b>Новая квартира в {apt.get('district', 'Warszawa')}!</b>\n\n"
+                f"🏠 {apt['title']}\n"
+                f"💰 {apt['price']} zł/мес\n"
+                f"🔗 <a href=\"{apt['link']}\">Открыть</a>",
+                parse_mode="HTML"
+            )
+            if ok:
                 notified.add(uid)
-                await asyncio.sleep(0.05)
-            except Exception:
-                pass
+            await asyncio.sleep(0.05)
 
-    # 3. VIP — notify about cheap new apartments (price below district avg)
-    if apartments:
-        from database.db import evaluate_price
-        cheap_apts = [
-            a for a in apartments
-            if a.get("price") and evaluate_price(a["price"], a.get("district", ""), a.get("rooms")).get("verdict") in ("cheap", "below_avg")
-        ]
-        if cheap_apts:
-            vip_ids = get_all_vip_user_ids()
-            for uid in vip_ids:
-                if uid not in notified:
-                    try:
-                        best = cheap_apts[0]
-                        await _bot.send_message(
-                            uid,
-                            f"🟢 <b>Дешёвая квартира!</b>\n\n"
-                            f"🏠 {best['title']}\n"
-                            f"💰 <b>{best['price']} zł/мес</b> — ниже среднего!\n"
-                            f"📍 {best.get('district', 'Warszawa')}\n"
-                            f"🔗 <a href=\"{best['link']}\">Открыть</a>\n\n"
-                            f"+ ещё {len(cheap_apts)-1} дешёвых → /next",
-                            parse_mode="HTML"
-                        )
-                        await asyncio.sleep(0.05)
-                    except Exception:
-                        pass
-        elif len(apartments) >= 5:
-            vip_ids = get_all_vip_user_ids()
-            for uid in vip_ids:
-                if uid not in notified:
-                    try:
-                        await _bot.send_message(
-                            uid,
-                            f"🏠 Добавлено <b>{len(apartments)}</b> новых квартир!\nНажми /next",
-                            parse_mode="HTML"
-                        )
-                        await asyncio.sleep(0.05)
-                    except Exception:
-                        pass
+    # 3. VIP — notify about cheap new apartments only (avoid spam)
+    cheap_apts = [
+        a for a in apartments
+        if a.get("price") and evaluate_price(
+            a["price"], a.get("district", ""), a.get("rooms")
+        ).get("verdict") in ("cheap", "below_avg")
+    ]
+    if cheap_apts:
+        best = cheap_apts[0]
+        extra = f"\n+ ещё {len(cheap_apts)-1} дешёвых → /next" if len(cheap_apts) > 1 else ""
+        vip_ids = [uid for uid in get_all_vip_user_ids() if uid not in notified]
+        await _batch_send(
+            vip_ids,
+            f"🟢 <b>Дешёвая квартира!</b>\n\n"
+            f"🏠 {best['title']}\n"
+            f"💰 <b>{best['price']} zł/мес</b> — ниже среднего!\n"
+            f"📍 {best.get('district', 'Warszawa')}\n"
+            f"🔗 <a href=\"{best['link']}\">Открыть</a>{extra}",
+            parse_mode="HTML",
+            rate=0.05,
+        )
+    elif len(apartments) >= 10:
+        # Only notify VIP if 10+ new apartments — avoid spam on small batches
+        vip_ids = [uid for uid in get_all_vip_user_ids() if uid not in notified]
+        await _batch_send(
+            vip_ids,
+            f"🏠 Добавлено <b>{len(apartments)}</b> новых квартир!\nНажми /next",
+            parse_mode="HTML",
+            rate=0.05,
+        )
 
 
 async def _vip_expiry_reminders():

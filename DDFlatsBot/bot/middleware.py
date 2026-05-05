@@ -6,62 +6,72 @@ from typing import Callable, Awaitable, Any
 from collections import defaultdict
 import time
 
+# ── Rate limit config ─────────────────────────────────────────
+# Adjust these to tune anti-spam behaviour
+RATE_LIMIT_MESSAGES  = 5    # max messages per window
+RATE_LIMIT_CALLBACKS = 12   # callbacks are cheaper — allow more
+RATE_WINDOW          = 10   # seconds
+RATE_STORE_MAX       = 8000 # max users tracked in memory
+
+_msg_store:  dict[int, list] = defaultdict(list)
+_cb_store:   dict[int, list] = defaultdict(list)
+_store_order: list[int] = []
+
+
+def _check_rate(store: dict, user_id: int, limit: int) -> bool:
+    """Returns True if user is rate-limited. Thread-safe enough for asyncio."""
+    now = time.monotonic()
+    # Evict oldest entry if store is full
+    if len(store) >= RATE_STORE_MAX and user_id not in store:
+        try:
+            oldest = _store_order.pop(0)
+            store.pop(oldest, None)
+        except (IndexError, KeyError):
+            pass
+    if user_id not in store:
+        _store_order.append(user_id)
+    # Drop timestamps outside window
+    store[user_id] = [t for t in store[user_id] if now - t < RATE_WINDOW]
+    if len(store[user_id]) >= limit:
+        return True
+    store[user_id].append(now)
+    return False
+
 
 async def is_subscribed(bot, user_id: int) -> bool:
     """
-    Check if user is subscribed to the channel.
-    Bot MUST be admin of the channel for this to work.
-    Returns True if subscribed, False if not.
-    On error (bot not admin, chat not found, etc.) — returns True to not block users.
+    Check channel subscription. Bot must be admin of the channel.
+    Returns True on any error to avoid blocking users.
     """
     try:
         member = await bot.get_chat_member(CHANNEL_ID, user_id)
         return member.status not in ("left", "kicked", "banned")
     except Exception as e:
         err = str(e).lower()
-        # Suppress noisy "chat not found" / "user not found" errors
         if "not found" not in err and "deactivated" not in err:
             print(f"[Sub check] Error for {user_id}: {e}")
-        return True  # Don't block on error
+        return True  # fail open — don't block on error
 
 
-# Callbacks that are always allowed (subscription/payment flow)
+# Callbacks always allowed regardless of subscription
 ALLOWED_CALLBACKS = {
     "check_sub", "open_vip", "vip_how_to_pay", "vip_request", "vip_stars",
-    "open_filter", "open_favorites", "open_subs", "open_stats", "open_stats_pub",
-    "open_ref", "open_alerts", "open_prices", "open_today", "cancel",
+    "open_filter", "open_favorites", "open_alerts", "open_stats",
+    "open_ref", "open_today", "cancel", "reset_filters",
     "open_hot", "open_drops", "open_map", "open_cheap", "open_notes",
-    "open_compare", "open_leaderboard", "open_top", "open_feedback", "open_help",
-    "reset_filters", "next", "skip", "accept_disclaimer",
-    "alert_create", "open_menu",
+    "open_compare", "open_leaderboard", "open_menu", "open_daily",
+    "next", "skip", "alert_create",
+    "accept_disclaimer",
 }
 
-# Rate limiting: max N actions per window (seconds)
-_RATE_LIMIT = 8        # max requests
-_RATE_WINDOW = 10      # per N seconds
-_RATE_STORE_MAX = 5000  # max users to track (prevents memory leak)
-_rate_store: dict[int, list] = defaultdict(list)
-_rate_store_order: list = []  # insertion order for eviction
-
-
-def _is_rate_limited(user_id: int) -> bool:
-    """Returns True if user exceeded rate limit. Caps store size to prevent memory leak."""
-    now = time.monotonic()
-    # Evict oldest entries if store is too large
-    if len(_rate_store) >= _RATE_STORE_MAX and user_id not in _rate_store:
-        try:
-            oldest = _rate_store_order.pop(0)
-            _rate_store.pop(oldest, None)
-        except (IndexError, KeyError):
-            pass
-    if user_id not in _rate_store:
-        _rate_store_order.append(user_id)
-    # Remove old timestamps outside the window
-    _rate_store[user_id] = [t for t in _rate_store[user_id] if now - t < _RATE_WINDOW]
-    if len(_rate_store[user_id]) >= _RATE_LIMIT:
-        return True
-    _rate_store[user_id].append(now)
-    return False
+# Callback prefixes always allowed
+ALLOWED_PREFIXES = (
+    "admin_", "fav_", "alert_del:", "alert_d:", "alert_pmax:", "alert_rooms:",
+    "filter_d:", "filter_pmax:", "filter_rooms:", "filter_furn:",
+    "onboard_", "share:", "sub:", "lang:", "rate:", "report_reason:",
+    "note:", "similar:", "mod_", "vip_", "seen:", "found:", "scam:",
+    "daily_days:", "city_select:", "quick:",
+)
 
 
 class SubscriptionMiddleware(BaseMiddleware):
@@ -71,63 +81,40 @@ class SubscriptionMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: dict,
     ) -> Any:
+        # Determine user and bot
         if isinstance(event, Message):
             user = event.from_user
-            bot = event.bot
-            # Always allow /start
+            bot  = event.bot
             if event.text and event.text.startswith("/start"):
                 return await handler(event, data)
         elif isinstance(event, CallbackQuery):
             user = event.from_user
-            bot = event.bot
-            # Allow subscription/payment callbacks
-            if event.data in ALLOWED_CALLBACKS:
-                return await handler(event, data)
-            # Allow admin/fav/alert callbacks
-            if event.data and (
-                event.data.startswith("admin_") or
-                event.data.startswith("fav_") or
-                event.data.startswith("alert_del:") or
-                event.data.startswith("alert_d:") or
-                event.data.startswith("alert_pmax:") or
-                event.data.startswith("alert_rooms:") or
-                event.data.startswith("filter_d:") or
-                event.data.startswith("filter_pmax:") or
-                event.data.startswith("filter_rooms:") or
-                event.data.startswith("onboard_d:") or
-                event.data.startswith("onboard_p:") or
-                event.data.startswith("share:") or
-                event.data.startswith("sub:") or
-                event.data.startswith("lang:") or
-                event.data.startswith("rate:") or
-                event.data.startswith("report:") or
-                event.data.startswith("report_reason:") or
-                event.data.startswith("note:") or
-                event.data.startswith("similar:") or
-                event.data.startswith("mod_") or
-                event.data.startswith("vip_") or
-                event.data.startswith("seen:") or
-                event.data.startswith("found:")
-            ):
+            bot  = event.bot
+            cb   = event.data or ""
+            if cb in ALLOWED_CALLBACKS or any(cb.startswith(p) for p in ALLOWED_PREFIXES):
                 return await handler(event, data)
         else:
             return await handler(event, data)
 
-        # Admins bypass all checks
+        # Admins bypass everything
         if user.id in ADMIN_IDS:
             return await handler(event, data)
 
-        # Rate limiting — prevent spam
-        if _is_rate_limited(user.id):
-            if isinstance(event, CallbackQuery):
+        # ── Rate limiting ─────────────────────────────────────
+        if isinstance(event, Message):
+            if _check_rate(_msg_store, user.id, RATE_LIMIT_MESSAGES):
+                # Silent drop for messages — no reply to avoid feedback loop
+                return
+        elif isinstance(event, CallbackQuery):
+            if _check_rate(_cb_store, user.id, RATE_LIMIT_CALLBACKS):
                 await event.answer("⏳ Не так быстро!", show_alert=False)
-            return
+                return
 
-        # Check if user is banned (vip = -1)
+        # ── Ban check ─────────────────────────────────────────
         try:
             from database.db import get_conn
             conn = get_conn()
-            row = conn.execute("SELECT vip FROM users WHERE user_id=?", (user.id,)).fetchone()
+            row  = conn.execute("SELECT vip FROM users WHERE user_id=?", (user.id,)).fetchone()
             conn.close()
             if row and row["vip"] == -1:
                 if isinstance(event, Message):
@@ -138,6 +125,7 @@ class SubscriptionMiddleware(BaseMiddleware):
         except Exception:
             pass
 
+        # ── Subscription check ────────────────────────────────
         if not await is_subscribed(bot, user.id):
             kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(
