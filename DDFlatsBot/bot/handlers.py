@@ -105,9 +105,9 @@ class CityState(StatesGroup):
 def apt_text(apt: dict, lang: str = "ru") -> str:
     """Build rich apartment card text."""
     rooms_str = f"{apt['rooms']} комн." if apt.get("rooms") else ""
-    area_str = f"{apt['area']} м²" if apt.get("area") else ""
+    area_str  = f"{apt['area']} м²" if apt.get("area") else ""
     floor_str = f"эт. {apt['floor']}" if apt.get("floor") else ""
-    details = " · ".join(filter(None, [rooms_str, area_str, floor_str]))
+    details   = " · ".join(filter(None, [rooms_str, area_str, floor_str]))
 
     verified = "✅ <b>Проверено</b>\n" if apt.get("verified") else ""
     icon = SOURCE_ICONS.get(apt.get("source", ""), "📡")
@@ -119,13 +119,20 @@ def apt_text(apt: dict, lang: str = "ru") -> str:
     else:
         price_line = "💰 <i>Цена не указана</i>"
 
+    # Furniture tag
+    furn_tag = ""
+    if apt.get("furnished") == 1:
+        furn_tag = " · 🛋 меблированная"
+    elif apt.get("furnished") == 0:
+        furn_tag = " · 🚫 без мебели"
+
     lines = [
         f"{verified}{icon} <b>{apt.get('title', '—')}</b>",
         price_line,
         f"📍 {apt.get('district', 'Warszawa')}",
     ]
-    if details:
-        lines.append(f"📐 {details}")
+    if details or furn_tag:
+        lines.append(f"📐 {details}{furn_tag}" if details else f"📐{furn_tag}")
 
     # Price drop badge
     drop = get_price_drop(apt["id"]) if apt.get("id") else None
@@ -144,7 +151,7 @@ def apt_text(apt: dict, lang: str = "ru") -> str:
                 "overpriced": "🔴 Цена завышена",
             }
             if ev.get("verdict") and ev["verdict"] != "unknown" and ev.get("avg"):
-                sign = "+" if ev.get("diff_pct", 0) > 0 else ""
+                sign  = "+" if ev.get("diff_pct", 0) > 0 else ""
                 badge = verdict_map.get(ev["verdict"], "")
                 if badge:
                     lines.append(f"💡 {badge} ({sign}{ev['diff_pct']}% от ср. {ev['avg']} zł)")
@@ -512,6 +519,54 @@ async def cb_open_menu(call: CallbackQuery):
 
 # ── /next — show apartment ────────────────────────────────────
 
+async def _send_no_apts(bot, chat_id: int, filters: dict, lang: str):
+    """Smart 'no results' message — shows what was searched and suggests relaxing filters."""
+    # Build what was searched
+    parts = []
+    if filters.get("district"):
+        parts.append(f"📍 {filters['district']}")
+    if filters.get("price_max"):
+        parts.append(f"до {filters['price_max']} zł")
+    if filters.get("rooms"):
+        parts.append(f"{filters['rooms']} комн.")
+    if filters.get("furnished") == 1:
+        parts.append("🛋 меблированная")
+    elif filters.get("furnished") == 0:
+        parts.append("без мебели")
+
+    # Count what's available without strict filters
+    total_in_district = 0
+    if filters.get("district"):
+        total_in_district = count_apartments({"district": filters["district"]}, vip=True)
+
+    total_all = count_apartments({}, vip=True)
+
+    searched = "  ·  ".join(parts) if parts else "все квартиры"
+
+    text = (
+        f"😔 <b>По фильтрам не найдено</b>\n\n"
+        f"Искал: {searched}\n\n"
+    )
+
+    if total_in_district > 0 and filters.get("district"):
+        text += f"💡 В районе <b>{filters['district']}</b> есть <b>{total_in_district}</b> квартир без учёта цены/комнат.\n\n"
+    elif total_all > 0:
+        text += f"💡 В базе есть <b>{total_all}</b> квартир — попробуй расширить фильтры.\n\n"
+    else:
+        text += "⏳ База пока пустая — парсер работает каждые 10 минут.\n\n"
+
+    text += "Что сделать:\n• Убери фильтр по комнатам или мебели\n• Увеличь максимальную цену\n• Выбери другой район"
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🔄 Сбросить фильтры", callback_data="reset_filters"),
+            InlineKeyboardButton(text="🔍 Изменить", callback_data="open_filter"),
+        ],
+        [InlineKeyboardButton(text="🏠 Все квартиры", callback_data="next")],
+    ])
+    await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=kb)
+
+
 async def show_next_apartment(user_id: int, bot, state: FSMContext, chat_id: int):
     user = get_or_create_user(user_id)
     is_vip = bool(user.get("vip"))
@@ -551,10 +606,10 @@ async def show_next_apartment(user_id: int, bot, state: FSMContext, chat_id: int
             if apartments:
                 await bot.send_message(chat_id, t(lang, "wrap_around"))
             else:
-                await bot.send_message(chat_id, t(lang, "no_apts"), parse_mode="HTML")
+                await _send_no_apts(bot, chat_id, city_filters, lang)
                 return
         else:
-            await bot.send_message(chat_id, t(lang, "no_apts_yet"), parse_mode="HTML")
+            await _send_no_apts(bot, chat_id, city_filters, lang)
             return
 
     apt = apartments[0]

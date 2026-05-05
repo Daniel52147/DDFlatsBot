@@ -191,81 +191,115 @@ def save_apartment(data: dict) -> bool:
 
 def get_apartments(filters: dict = None, offset: int = 0, limit: int = 1,
                    vip: bool = False, exclude_ids: list = None) -> list[dict]:
+    """
+    Fetch apartments with smart filter fallback.
+    If strict filters return 0 results, progressively relax them:
+    rooms/furnished are treated as soft filters (NULL values always pass).
+    """
     conn = get_conn()
     c = conn.cursor()
-    query = "SELECT * FROM apartments WHERE reported < 10"
-    params = []
 
-    # Early access: free users only see apartments older than N minutes
-    if not vip and VIP_EARLY_ACCESS_MINUTES > 0:
-        cutoff = (datetime.now() - timedelta(minutes=VIP_EARLY_ACCESS_MINUTES)).isoformat()
-        query += " AND created_at <= ?"
-        params.append(cutoff)
+    def _build_query(f: dict, strict_rooms: bool = True, strict_furnished: bool = True) -> tuple:
+        q = "SELECT * FROM apartments WHERE reported < 10"
+        p = []
 
-    if filters:
-        if filters.get("district"):
-            query += " AND district LIKE ?"
-            params.append(f"%{filters['district']}%")
-        if filters.get("price_max"):
-            query += " AND price <= ? AND price > 0"
-            params.append(filters["price_max"])
-        if filters.get("price_min"):
-            query += " AND price >= ?"
-            params.append(filters["price_min"])
-        if filters.get("rooms"):
-            query += " AND rooms = ?"
-            params.append(filters["rooms"])
-        if filters.get("keyword"):
-            query += " AND title LIKE ?"
-            params.append(f"%{filters['keyword']}%")
-        if filters.get("today"):
-            query += " AND created_at >= ?"
-            params.append(filters["today"])
-        if filters.get("furnished") is not None:
-            query += " AND furnished = ?"
-            params.append(filters["furnished"])
+        if not vip and VIP_EARLY_ACCESS_MINUTES > 0:
+            cutoff = (datetime.now() - timedelta(minutes=VIP_EARLY_ACCESS_MINUTES)).isoformat()
+            q += " AND created_at <= ?"
+            p.append(cutoff)
 
-    if exclude_ids:
-        placeholders = ",".join("?" * len(exclude_ids))
-        query += f" AND id NOT IN ({placeholders})"
-        params.extend(exclude_ids)
+        if f:
+            if f.get("district"):
+                q += " AND district LIKE ?"
+                p.append(f"%{f['district']}%")
+            if f.get("price_max"):
+                q += " AND price <= ? AND price > 0"
+                p.append(f["price_max"])
+            if f.get("price_min"):
+                q += " AND price >= ?"
+                p.append(f["price_min"])
+            if f.get("rooms") and strict_rooms:
+                # NULL rooms always pass — many parsers don't extract room count
+                q += " AND (rooms = ? OR rooms IS NULL)"
+                p.append(f["rooms"])
+            if f.get("keyword"):
+                q += " AND (title LIKE ? OR district LIKE ?)"
+                p.append(f"%{f['keyword']}%")
+                p.append(f"%{f['keyword']}%")
+            if f.get("today"):
+                q += " AND created_at >= ?"
+                p.append(f["today"])
+            if f.get("furnished") is not None and strict_furnished:
+                # NULL furnished always passes
+                q += " AND (furnished = ? OR furnished IS NULL)"
+                p.append(f["furnished"])
 
-    query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
-    params += [limit, offset]
-    rows = c.execute(query, params).fetchall()
+        if exclude_ids:
+            placeholders = ",".join("?" * len(exclude_ids))
+            q += f" AND id NOT IN ({placeholders})"
+            p.extend(exclude_ids)
+
+        return q, p
+
+    # Try strict first, then progressively relax
+    fallback_levels = [
+        (True,  True),   # strict rooms + strict furnished
+        (True,  False),  # strict rooms, ignore furnished
+        (False, False),  # ignore both rooms and furnished
+    ]
+
+    for strict_r, strict_f in fallback_levels:
+        q, p = _build_query(filters or {}, strict_r, strict_f)
+        q_count = q.replace("SELECT *", "SELECT COUNT(*)")
+        total = c.execute(q_count, p).fetchone()[0]
+        if total > 0:
+            q += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+            p += [limit, offset]
+            rows = c.execute(q, p).fetchall()
+            conn.close()
+            return [dict(r) for r in rows]
+
     conn.close()
-    return [dict(r) for r in rows]
+    return []
 
 
 def count_apartments(filters: dict = None, vip: bool = False) -> int:
+    """Count apartments matching filters. Uses same soft-filter logic as get_apartments."""
     conn = get_conn()
     c = conn.cursor()
-    query = "SELECT COUNT(*) FROM apartments WHERE reported < 10"
-    params = []
+    q = "SELECT COUNT(*) FROM apartments WHERE reported < 10"
+    p = []
+
     if not vip and VIP_EARLY_ACCESS_MINUTES > 0:
         cutoff = (datetime.now() - timedelta(minutes=VIP_EARLY_ACCESS_MINUTES)).isoformat()
-        query += " AND created_at <= ?"
-        params.append(cutoff)
+        q += " AND created_at <= ?"
+        p.append(cutoff)
+
     if filters:
         if filters.get("district"):
-            query += " AND district LIKE ?"
-            params.append(f"%{filters['district']}%")
+            q += " AND district LIKE ?"
+            p.append(f"%{filters['district']}%")
         if filters.get("price_max"):
-            query += " AND price <= ? AND price > 0"
-            params.append(filters["price_max"])
+            q += " AND price <= ? AND price > 0"
+            p.append(filters["price_max"])
         if filters.get("price_min"):
-            query += " AND price >= ?"
-            params.append(filters["price_min"])
+            q += " AND price >= ?"
+            p.append(filters["price_min"])
         if filters.get("rooms"):
-            query += " AND rooms = ?"
-            params.append(filters["rooms"])
+            q += " AND (rooms = ? OR rooms IS NULL)"
+            p.append(filters["rooms"])
         if filters.get("keyword"):
-            query += " AND title LIKE ?"
-            params.append(f"%{filters['keyword']}%")
+            q += " AND (title LIKE ? OR district LIKE ?)"
+            p.append(f"%{filters['keyword']}%")
+            p.append(f"%{filters['keyword']}%")
         if filters.get("today"):
-            query += " AND created_at >= ?"
-            params.append(filters["today"])
-    count = c.execute(query, params).fetchone()[0]
+            q += " AND created_at >= ?"
+            p.append(filters["today"])
+        if filters.get("furnished") is not None:
+            q += " AND (furnished = ? OR furnished IS NULL)"
+            p.append(filters["furnished"])
+
+    count = c.execute(q, p).fetchone()[0]
     conn.close()
     return count
 
