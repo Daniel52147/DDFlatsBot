@@ -101,7 +101,12 @@ class FeedbackState(StatesGroup):
 class CityState(StatesGroup):
     waiting_city = State()
 
-class AdvancedFilterState(StatesGroup):
+class DailyState(StatesGroup):
+    waiting_location  = State()   # city or custom location
+    waiting_checkin   = State()   # check-in date
+    waiting_checkout  = State()   # check-out date
+    waiting_guests    = State()   # number of guests
+    waiting_type      = State()   # apartment/house/room/hostel
     waiting_area_min   = State()
     waiting_price_per_m = State()
     waiting_rooms_max  = State()
@@ -1569,62 +1574,299 @@ async def _show_map(target):
 # ── /daily — short-term rental ────────────────────────────────
 
 @router.message(Command("daily"))
-async def cmd_daily(message: Message):
-    await _show_daily(message)
+async def cmd_daily(message: Message, state: FSMContext):
+    await _start_daily(message.from_user.id, message, state)
 
 
 @router.callback_query(F.data == "open_daily")
-async def cb_open_daily(call: CallbackQuery):
+async def cb_open_daily(call: CallbackQuery, state: FSMContext):
     await call.answer()
-    await _show_daily(call.message)
+    await _start_daily(call.from_user.id, call.message, state)
 
 
-async def _show_daily(target):
-    lang = get_lang(target.chat.id if hasattr(target, "chat") else target.from_user.id)
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="1 день",  callback_data="daily_days:1"),
-            InlineKeyboardButton(text="3 дня",   callback_data="daily_days:3"),
-            InlineKeyboardButton(text="7 дней",  callback_data="daily_days:7"),
-        ],
-        [
-            InlineKeyboardButton(text="14 дней", callback_data="daily_days:14"),
-            InlineKeyboardButton(text="30 дней", callback_data="daily_days:30"),
-        ],
-    ])
-    await target.answer(t(lang, "daily_text"), parse_mode="HTML", reply_markup=kb)
-
-
-@router.callback_query(F.data.startswith("daily_days:"))
-async def cb_daily_days(call: CallbackQuery, state: FSMContext):
-    days = int(call.data.split(":")[1])
-    lang = get_lang(call.from_user.id)
+async def _start_daily(user_id: int, target, state: FSMContext):
+    """Step 1: choose location."""
     data = await state.get_data()
-    city = data.get("city", get_user_city_db(call.from_user.id))
+    city = data.get("city", get_user_city_db(user_id))
+    city_label = CITIES.get(city, {}).get("label", city)
 
-    from datetime import date, timedelta
-    checkin  = date.today().isoformat()
-    checkout = (date.today() + timedelta(days=days)).isoformat()
+    # Quick city buttons + option to type custom location
+    city_btns = []
+    for c, info in CITIES.items():
+        city_btns.append(InlineKeyboardButton(
+            text=info["label"] + (" ✅" if c == city else ""),
+            callback_data=f"daily_loc:{c}"
+        ))
 
-    city_map = {
-        "Warszawa": ("Warszawa",       "Warsaw--Poland",   "warszawa"),
-        "Kraków":   ("Krakow",         "Krakow--Poland",   "krakow"),
-        "Wrocław":  ("Wroclaw",        "Wroclaw--Poland",  "wroclaw"),
-        "Gdańsk":   ("Gdansk",         "Gdansk--Poland",   "gdansk"),
-        "Poznań":   ("Poznan",         "Poznan--Poland",   "poznan"),
-    }
-    b_city, a_city, n_city = city_map.get(city, ("Warszawa", "Warsaw--Poland", "warszawa"))
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        city_btns[:3],
+        city_btns[3:],
+        [InlineKeyboardButton(text="✏️ Другой город / район", callback_data="daily_loc_custom")],
+    ])
+    await target.answer(
+        "🏖 <b>Посуточная аренда</b>\n\n"
+        "📍 <b>Шаг 1/4: Выбери локацию</b>\n\n"
+        f"Текущий город: <b>{city_label}</b>\n"
+        "Или выбери другой / напиши район:",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+    await state.set_state(DailyState.waiting_location)
 
-    booking   = f"https://www.booking.com/searchresults.pl.html?ss={b_city}&checkin={checkin}&checkout={checkout}&group_adults=2"
-    airbnb    = f"https://www.airbnb.pl/s/{a_city}/homes?checkin={checkin}&checkout={checkout}"
-    nocowanie = f"https://www.nocowanie.pl/noclegi/{n_city}/?od={checkin}&do={checkout}"
 
+@router.callback_query(F.data.startswith("daily_loc:"), DailyState.waiting_location)
+async def cb_daily_loc(call: CallbackQuery, state: FSMContext):
+    city = call.data.split(":")[1]
+    city_label = CITIES.get(city, {}).get("label", city)
+    await state.update_data(daily_city=city, daily_location=city_label)
+    await call.answer()
+    await _daily_step_checkin(call.message, state)
+
+
+@router.callback_query(F.data == "daily_loc_custom", DailyState.waiting_location)
+async def cb_daily_loc_custom(call: CallbackQuery, state: FSMContext):
     await call.answer()
     await call.message.answer(
-        t(lang, "daily_links", days=days, booking=booking, airbnb=airbnb, nocowanie=nocowanie),
-        parse_mode="HTML",
-        disable_web_page_preview=True
+        "✏️ Напиши локацию — город, район или адрес:\n\n"
+        "<i>Например: Краков центр, Варшава Мокотув, Гданьск Старый город</i>",
+        parse_mode="HTML"
     )
+
+
+@router.message(DailyState.waiting_location)
+async def daily_location_text(message: Message, state: FSMContext):
+    location = message.text.strip()
+    await state.update_data(daily_location=location, daily_city=None)
+    await _daily_step_checkin(message, state)
+
+
+async def _daily_step_checkin(target, state: FSMContext):
+    """Step 2: choose check-in date."""
+    from datetime import date, timedelta
+    today = date.today()
+    # Show next 14 days as quick buttons
+    rows = []
+    row = []
+    for i in range(14):
+        d = today + timedelta(days=i)
+        label = "Сегодня" if i == 0 else ("Завтра" if i == 1 else d.strftime("%d.%m"))
+        row.append(InlineKeyboardButton(text=label, callback_data=f"daily_ci:{d.isoformat()}"))
+        if len(row) == 4:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
+    await target.answer(
+        "📅 <b>Шаг 2/4: Дата заезда</b>",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+    await state.set_state(DailyState.waiting_checkin)
+
+
+@router.callback_query(F.data.startswith("daily_ci:"), DailyState.waiting_checkin)
+async def cb_daily_checkin(call: CallbackQuery, state: FSMContext):
+    checkin = call.data.split(":")[1]
+    await state.update_data(daily_checkin=checkin)
+    await call.answer()
+    await _daily_step_checkout(call.message, state, checkin)
+
+
+async def _daily_step_checkout(target, state: FSMContext, checkin: str):
+    """Step 3: choose check-out date."""
+    from datetime import date, timedelta
+    ci = date.fromisoformat(checkin)
+    rows = []
+    row = []
+    for nights in [1, 2, 3, 4, 5, 6, 7, 10, 14, 21, 30]:
+        co = ci + timedelta(days=nights)
+        label = f"{nights} н." if nights < 7 else f"{nights} дн."
+        row.append(InlineKeyboardButton(text=label, callback_data=f"daily_co:{co.isoformat()}:{nights}"))
+        if len(row) == 4:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
+    ci_fmt = ci.strftime("%d.%m.%Y")
+    await target.answer(
+        f"📅 <b>Шаг 3/4: Дата выезда</b>\n\nЗаезд: <b>{ci_fmt}</b>\nВыбери количество ночей:",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+    await state.set_state(DailyState.waiting_checkout)
+
+
+@router.callback_query(F.data.startswith("daily_co:"), DailyState.waiting_checkout)
+async def cb_daily_checkout(call: CallbackQuery, state: FSMContext):
+    parts = call.data.split(":")
+    checkout = parts[1]
+    nights = int(parts[2])
+    await state.update_data(daily_checkout=checkout, daily_nights=nights)
+    await call.answer()
+    await _daily_step_guests(call.message, state)
+
+
+async def _daily_step_guests(target, state: FSMContext):
+    """Step 4: number of guests."""
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="1 👤",  callback_data="daily_g:1"),
+            InlineKeyboardButton(text="2 👥",  callback_data="daily_g:2"),
+            InlineKeyboardButton(text="3 👥",  callback_data="daily_g:3"),
+            InlineKeyboardButton(text="4 👥",  callback_data="daily_g:4"),
+        ],
+        [
+            InlineKeyboardButton(text="5 👥",  callback_data="daily_g:5"),
+            InlineKeyboardButton(text="6+ 👥", callback_data="daily_g:6"),
+        ],
+    ])
+    await target.answer(
+        "👥 <b>Шаг 4/4: Количество гостей</b>",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+    await state.set_state(DailyState.waiting_guests)
+
+
+@router.callback_query(F.data.startswith("daily_g:"), DailyState.waiting_guests)
+async def cb_daily_guests(call: CallbackQuery, state: FSMContext):
+    guests = int(call.data.split(":")[1])
+    await state.update_data(daily_guests=guests)
+    await call.answer()
+    await _daily_step_type(call.message, state)
+
+
+async def _daily_step_type(target, state: FSMContext):
+    """Step 5: property type."""
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🏠 Квартира",    callback_data="daily_t:apartment"),
+            InlineKeyboardButton(text="🏡 Дом/Вилла",   callback_data="daily_t:house"),
+        ],
+        [
+            InlineKeyboardButton(text="🛏 Комната",     callback_data="daily_t:room"),
+            InlineKeyboardButton(text="🏨 Отель",       callback_data="daily_t:hotel"),
+        ],
+        [
+            InlineKeyboardButton(text="🏕 Любой тип",   callback_data="daily_t:any"),
+        ],
+    ])
+    await target.answer(
+        "🏠 <b>Тип жилья</b>",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+    await state.set_state(DailyState.waiting_type)
+
+
+@router.callback_query(F.data.startswith("daily_t:"), DailyState.waiting_type)
+async def cb_daily_type(call: CallbackQuery, state: FSMContext):
+    prop_type = call.data.split(":")[1]
+    await state.update_data(daily_type=prop_type)
+    await call.answer()
+    await _daily_show_results(call.from_user.id, call.message, state)
+
+
+async def _daily_show_results(user_id: int, target, state: FSMContext):
+    """Show booking links with all parameters."""
+    data = await state.get_data()
+    location    = data.get("daily_location", "Warszawa")
+    city_key    = data.get("daily_city", "Warszawa")
+    checkin     = data.get("daily_checkin", "")
+    checkout    = data.get("daily_checkout", "")
+    nights      = data.get("daily_nights", 1)
+    guests      = data.get("daily_guests", 2)
+    prop_type   = data.get("daily_type", "any")
+
+    from datetime import date
+    if not checkin:
+        checkin = date.today().isoformat()
+    if not checkout:
+        from datetime import timedelta
+        checkout = (date.fromisoformat(checkin) + timedelta(days=nights)).isoformat()
+
+    ci_fmt = date.fromisoformat(checkin).strftime("%d.%m.%Y")
+    co_fmt = date.fromisoformat(checkout).strftime("%d.%m.%Y")
+
+    # Property type mapping per platform
+    type_booking = {
+        "apartment": "&nflt=ht_id%3D201",   # apartments
+        "house":     "&nflt=ht_id%3D213",   # villas/houses
+        "room":      "&nflt=ht_id%3D216",   # private rooms
+        "hotel":     "&nflt=ht_id%3D204",   # hotels
+        "any":       "",
+    }
+    type_airbnb = {
+        "apartment": "&room_types%5B%5D=Entire+home%2Fapt",
+        "house":     "&room_types%5B%5D=Entire+home%2Fapt",
+        "room":      "&room_types%5B%5D=Private+room",
+        "hotel":     "&room_types%5B%5D=Hotel+room",
+        "any":       "",
+    }
+    type_labels = {
+        "apartment": "🏠 Квартира",
+        "house":     "🏡 Дом/Вилла",
+        "room":      "🛏 Комната",
+        "hotel":     "🏨 Отель",
+        "any":       "🏠 Любой тип",
+    }
+
+    city_map = {
+        "Warszawa": ("Warszawa",    "Warsaw--Poland"),
+        "Kraków":   ("Krakow",      "Krakow--Poland"),
+        "Wrocław":  ("Wroclaw",     "Wroclaw--Poland"),
+        "Gdańsk":   ("Gdansk",      "Gdansk--Poland"),
+        "Poznań":   ("Poznan",      "Poznan--Poland"),
+    }
+    b_loc, a_loc = city_map.get(city_key, (location, location.replace(" ", "-")))
+
+    t_book = type_booking.get(prop_type, "")
+    t_air  = type_airbnb.get(prop_type, "")
+
+    import urllib.parse as _up
+    booking   = (f"https://www.booking.com/searchresults.pl.html"
+                 f"?ss={_up.quote(b_loc)}&checkin={checkin}&checkout={checkout}"
+                 f"&group_adults={guests}&no_rooms=1{t_book}")
+    airbnb    = (f"https://www.airbnb.pl/s/{_up.quote(a_loc)}/homes"
+                 f"?checkin={checkin}&checkout={checkout}&adults={guests}{t_air}")
+    nocowanie = (f"https://www.nocowanie.pl/noclegi/{_up.quote(b_loc.lower())}/"
+                 f"?od={checkin}&do={checkout}&osoby={guests}")
+
+    type_label = type_labels.get(prop_type, "")
+
+    # Discount tips
+    discount_tips = (
+        "\n\n💡 <b>Как получить скидку:</b>\n"
+        "• Booking: ищи значок 🔴 «Гениальная цена» — скидка до 20%\n"
+        "• Airbnb: бронируй за 7+ дней — часто дешевле\n"
+        "• Nocowanie.pl — польская платформа, цены ниже чем на Booking\n"
+        "• Сравни все три перед бронированием!"
+    )
+
+    text = (
+        f"🏖 <b>Посуточная аренда</b>\n\n"
+        f"📍 {location}\n"
+        f"📅 {ci_fmt} → {co_fmt} ({nights} ноч.)\n"
+        f"👥 {guests} гост. · {type_label}\n\n"
+        f"🔗 <b>Лучшие предложения:</b>\n\n"
+        f"🏨 <a href=\"{booking}\">Booking.com</a> — отели и апартаменты\n"
+        f"🏠 <a href=\"{airbnb}\">Airbnb</a> — квартиры от хозяев\n"
+        f"🛏 <a href=\"{nocowanie}\">Nocowanie.pl</a> — польская платформа"
+        f"{discount_tips}"
+    )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🔄 Изменить параметры", callback_data="open_daily"),
+            InlineKeyboardButton(text="📋 Меню",               callback_data="open_menu"),
+        ],
+    ])
+    await target.answer(text, parse_mode="HTML", disable_web_page_preview=True, reply_markup=kb)
+    await state.set_state(None)
 
 
 # ── /subscribe ───────────────────────────────────────────────

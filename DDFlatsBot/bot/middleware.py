@@ -63,6 +63,7 @@ ALLOWED_CALLBACKS = {
     "open_advanced", "adv_apply", "adv_reset",
     "adv_district", "adv_price", "adv_rooms_min", "adv_rooms_max",
     "adv_area", "adv_ppm", "adv_floor",
+    "daily_loc_custom",
     "next", "skip", "prev", "alert_create", "noop",
     "accept_disclaimer",
 }
@@ -76,6 +77,7 @@ ALLOWED_PREFIXES = (
     "daily_days:", "city_select:", "quick:",
     "adv_", "adv_d:", "adv_p:", "adv_rmin:", "adv_rmax:", "adv_a:",
     "adv_pm:", "adv_fl:", "adv_toggle:",
+    "daily_loc:", "daily_ci:", "daily_co:", "daily_g:", "daily_t:",
 )
 
 
