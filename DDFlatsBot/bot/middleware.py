@@ -60,6 +60,9 @@ ALLOWED_CALLBACKS = {
     "open_ref", "open_today", "cancel", "reset_filters",
     "open_hot", "open_drops", "open_map", "open_cheap", "open_notes",
     "open_compare", "open_leaderboard", "open_menu", "open_daily",
+    "open_advanced", "adv_apply", "adv_reset",
+    "adv_district", "adv_price", "adv_rooms_min", "adv_rooms_max",
+    "adv_area", "adv_ppm", "adv_floor",
     "next", "skip", "prev", "alert_create", "noop",
     "accept_disclaimer",
 }
@@ -71,6 +74,8 @@ ALLOWED_PREFIXES = (
     "onboard_", "share:", "sub:", "lang:", "rate:", "report_reason:",
     "note:", "similar:", "mod_", "vip_", "seen:", "found:", "scam:",
     "daily_days:", "city_select:", "quick:",
+    "adv_", "adv_d:", "adv_p:", "adv_rmin:", "adv_rmax:", "adv_a:",
+    "adv_pm:", "adv_fl:", "adv_toggle:",
 )
 
 

@@ -108,3 +108,7 @@ CITIES = {
         "region_id_olx": 11,
     },
 }
+
+# Parser cookie overrides — set via /admin in bot
+# Format: {"Gratka": "cookie_string", "Morizon": "cookie_string"}
+PARSER_COOKIES: dict = {}

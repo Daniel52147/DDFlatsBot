@@ -86,6 +86,7 @@ class AdminInputState(StatesGroup):
     ban_id = State()
     unban_id = State()
     find_user_id = State()
+    set_cookie = State()
 
 class ReportState(StatesGroup):
     waiting_reason = State()
@@ -98,6 +99,13 @@ class FeedbackState(StatesGroup):
 
 class CityState(StatesGroup):
     waiting_city = State()
+
+class AdvancedFilterState(StatesGroup):
+    waiting_area_min   = State()
+    waiting_price_per_m = State()
+    waiting_rooms_max  = State()
+    waiting_floor_min  = State()
+    waiting_options    = State()  # photo_only, new_only toggles
 
 
 # ── Apartment card builder ────────────────────────────────────
@@ -274,6 +282,9 @@ def main_menu_keyboard(lang: str) -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(text="📝 Заметки",             callback_data="open_notes"),
             InlineKeyboardButton(text="📰 Дайджест",            callback_data="open_digest"),
+        ],
+        [
+            InlineKeyboardButton(text="🔬 Расширенный поиск",   callback_data="open_advanced"),
         ],
     ])
 
@@ -1941,6 +1952,10 @@ def _admin_kb(pending_count: int = 0) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="📈 Топ рефералов",  callback_data="admin_top_refs"),
             InlineKeyboardButton(text="💾 Бэкап БД",       callback_data="admin_backup"),
         ],
+        [
+            InlineKeyboardButton(text="🍪 Куки Gratka",    callback_data="admin_cookie:Gratka"),
+            InlineKeyboardButton(text="🍪 Куки Morizon",   callback_data="admin_cookie:Morizon"),
+        ],
     ])
 
 
@@ -2179,6 +2194,48 @@ async def cb_admin_top_refs(call: CallbackQuery):
     for i, l in enumerate(leaders, 1):
         lines.append(f"{i}. <code>{l['user_id']}</code> — {l['ref_count']} чел.")
     await call.message.answer("\n".join(lines), parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("admin_cookie:"))
+async def cb_admin_cookie(call: CallbackQuery, state: FSMContext):
+    if call.from_user.id not in ADMIN_IDS:
+        await call.answer("⛔", show_alert=True)
+        return
+    source = call.data.split(":")[1]
+    await call.answer()
+    from config import PARSER_COOKIES
+    current = PARSER_COOKIES.get(source, "не установлены")[:50]
+    await call.message.answer(
+        f"🍪 <b>Куки для {source}</b>\n\n"
+        f"Текущие: <code>{current}...</code>\n\n"
+        f"Как получить куки:\n"
+        f"1. Открой {source}.pl в браузере\n"
+        f"2. F12 → Application → Cookies\n"
+        f"3. Скопируй все куки в формате: <code>name1=val1; name2=val2</code>\n\n"
+        f"Отправь строку куки следующим сообщением:",
+        parse_mode="HTML"
+    )
+    await state.update_data(cookie_source=source)
+    await state.set_state(AdminInputState.set_cookie)
+
+
+@router.message(AdminInputState.set_cookie)
+async def admin_set_cookie(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    data = await state.get_data()
+    source = data.get("cookie_source", "")
+    cookie_str = message.text.strip()
+    await state.clear()
+    if source:
+        from config import PARSER_COOKIES
+        PARSER_COOKIES[source] = cookie_str
+        await message.answer(
+            f"✅ Куки для <b>{source}</b> установлены!\n"
+            f"Будут использованы при следующем парсинге.\n\n"
+            f"Запустить парсер сейчас: /admin → 🔄 Запустить",
+            parse_mode="HTML"
+        )
 
 
 @router.callback_query(F.data == "admin_backup")
@@ -2606,6 +2663,352 @@ async def note_received(message: Message, state: FSMContext):
     add_user_note(message.from_user.id, apt_id, note_text)
     await state.clear()
     await message.answer("✅ Заметка сохранена! Посмотреть все: /notes")
+
+
+# ── Advanced search ───────────────────────────────────────────
+
+def _adv_summary(f: dict) -> str:
+    """Build human-readable summary of advanced filters."""
+    parts = []
+    if f.get("district"):       parts.append(f"📍 {f['district']}")
+    if f.get("price_max"):      parts.append(f"до {f['price_max']} zł")
+    if f.get("rooms"):          parts.append(f"от {f['rooms']} комн.")
+    if f.get("rooms_max"):      parts.append(f"до {f['rooms_max']} комн.")
+    if f.get("area_min"):       parts.append(f"от {f['area_min']} м²")
+    if f.get("price_per_m_max"):parts.append(f"до {f['price_per_m_max']} zł/м²")
+    if f.get("floor_min"):      parts.append(f"от {f['floor_min']} эт.")
+    if f.get("furnished") == 1: parts.append("🛋 меблированная")
+    if f.get("photo_only"):     parts.append("📷 только с фото")
+    if f.get("new_only"):       parts.append("🆕 только новые")
+    return "  ·  ".join(parts) if parts else "Все квартиры"
+
+
+def _adv_options_kb(f: dict) -> InlineKeyboardMarkup:
+    """Advanced filter options keyboard — toggles + confirm."""
+    photo = "✅ Только с фото" if f.get("photo_only") else "📷 Только с фото"
+    new   = "✅ Только новые (24ч)" if f.get("new_only") else "🆕 Только новые (24ч)"
+    furn  = "✅ Меблированная" if f.get("furnished") == 1 else "🛋 Меблированная"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=photo, callback_data="adv_toggle:photo"),
+            InlineKeyboardButton(text=new,   callback_data="adv_toggle:new"),
+        ],
+        [
+            InlineKeyboardButton(text=furn,  callback_data="adv_toggle:furn"),
+        ],
+        [InlineKeyboardButton(text="✅ Применить фильтры", callback_data="adv_apply")],
+        [InlineKeyboardButton(text="🔄 Сбросить всё",      callback_data="adv_reset")],
+        [InlineKeyboardButton(text="❌ Отмена",             callback_data="cancel")],
+    ])
+
+
+@router.message(Command("advanced"))
+async def cmd_advanced(message: Message, state: FSMContext):
+    await _open_advanced(message, state)
+
+
+@router.callback_query(F.data == "open_advanced")
+async def cb_open_advanced(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    await _open_advanced(call.message, state)
+
+
+async def _open_advanced(target, state: FSMContext):
+    data = await state.get_data()
+    f = data.get("filters", {})
+    await target.answer(
+        "🔬 <b>Расширенный поиск</b>\n\n"
+        "Настрой дополнительные параметры:\n\n"
+        "Текущие фильтры:\n"
+        f"<i>{_adv_summary(f)}</i>",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📍 Район",          callback_data="adv_district"),
+                InlineKeyboardButton(text="💰 Макс. цена",     callback_data="adv_price"),
+            ],
+            [
+                InlineKeyboardButton(text="🛏 Комнат от",      callback_data="adv_rooms_min"),
+                InlineKeyboardButton(text="🛏 Комнат до",      callback_data="adv_rooms_max"),
+            ],
+            [
+                InlineKeyboardButton(text="📐 Мин. площадь",   callback_data="adv_area"),
+                InlineKeyboardButton(text="💡 Макс. zł/м²",    callback_data="adv_ppm"),
+            ],
+            [
+                InlineKeyboardButton(text="🏢 Этаж от",        callback_data="adv_floor"),
+            ],
+            [
+                InlineKeyboardButton(text="📷 Только с фото" + (" ✅" if f.get("photo_only") else ""),
+                                     callback_data="adv_toggle:photo"),
+                InlineKeyboardButton(text="🆕 Только новые" + (" ✅" if f.get("new_only") else ""),
+                                     callback_data="adv_toggle:new"),
+            ],
+            [
+                InlineKeyboardButton(text="🛋 Меблированная" + (" ✅" if f.get("furnished") == 1 else ""),
+                                     callback_data="adv_toggle:furn"),
+            ],
+            [InlineKeyboardButton(text="✅ Применить и смотреть", callback_data="adv_apply")],
+            [InlineKeyboardButton(text="🔄 Сбросить всё",         callback_data="adv_reset")],
+        ])
+    )
+
+
+# ── Advanced: district ────────────────────────────────────────
+
+@router.callback_query(F.data == "adv_district")
+async def cb_adv_district(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    await call.message.answer("📍 Выбери район:", reply_markup=districts_keyboard("adv_d"))
+
+
+@router.callback_query(F.data.startswith("adv_d:"))
+async def cb_adv_d(call: CallbackQuery, state: FSMContext):
+    district = call.data.split(":", 1)[1]
+    data = await state.get_data()
+    f = data.get("filters", {})
+    if district == "все":
+        f.pop("district", None)
+    else:
+        f["district"] = district
+    await state.update_data(filters=f, offset=0)
+    await call.answer(f"📍 {district if district != 'все' else 'Все районы'}")
+    await _open_advanced(call.message, state)
+
+
+# ── Advanced: price ───────────────────────────────────────────
+
+@router.callback_query(F.data == "adv_price")
+async def cb_adv_price(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    await call.message.answer("💰 Максимальная цена:", reply_markup=price_keyboard("adv_p"))
+
+
+@router.callback_query(F.data.startswith("adv_p:"))
+async def cb_adv_p(call: CallbackQuery, state: FSMContext):
+    val = int(call.data.split(":")[1])
+    data = await state.get_data()
+    f = data.get("filters", {})
+    if val > 0:
+        f["price_max"] = val
+    else:
+        f.pop("price_max", None)
+    await state.update_data(filters=f, offset=0)
+    await call.answer(f"💰 до {val} zł" if val else "💰 без ограничений")
+    await _open_advanced(call.message, state)
+
+
+# ── Advanced: rooms min/max ───────────────────────────────────
+
+@router.callback_query(F.data == "adv_rooms_min")
+async def cb_adv_rooms_min(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    await call.message.answer("🛏 Минимум комнат:", reply_markup=rooms_keyboard("adv_rmin"))
+
+
+@router.callback_query(F.data.startswith("adv_rmin:"))
+async def cb_adv_rmin(call: CallbackQuery, state: FSMContext):
+    val = int(call.data.split(":")[1])
+    data = await state.get_data()
+    f = data.get("filters", {})
+    if val > 0:
+        f["rooms"] = val
+    else:
+        f.pop("rooms", None)
+    await state.update_data(filters=f, offset=0)
+    await call.answer(f"🛏 от {val} комн." if val else "🛏 любое")
+    await _open_advanced(call.message, state)
+
+
+@router.callback_query(F.data == "adv_rooms_max")
+async def cb_adv_rooms_max(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    await call.message.answer("🛏 Максимум комнат:", reply_markup=rooms_keyboard("adv_rmax"))
+
+
+@router.callback_query(F.data.startswith("adv_rmax:"))
+async def cb_adv_rmax(call: CallbackQuery, state: FSMContext):
+    val = int(call.data.split(":")[1])
+    data = await state.get_data()
+    f = data.get("filters", {})
+    if val > 0:
+        f["rooms_max"] = val
+    else:
+        f.pop("rooms_max", None)
+    await state.update_data(filters=f, offset=0)
+    await call.answer(f"🛏 до {val} комн." if val else "🛏 любое")
+    await _open_advanced(call.message, state)
+
+
+# ── Advanced: area min ────────────────────────────────────────
+
+@router.callback_query(F.data == "adv_area")
+async def cb_adv_area(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="20 м²", callback_data="adv_a:20"),
+            InlineKeyboardButton(text="30 м²", callback_data="adv_a:30"),
+            InlineKeyboardButton(text="40 м²", callback_data="adv_a:40"),
+        ],
+        [
+            InlineKeyboardButton(text="50 м²", callback_data="adv_a:50"),
+            InlineKeyboardButton(text="60 м²", callback_data="adv_a:60"),
+            InlineKeyboardButton(text="80 м²", callback_data="adv_a:80"),
+        ],
+        [InlineKeyboardButton(text="🚫 Без ограничений", callback_data="adv_a:0")],
+    ])
+    await call.message.answer("📐 Минимальная площадь:", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("adv_a:"))
+async def cb_adv_a(call: CallbackQuery, state: FSMContext):
+    val = int(call.data.split(":")[1])
+    data = await state.get_data()
+    f = data.get("filters", {})
+    if val > 0:
+        f["area_min"] = val
+    else:
+        f.pop("area_min", None)
+    await state.update_data(filters=f, offset=0)
+    await call.answer(f"📐 от {val} м²" if val else "📐 без ограничений")
+    await _open_advanced(call.message, state)
+
+
+# ── Advanced: price per m² ────────────────────────────────────
+
+@router.callback_query(F.data == "adv_ppm")
+async def cb_adv_ppm(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="30 zł/м²", callback_data="adv_pm:30"),
+            InlineKeyboardButton(text="40 zł/М²", callback_data="adv_pm:40"),
+            InlineKeyboardButton(text="50 zł/м²", callback_data="adv_pm:50"),
+        ],
+        [
+            InlineKeyboardButton(text="60 zł/м²", callback_data="adv_pm:60"),
+            InlineKeyboardButton(text="80 zł/м²", callback_data="adv_pm:80"),
+            InlineKeyboardButton(text="100 zł/м²", callback_data="adv_pm:100"),
+        ],
+        [InlineKeyboardButton(text="🚫 Без ограничений", callback_data="adv_pm:0")],
+    ])
+    await call.message.answer(
+        "💡 <b>Максимальная цена за м²</b>\n\n"
+        "Например: квартира 50м² за 2000 zł = 40 zł/м²\n"
+        "Помогает найти выгодные большие квартиры.",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+
+
+@router.callback_query(F.data.startswith("adv_pm:"))
+async def cb_adv_pm(call: CallbackQuery, state: FSMContext):
+    val = int(call.data.split(":")[1])
+    data = await state.get_data()
+    f = data.get("filters", {})
+    if val > 0:
+        f["price_per_m_max"] = val
+    else:
+        f.pop("price_per_m_max", None)
+    await state.update_data(filters=f, offset=0)
+    await call.answer(f"💡 до {val} zł/м²" if val else "💡 без ограничений")
+    await _open_advanced(call.message, state)
+
+
+# ── Advanced: floor ───────────────────────────────────────────
+
+@router.callback_query(F.data == "adv_floor")
+async def cb_adv_floor(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="1+", callback_data="adv_fl:1"),
+            InlineKeyboardButton(text="2+", callback_data="adv_fl:2"),
+            InlineKeyboardButton(text="3+", callback_data="adv_fl:3"),
+        ],
+        [
+            InlineKeyboardButton(text="4+", callback_data="adv_fl:4"),
+            InlineKeyboardButton(text="5+", callback_data="adv_fl:5"),
+            InlineKeyboardButton(text="🚫 Любой", callback_data="adv_fl:0"),
+        ],
+    ])
+    await call.message.answer("🏢 Этаж от:", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("adv_fl:"))
+async def cb_adv_fl(call: CallbackQuery, state: FSMContext):
+    val = int(call.data.split(":")[1])
+    data = await state.get_data()
+    f = data.get("filters", {})
+    if val > 0:
+        f["floor_min"] = val
+    else:
+        f.pop("floor_min", None)
+    await state.update_data(filters=f, offset=0)
+    await call.answer(f"🏢 от {val} эт." if val else "🏢 любой этаж")
+    await _open_advanced(call.message, state)
+
+
+# ── Advanced: toggles ─────────────────────────────────────────
+
+@router.callback_query(F.data.startswith("adv_toggle:"))
+async def cb_adv_toggle(call: CallbackQuery, state: FSMContext):
+    key = call.data.split(":")[1]
+    data = await state.get_data()
+    f = data.get("filters", {})
+
+    if key == "photo":
+        f["photo_only"] = not f.get("photo_only", False)
+        await call.answer("📷 Только с фото: " + ("вкл" if f["photo_only"] else "выкл"))
+    elif key == "new":
+        f["new_only"] = not f.get("new_only", False)
+        await call.answer("🆕 Только новые: " + ("вкл" if f["new_only"] else "выкл"))
+    elif key == "furn":
+        if f.get("furnished") == 1:
+            f.pop("furnished", None)
+            await call.answer("🛋 Меблированная: выкл")
+        else:
+            f["furnished"] = 1
+            await call.answer("🛋 Меблированная: вкл")
+
+    await state.update_data(filters=f, offset=0)
+    await _open_advanced(call.message, state)
+
+
+# ── Advanced: apply ───────────────────────────────────────────
+
+@router.callback_query(F.data == "adv_apply")
+async def cb_adv_apply(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    data = await state.get_data()
+    f = data.get("filters", {})
+    city = data.get("city", "Warszawa")
+    city_filters = {**f, "city": city}
+
+    user = get_or_create_user(call.from_user.id)
+    total = count_apartments(city_filters, vip=bool(user.get("vip")))
+    summary = _adv_summary(f)
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"🏠 Смотреть ({total})", callback_data="next")],
+        [InlineKeyboardButton(text="🔬 Изменить фильтры",    callback_data="open_advanced")],
+        [InlineKeyboardButton(text="🔄 Сбросить всё",        callback_data="adv_reset")],
+    ])
+    await call.message.answer(
+        f"✅ <b>Расширенный поиск применён!</b>\n\n"
+        f"{summary}\n\n"
+        f"🏠 Найдено: <b>{total}</b> квартир",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+
+
+@router.callback_query(F.data == "adv_reset")
+async def cb_adv_reset(call: CallbackQuery, state: FSMContext):
+    await state.update_data(filters={}, offset=0)
+    await call.answer("✅ Все фильтры сброшены!", show_alert=True)
+    await _open_advanced(call.message, state)
 
 
 # ── Fallback for unknown messages ─────────────────────────────

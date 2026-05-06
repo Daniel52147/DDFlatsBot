@@ -216,7 +216,9 @@ def parse_morizon() -> list:
 
     morizon_ok = False
     for base_url in [MORIZON_BASE, MORIZON_PRICE_ASC]:
-        session = make_session(referer="https://www.morizon.pl/")
+        from config import PARSER_COOKIES
+        cookie_str = PARSER_COOKIES.get("Morizon", "")
+        session = make_session(referer="https://www.morizon.pl/", cookie_str=cookie_str)
         for page in range(1, 4):
             url = base_url if page == 1 else f"{base_url}&page={page}"
             warmup = "https://www.morizon.pl/" if page == 1 else ""

@@ -358,6 +358,26 @@ def get_apartments(filters: dict = None, offset: int = 0, limit: int = 1,
                 # NULL furnished always passes
                 q += " AND (furnished = ? OR furnished IS NULL)"
                 p.append(f["furnished"])
+            # Advanced filters
+            if f.get("area_min"):
+                q += " AND (area >= ? OR area IS NULL)"
+                p.append(f["area_min"])
+            if f.get("price_per_m_max") and f.get("area_min"):
+                # price/m² = price / area <= X  →  price <= X * area
+                q += " AND area > 0 AND (price * 1.0 / area) <= ?"
+                p.append(f["price_per_m_max"])
+            if f.get("rooms_max"):
+                q += " AND (rooms <= ? OR rooms IS NULL)"
+                p.append(f["rooms_max"])
+            if f.get("floor_min"):
+                q += " AND (CAST(floor AS INTEGER) >= ? OR floor IS NULL)"
+                p.append(f["floor_min"])
+            if f.get("photo_only"):
+                q += " AND image IS NOT NULL AND image != ''"
+            if f.get("new_only"):
+                from datetime import date
+                q += " AND created_at >= ?"
+                p.append(date.today().isoformat())
             # City isolation — ALWAYS filter by city to prevent mixing
             city = f.get("city", "Warszawa")
             q += " AND (city = ? OR city IS NULL OR city = '')"

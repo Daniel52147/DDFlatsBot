@@ -183,7 +183,9 @@ def parse_gratka() -> list:
 
     gratka_ok = False
     for base_url in [GRATKA_BASE, GRATKA_PRICE_ASC]:
-        session = make_session(referer="https://gratka.pl/")
+        from config import PARSER_COOKIES
+        cookie_str = PARSER_COOKIES.get("Gratka", "")
+        session = make_session(referer="https://gratka.pl/", cookie_str=cookie_str)
         for page in range(1, 4):
             url = base_url if page == 1 else f"{base_url}&page={page}"
             # Warm up on first page only

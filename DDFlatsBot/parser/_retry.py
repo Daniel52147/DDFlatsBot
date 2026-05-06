@@ -20,7 +20,7 @@ _ACCEPT_ENCODINGS = [
 ]
 
 
-def make_session(referer: str = "", close: bool = False) -> requests.Session:
+def make_session(referer: str = "", close: bool = False, cookie_str: str = "") -> requests.Session:
     """Create a session with realistic browser headers."""
     s = requests.Session()
     # Rotate between different browser fingerprints
@@ -62,6 +62,13 @@ def make_session(referer: str = "", close: bool = False) -> requests.Session:
         headers["Referer"] = referer
 
     s.headers.update(headers)
+    if cookie_str:
+        # Parse cookie string like "name1=val1; name2=val2"
+        for part in cookie_str.split(";"):
+            part = part.strip()
+            if "=" in part:
+                name, _, val = part.partition("=")
+                s.cookies.set(name.strip(), val.strip())
     return s
 
 

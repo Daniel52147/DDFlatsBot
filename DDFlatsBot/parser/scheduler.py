@@ -539,14 +539,48 @@ async def _vip_expiry_reminders():
 def run_scheduler():
     schedule.every(10).minutes.do(parse_all)
     schedule.every(2).hours.do(post_to_channel)
+    schedule.every(6).hours.do(_heartbeat_sync)   # admin heartbeat
     schedule.every().hour.do(check_auto_vip)
     schedule.every().day.at("03:00").do(backup_db)
     schedule.every().day.at("04:00").do(cleanup_old_listings)
     schedule.every().day.at("09:00").do(send_daily_digest)
     schedule.every().day.at("12:00").do(send_vip_expiry_reminders)
     schedule.every().day.at("18:00").do(send_reminders)
-    print("[Scheduler] Running: parse 10min, channel 2h, digest 09:00, vip-reminder 12:00, reminders 18:00, cleanup 04:00, backup 03:00")
+    print("[Scheduler] Running: parse 10min, channel 2h, heartbeat 6h, digest 09:00, vip-reminder 12:00, reminders 18:00, cleanup 04:00, backup 03:00")
     while True:
         schedule.run_pending()
         time.sleep(1)
+
+
+def _heartbeat_sync():
+    if _bot and _loop:
+        asyncio.run_coroutine_threadsafe(_heartbeat(), _loop)
+
+
+async def _heartbeat():
+    """Send status ping to admin every 6 hours."""
+    try:
+        from database.db import get_stats, get_conn
+        stats = get_stats()
+        conn = get_conn()
+        last_parse = conn.execute(
+            "SELECT logged_at FROM parse_log ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        last = (last_parse["logged_at"] or "никогда")[:16] if last_parse else "никогда"
+        now = datetime.now().strftime("%d.%m %H:%M")
+        text = (
+            f"💓 <b>DDFlatsBot живой</b> · {now}\n\n"
+            f"🏠 Квартир: <b>{stats['apartments']}</b> (+{stats.get('new_today', 0)} сегодня)\n"
+            f"👥 Пользователей: <b>{stats['users']}</b>\n"
+            f"💎 VIP: <b>{stats['vip']}</b>\n"
+            f"🕐 Последний парсинг: {last}"
+        )
+        for admin_id in ADMIN_IDS:
+            try:
+                await _bot.send_message(admin_id, text, parse_mode="HTML")
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"[Heartbeat] Error: {e}")
 
