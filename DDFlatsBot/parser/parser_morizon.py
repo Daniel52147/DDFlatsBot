@@ -219,7 +219,8 @@ def parse_morizon() -> list:
         session = make_session(referer="https://www.morizon.pl/")
         for page in range(1, 4):
             url = base_url if page == 1 else f"{base_url}&page={page}"
-            status, html = fetch_with_retry(session, url, max_retries=3, backoff_base=3.0)
+            warmup = "https://www.morizon.pl/" if page == 1 else ""
+            status, html = fetch_with_retry(session, url, max_retries=3, backoff_base=3.0, warmup_url=warmup)
             print(f"[Morizon] page={page} status={status} size={len(html)}")
             if status != 200:
                 break
