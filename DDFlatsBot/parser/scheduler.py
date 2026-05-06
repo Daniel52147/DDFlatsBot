@@ -28,6 +28,12 @@ _parse_lock = threading.Lock()  # Prevent overlapping parse cycles
 
 PARSER_TIMEOUT = 120  # seconds per source
 
+# Track consecutive failures per source — notify only after N failures in a row
+_fail_counts: dict[str, int] = {}
+FAIL_NOTIFY_THRESHOLD = 5   # notify after 5 consecutive empty results
+# Sources that are known to be unreliable — higher threshold, no spam
+_FLAKY_SOURCES = {"Nieruch-online", "Domiporta", "Szybko", "Lento", "Gratka", "Morizon"}
+
 
 def set_bot(bot, loop):
     global _bot, _loop
@@ -91,13 +97,23 @@ def parse_all():
             log_parse(source_name, new)
             total_new += new
             print(f"[{source_name}] +{new} new")
-            if new == 0 and listings == []:
-                # Parser returned nothing — might be blocked
-                if _bot and _loop:
+
+            # Track consecutive failures
+            if listings == []:
+                _fail_counts[source_name] = _fail_counts.get(source_name, 0) + 1
+                threshold = FAIL_NOTIFY_THRESHOLD * 2 if source_name in _FLAKY_SOURCES else FAIL_NOTIFY_THRESHOLD
+                # Notify only on exact threshold hit (not every cycle after)
+                if _fail_counts[source_name] == threshold and _bot and _loop:
                     asyncio.run_coroutine_threadsafe(
-                        _notify_admin_error(source_name, "Parser returned 0 results — may be blocked"),
+                        _notify_admin_error(
+                            source_name,
+                            f"0 результатов {threshold} раз подряд — возможно заблокирован"
+                        ),
                         _loop
                     )
+            else:
+                # Reset counter on success
+                _fail_counts[source_name] = 0
 
         print(f"[Scheduler] Done. Total new: {total_new}")
         check_vip_expiry()
