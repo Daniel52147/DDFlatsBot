@@ -109,6 +109,8 @@ def init_db():
     conn.commit()
     conn.close()
     cleanup_junk_listings()
+    # One-time migration: set city for existing apartments without city
+    _migrate_city_field()
 
 
 # ── Apartments ───────────────────────────────────────────────
@@ -1182,6 +1184,21 @@ def get_new_today_count() -> int:
     ).fetchone()[0]
     conn.close()
     return count
+
+
+def _migrate_city_field():
+    """One-time: set city='Warszawa' for all existing apartments without city."""
+    try:
+        conn = get_conn()
+        updated = conn.execute(
+            "UPDATE apartments SET city='Warszawa' WHERE city IS NULL OR city = ''"
+        ).rowcount
+        conn.commit()
+        conn.close()
+        if updated > 0:
+            print(f"[Migration] Set city=Warszawa for {updated} existing apartments")
+    except Exception as e:
+        print(f"[Migration] city field: {e}")
 
 
 def cleanup_junk_listings():
