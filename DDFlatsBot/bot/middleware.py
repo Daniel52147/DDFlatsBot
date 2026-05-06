@@ -60,13 +60,13 @@ ALLOWED_CALLBACKS = {
     "open_ref", "open_today", "cancel", "reset_filters",
     "open_hot", "open_drops", "open_map", "open_cheap", "open_notes",
     "open_compare", "open_leaderboard", "open_menu", "open_daily",
-    "next", "skip", "alert_create",
+    "next", "skip", "prev", "alert_create", "noop",
     "accept_disclaimer",
 }
 
 # Callback prefixes always allowed
 ALLOWED_PREFIXES = (
-    "admin_", "fav_", "alert_del:", "alert_d:", "alert_pmax:", "alert_rooms:",
+    "admin_", "fav_", "fav_page:", "alert_del:", "alert_d:", "alert_pmax:", "alert_rooms:",
     "filter_d:", "filter_pmax:", "filter_rooms:", "filter_furn:",
     "onboard_", "share:", "sub:", "lang:", "rate:", "report_reason:",
     "note:", "similar:", "mod_", "vip_", "seen:", "found:", "scam:",

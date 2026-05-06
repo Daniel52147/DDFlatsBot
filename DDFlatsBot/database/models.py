@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS apartments (
     title       TEXT,
     price       INTEGER,
     district    TEXT,
+    city        TEXT DEFAULT 'Warszawa',
     rooms       INTEGER,
     area        REAL,
     floor       TEXT,

@@ -70,6 +70,7 @@ def init_db():
         "ALTER TABLE apartments ADD COLUMN verified INTEGER DEFAULT 0",
         "ALTER TABLE apartments ADD COLUMN reported INTEGER DEFAULT 0",
         "ALTER TABLE apartments ADD COLUMN apt_views INTEGER DEFAULT 0",
+        "ALTER TABLE apartments ADD COLUMN city TEXT DEFAULT 'Warszawa'",
         """CREATE TABLE IF NOT EXISTS user_activity (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -156,10 +157,132 @@ def _is_warsaw(district: str) -> bool:
     return True
 
 
+# ── City detection ────────────────────────────────────────────
+
+_CITY_KEYWORDS = {
+    "Warszawa":  ["warszawa", "warsaw", "варшав", "варшав"],
+    "Kraków":    ["kraków", "krakow", "cracow", "краков", "краків"],
+    "Wrocław":   ["wrocław", "wroclaw", "breslau", "вроцлав"],
+    "Gdańsk":    ["gdańsk", "gdansk", "danzig", "гданьск", "гданськ"],
+    "Poznań":    ["poznań", "poznan", "познань", "познань"],
+    "Łódź":      ["łódź", "lodz", "лодзь"],
+    "Katowice":  ["katowice", "катовице"],
+    "Szczecin":  ["szczecin", "щецин"],
+    "Lublin":    ["lublin", "люблин"],
+    "Białystok": ["białystok", "bialystok", "белосток"],
+}
+
+
+def _detect_city(title: str, district: str, source_city: str = "") -> str:
+    """
+    Detect which city an apartment belongs to.
+    Priority: source_city hint > district match > title match > default Warszawa.
+    """
+    if source_city and source_city in _CITY_KEYWORDS:
+        return source_city
+
+    text = f"{district} {title}".lower()
+    for city, keywords in _CITY_KEYWORDS.items():
+        for kw in keywords:
+            if kw in text:
+                return city
+
+    return "Warszawa"  # default
+
+
+# ── Data normalizer ───────────────────────────────────────────
+
+import re as _re
+
+_ROOM_PATTERNS = [
+    (_re.compile(r'\bkawalerka\b', _re.I), 1),
+    (_re.compile(r'\bstudio\b', _re.I), 1),
+    (_re.compile(r'\b1\s*-?\s*(?:pok|pokój|pokoje|pokoi|комн|комнат|room)\b', _re.I), 1),
+    (_re.compile(r'\b2\s*-?\s*(?:pok|pokój|pokoje|pokoi|комн|комнат|room)\b', _re.I), 2),
+    (_re.compile(r'\b3\s*-?\s*(?:pok|pokój|pokoje|pokoi|комн|комнат|room)\b', _re.I), 3),
+    (_re.compile(r'\b4\s*-?\s*(?:pok|pokój|pokoje|pokoi|комн|комнат|room)\b', _re.I), 4),
+    (_re.compile(r'\b5\s*-?\s*(?:pok|pokój|pokoje|pokoi|комн|комнат|room)\b', _re.I), 5),
+    # Standalone digit before pokoje/комнат
+    (_re.compile(r'\b([1-5])\s+(?:pokoje?|pokoi|комнат[ыа]?|кімнат[иа]?)\b', _re.I), None),
+]
+
+_AREA_RE   = _re.compile(r'(\d+(?:[.,]\d+)?)\s*m[²2]', _re.I)
+_FLOOR_RE  = _re.compile(r'(?:piętro|floor|этаж|поверх)[^\d]*(\d+)', _re.I)
+_FLOOR_RE2 = _re.compile(r'\b(\d+)\s*/\s*\d+\s*(?:piętro|floor|этаж|поверх|p\.)', _re.I)
+
+_FURNISHED_YES = _re.compile(
+    r'\b(?:umeblowane|meblowane|furnished|с\s*мебел|меблирован|з\s*меблями|umeblowany)\b', _re.I
+)
+_FURNISHED_NO = _re.compile(
+    r'\b(?:bez\s*mebli|nieumeblowane|unfurnished|без\s*мебел|без\s*меблів)\b', _re.I
+)
+
+
+def normalize_apartment(data: dict) -> dict:
+    """
+    Auto-fill missing fields (rooms, area, floor, furnished, city)
+    by parsing the title. Called before saving to DB.
+    Existing non-None values are preserved.
+    """
+    title    = data.get("title", "") or ""
+    district = data.get("district", "") or ""
+    text     = title  # parse title only — description not available
+
+    # ── Rooms ─────────────────────────────────────────────────
+    if not data.get("rooms"):
+        for pattern, value in _ROOM_PATTERNS:
+            m = pattern.search(text)
+            if m:
+                if value is not None:
+                    data["rooms"] = value
+                else:
+                    # Pattern with capture group
+                    try:
+                        data["rooms"] = int(m.group(1))
+                    except Exception:
+                        pass
+                break
+
+    # ── Area ──────────────────────────────────────────────────
+    if not data.get("area"):
+        m = _AREA_RE.search(text)
+        if m:
+            try:
+                data["area"] = float(m.group(1).replace(",", "."))
+            except Exception:
+                pass
+
+    # ── Floor ─────────────────────────────────────────────────
+    if not data.get("floor"):
+        m = _FLOOR_RE.search(text) or _FLOOR_RE2.search(text)
+        if m:
+            data["floor"] = m.group(1)
+
+    # ── Furnished ─────────────────────────────────────────────
+    if data.get("furnished") is None or data.get("furnished") == 0:
+        if _FURNISHED_YES.search(text):
+            data["furnished"] = 1
+        elif _FURNISHED_NO.search(text):
+            data["furnished"] = 0
+        # else: leave as 0 (unknown = treat as not furnished)
+
+    # ── City ──────────────────────────────────────────────────
+    if not data.get("city"):
+        data["city"] = _detect_city(title, district, data.get("source_city", ""))
+
+    return data
+
+
 def save_apartment(data: dict) -> bool:
+    # Normalize before any checks
+    data = normalize_apartment(dict(data))
+
     if not _is_apartment_listing(data.get("title", ""), data.get("price", 0)):
         return False
-    if not _is_warsaw(data.get("district", "")):
+
+    # City-aware Warsaw check — only block non-Warsaw if city is explicitly Warszawa
+    city = data.get("city", "Warszawa")
+    if city == "Warszawa" and not _is_warsaw(data.get("district", "")):
         return False
     # Deduplicate within same source only
     if find_duplicate(data.get("title", ""), data.get("price", 0), data.get("source", "")):
@@ -181,9 +304,9 @@ def save_apartment(data: dict) -> bool:
         return False
     c.execute("""
         INSERT INTO apartments
-        (title, price, district, rooms, area, floor, furnished, link, image, source, created_at)
-        VALUES (:title,:price,:district,:rooms,:area,:floor,:furnished,:link,:image,:source,:created_at)
-    """, {**data, "created_at": datetime.now().isoformat()})
+        (title, price, district, city, rooms, area, floor, furnished, link, image, source, created_at)
+        VALUES (:title,:price,:district,:city,:rooms,:area,:floor,:furnished,:link,:image,:source,:created_at)
+    """, {**data, "city": data.get("city", "Warszawa"), "created_at": datetime.now().isoformat()})
     conn.commit()
     conn.close()
     return True
@@ -233,7 +356,10 @@ def get_apartments(filters: dict = None, offset: int = 0, limit: int = 1,
                 # NULL furnished always passes
                 q += " AND (furnished = ? OR furnished IS NULL)"
                 p.append(f["furnished"])
-
+            # City isolation — ALWAYS filter by city to prevent mixing
+            city = f.get("city", "Warszawa")
+            q += " AND (city = ? OR city IS NULL OR city = '')"
+            p.append(city)
         if exclude_ids:
             placeholders = ",".join("?" * len(exclude_ids))
             q += f" AND id NOT IN ({placeholders})"
@@ -298,6 +424,10 @@ def count_apartments(filters: dict = None, vip: bool = False) -> int:
         if filters.get("furnished") is not None:
             q += " AND (furnished = ? OR furnished IS NULL)"
             p.append(filters["furnished"])
+        # City isolation
+        city = filters.get("city", "Warszawa")
+        q += " AND (city = ? OR city IS NULL OR city = '')"
+        p.append(city)
 
     count = c.execute(q, p).fetchone()[0]
     conn.close()

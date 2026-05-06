@@ -180,13 +180,15 @@ def apt_text(apt: dict, lang: str = "ru") -> str:
     return "\n".join(lines)
 
 
-def apt_keyboard(apt_id: int, lang: str = "ru") -> InlineKeyboardMarkup:
+def apt_keyboard(apt_id: int, lang: str = "ru", has_prev: bool = False) -> InlineKeyboardMarkup:
     """Apartment action keyboard."""
+    row1 = [InlineKeyboardButton(text=t(lang, "btn_fav_add"), callback_data=f"fav_add:{apt_id}")]
+    if has_prev:
+        row1.append(InlineKeyboardButton(text="⬅️ Назад", callback_data="prev"))
+    row1.append(InlineKeyboardButton(text=t(lang, "btn_next"), callback_data="next"))
+
     return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text=t(lang, "btn_fav_add"), callback_data=f"fav_add:{apt_id}"),
-            InlineKeyboardButton(text=t(lang, "btn_next"), callback_data="next"),
-        ],
+        row1,
         [
             InlineKeyboardButton(text="👍", callback_data=f"rate:1:{apt_id}"),
             InlineKeyboardButton(text="👎", callback_data=f"rate:-1:{apt_id}"),
@@ -589,13 +591,9 @@ async def show_next_apartment(user_id: int, bot, state: FSMContext, chat_id: int
     offset = data.get("offset", 0)
     filters = data.get("filters", {})
 
-    # Apply city filter — ensures Warsaw listings don't mix with Kraków etc.
+    # Always inject city into filters — prevents city mixing
     city = data.get("city", "Warszawa")
-    if city and city != "Warszawa":
-        # For non-Warsaw cities, filter by city name in district field
-        city_filters = {**filters, "district": city}
-    else:
-        city_filters = filters  # Warsaw is default, no extra filter needed
+    city_filters = {**filters, "city": city}
 
     apartments = get_apartments(filters=city_filters, offset=offset, vip=is_vip)
 
@@ -614,6 +612,11 @@ async def show_next_apartment(user_id: int, bot, state: FSMContext, chat_id: int
 
     apt = apartments[0]
     await state.update_data(offset=offset + 1, last_apt_id=apt["id"])
+    # Keep a small history for "back" button (last 5 IDs)
+    history = data.get("history", [])
+    if apt["id"] not in history:
+        history = (history + [apt["id"]])[-5:]
+    await state.update_data(offset=offset + 1, last_apt_id=apt["id"], history=history)
     increment_views(user_id)
     increment_apt_views(apt["id"])
     record_user_activity(user_id)
@@ -629,7 +632,7 @@ async def show_next_apartment(user_id: int, bot, state: FSMContext, chat_id: int
     if not is_vip and views_used == FREE_VIEWS - 1:
         text += f"\n\n⚠️ <b>Осталась 1 квартира</b> из бесплатных {FREE_VIEWS}."
 
-    kb = apt_keyboard(apt["id"], lang=lang)
+    kb = apt_keyboard(apt["id"], lang=lang, has_prev=len(history) > 1)
     # Add map + similar buttons
     map_url = f"https://www.google.com/maps/search/{urllib.parse.quote(apt.get('district','') + ', Warszawa')}"
     kb.inline_keyboard.append([
@@ -664,6 +667,52 @@ async def cb_next(call: CallbackQuery, state: FSMContext):
 async def cb_skip(call: CallbackQuery, state: FSMContext):
     await call.answer("⏭")
     await show_next_apartment(call.from_user.id, call.bot, state, call.message.chat.id)
+
+
+@router.callback_query(F.data == "prev")
+async def cb_prev(call: CallbackQuery, state: FSMContext):
+    """Go back to previous apartment."""
+    await call.answer()
+    data = await state.get_data()
+    history = data.get("history", [])
+    current_id = data.get("last_apt_id")
+
+    # Remove current from history to get previous
+    if current_id in history:
+        history.remove(current_id)
+    if not history:
+        await call.message.answer("⬅️ Это первая квартира — назад некуда.")
+        return
+
+    prev_id = history[-1]
+    apt = get_apartment_by_id(prev_id)
+    if not apt:
+        await call.message.answer("😔 Квартира уже недоступна.")
+        return
+
+    lang = get_lang(call.from_user.id)
+    await state.update_data(history=history, last_apt_id=prev_id,
+                            offset=max(0, data.get("offset", 1) - 1))
+
+    text = apt_text(apt, lang)
+    kb = apt_keyboard(apt["id"], lang=lang, has_prev=len(history) > 1)
+    map_url = f"https://www.google.com/maps/search/{urllib.parse.quote(apt.get('district','') + ', Warszawa')}"
+    kb.inline_keyboard.append([
+        InlineKeyboardButton(text=t(lang, "btn_on_map"), url=map_url),
+        InlineKeyboardButton(text=t(lang, "btn_similar"), callback_data=f"similar:{apt['id']}"),
+    ])
+
+    image = apt.get("image", "")
+    sent = False
+    if image and image.startswith("http") and len(image) > 15:
+        try:
+            await call.bot.send_photo(call.message.chat.id, image, caption=text,
+                                      reply_markup=kb, parse_mode="HTML")
+            sent = True
+        except Exception:
+            pass
+    if not sent:
+        await call.bot.send_message(call.message.chat.id, text, reply_markup=kb, parse_mode="HTML")
 
 
 # ── /filter ──────────────────────────────────────────────────
@@ -849,16 +898,23 @@ async def cmd_ask(message: Message, state: FSMContext):
 
 @router.message(Command("favorites"))
 async def cmd_favorites(message: Message):
-    await _show_favorites(message.from_user.id, message)
+    await _show_favorites(message.from_user.id, message, page=0)
 
 
 @router.callback_query(F.data == "open_favorites")
 async def cb_open_favorites(call: CallbackQuery):
     await call.answer()
-    await _show_favorites(call.from_user.id, call.message)
+    await _show_favorites(call.from_user.id, call.message, page=0)
 
 
-async def _show_favorites(user_id: int, target):
+@router.callback_query(F.data.startswith("fav_page:"))
+async def cb_fav_page(call: CallbackQuery):
+    await call.answer()
+    page = int(call.data.split(":")[1])
+    await _show_favorites(call.from_user.id, call.message, page=page)
+
+
+async def _show_favorites(user_id: int, target, page: int = 0):
     favs = get_favorites(user_id)
     if not favs:
         await target.answer(
@@ -867,17 +923,35 @@ async def _show_favorites(user_id: int, target):
         )
         return
 
-    header_kb = None
+    PAGE_SIZE = 5
+    total = len(favs)
+    total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+    page = max(0, min(page, total_pages - 1))
+    page_favs = favs[page * PAGE_SIZE: (page + 1) * PAGE_SIZE]
+
+    # Navigation buttons
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton(text="⬅️", callback_data=f"fav_page:{page-1}"))
+    nav_row.append(InlineKeyboardButton(
+        text=f"{page+1}/{total_pages}  ({total} квартир)",
+        callback_data="noop"
+    ))
+    if page < total_pages - 1:
+        nav_row.append(InlineKeyboardButton(text="➡️", callback_data=f"fav_page:{page+1}"))
+
+    header_kb = InlineKeyboardMarkup(inline_keyboard=[nav_row])
     if len(favs) >= 2:
-        header_kb = InlineKeyboardMarkup(inline_keyboard=[[
+        header_kb.inline_keyboard.append([
             InlineKeyboardButton(text="📊 Сравнить", callback_data="open_compare"),
-        ]])
+        ])
+
     await target.answer(
-        f"❤️ <b>Избранное ({len(favs)}):</b>",
+        f"❤️ <b>Избранное — стр. {page+1}/{total_pages} ({total} квартир):</b>",
         parse_mode="HTML",
         reply_markup=header_kb
     )
-    for apt in favs[:10]:
+    for apt in page_favs:
         kb = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="🗑 Удалить", callback_data=f"fav_remove:{apt['id']}"),
             InlineKeyboardButton(text="🔗 Открыть", url=apt["link"]),
@@ -1809,6 +1883,11 @@ async def cb_cancel(call: CallbackQuery, state: FSMContext):
         await call.message.delete()
     except Exception:
         pass
+
+
+@router.callback_query(F.data == "noop")
+async def cb_noop(call: CallbackQuery):
+    await call.answer()
 
 
 @router.callback_query(F.data == "check_sub")

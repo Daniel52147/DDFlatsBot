@@ -35,6 +35,21 @@ def set_bot(bot, loop):
     _loop = loop
 
 
+async def _notify_admin_error(source: str, error: str):
+    """Send error notification to admin. Non-blocking."""
+    if not _bot:
+        return
+    for admin_id in ADMIN_IDS:
+        try:
+            await _bot.send_message(
+                admin_id,
+                f"⚠️ <b>Ошибка парсера [{source}]</b>\n\n<code>{error[:300]}</code>",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+
 def _run_parser_with_timeout(parser_fn, source_name: str) -> list:
     """Run a parser function with a hard timeout."""
     with ThreadPoolExecutor(max_workers=1) as executor:
@@ -76,6 +91,13 @@ def parse_all():
             log_parse(source_name, new)
             total_new += new
             print(f"[{source_name}] +{new} new")
+            if new == 0 and listings == []:
+                # Parser returned nothing — might be blocked
+                if _bot and _loop:
+                    asyncio.run_coroutine_threadsafe(
+                        _notify_admin_error(source_name, "Parser returned 0 results — may be blocked"),
+                        _loop
+                    )
 
         print(f"[Scheduler] Done. Total new: {total_new}")
         check_vip_expiry()
