@@ -12,8 +12,6 @@ from parser.parser_otodom import parse_otodom
 from parser.parser_gratka import parse_gratka
 from parser.parser_morizon import parse_morizon
 from parser.parser_adresowo import parse_adresowo
-from parser.parser_nieruch import parse_nieruch_online, parse_domiporta
-from parser.parser_lento import parse_lento
 from database.db import (
     save_apartment, get_latest_apartments, get_all_user_ids,
     get_all_vip_user_ids, get_subscribers_for_district, log_parse,
@@ -30,9 +28,11 @@ PARSER_TIMEOUT = 120  # seconds per source
 
 # Track consecutive failures per source — notify only after N failures in a row
 _fail_counts: dict[str, int] = {}
-FAIL_NOTIFY_THRESHOLD = 5   # notify after 5 consecutive empty results
-# Sources that are known to be unreliable — higher threshold, no spam
-_FLAKY_SOURCES = {"Nieruch-online", "Domiporta", "Szybko", "Lento", "Gratka", "Morizon"}
+FAIL_NOTIFY_THRESHOLD = 144   # ~24 часа (144 × 10 мин) — уведомлять раз в сутки
+# After notification, reset to half so next notification is in another 12h
+FAIL_NOTIFY_RESET = 72
+# Sources that are known to be unreliable — skip error notifications entirely
+_SILENT_SOURCES = {"Nieruch-online", "Domiporta", "Szybko", "Lento"}
 
 
 def set_bot(bot, loop):
@@ -80,14 +80,16 @@ def parse_all():
         before = datetime.now().isoformat()
 
         sources = [
-            ("OLX",            parse_olx),
-            ("Otodom",         parse_otodom),
-            ("Gratka",         parse_gratka),
-            ("Morizon",        parse_morizon),
-            ("Adresowo",        parse_adresowo),
-            ("Nieruch-online", parse_nieruch_online),
-            ("Domiporta",      parse_domiporta),
-            ("Lento",          parse_lento),
+            # Primary sources — reliable, work on datacenter IPs
+            ("OLX",     parse_olx),
+            ("Otodom",  parse_otodom),
+            ("Adresowo", parse_adresowo),
+            # Secondary sources — have fallbacks built-in, may be blocked
+            ("Gratka",  parse_gratka),   # falls back to Domiporta internally
+            ("Morizon", parse_morizon),  # falls back to Nieruch-online internally
+            # Optional sources — disabled if consistently blocked
+            # ("Lento",  parse_lento),   # blocked on datacenter IPs
+            # ("Szybko", parse_szybko),  # unreliable
         ]
 
         total_new = 0
@@ -101,18 +103,20 @@ def parse_all():
             # Track consecutive failures
             if listings == []:
                 _fail_counts[source_name] = _fail_counts.get(source_name, 0) + 1
-                threshold = FAIL_NOTIFY_THRESHOLD * 2 if source_name in _FLAKY_SOURCES else FAIL_NOTIFY_THRESHOLD
-                # Notify only on exact threshold hit (not every cycle after)
-                if _fail_counts[source_name] == threshold and _bot and _loop:
-                    asyncio.run_coroutine_threadsafe(
-                        _notify_admin_error(
-                            source_name,
-                            f"0 результатов {threshold} раз подряд — возможно заблокирован"
-                        ),
-                        _loop
-                    )
+                count = _fail_counts[source_name]
+                # Skip notification for known-unreliable sources
+                if source_name not in _SILENT_SOURCES and count == FAIL_NOTIFY_THRESHOLD:
+                    if _bot and _loop:
+                        asyncio.run_coroutine_threadsafe(
+                            _notify_admin_error(
+                                source_name,
+                                f"0 результатов {count} раз подряд (~24ч) — источник недоступен"
+                            ),
+                            _loop
+                        )
+                    # Reset to half so next notification fires in another 12h
+                    _fail_counts[source_name] = FAIL_NOTIFY_RESET
             else:
-                # Reset counter on success
                 _fail_counts[source_name] = 0
 
         print(f"[Scheduler] Done. Total new: {total_new}")
