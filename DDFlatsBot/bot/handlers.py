@@ -24,8 +24,9 @@ from database.db import (
     increment_apt_views, mark_seen, record_conversion, get_conversion_stats,
     get_new_since, update_last_visit, get_last_visit,
     get_apt_age_days, evaluate_price, parse_natural_query,
+    set_user_city, get_user_city_db,
 )
-from config import FREE_VIEWS, VIP_PRICE, DISTRICTS, ADMIN_IDS, CHANNEL_LINK, CITIES
+from config import FREE_VIEWS, VIP_PRICE, DISTRICTS, ADMIN_IDS, CHANNEL_LINK, CITIES, CITY_DISTRICTS
 from config import REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS
 from bot.i18n import t
 from datetime import datetime, timedelta
@@ -210,10 +211,12 @@ def apt_keyboard(apt_id: int, lang: str = "ru", has_prev: bool = False) -> Inlin
     ])
 
 
-def districts_keyboard(action: str = "sub") -> InlineKeyboardMarkup:
+def districts_keyboard(action: str = "sub", city: str = "Warszawa") -> InlineKeyboardMarkup:
+    """Build districts keyboard for the given city."""
+    city_districts = CITY_DISTRICTS.get(city, CITY_DISTRICTS["Warszawa"])
     buttons = []
     row = []
-    for i, d in enumerate(DISTRICTS):
+    for d in city_districts:
         row.append(InlineKeyboardButton(text=d, callback_data=f"{action}:{d}"))
         if len(row) == 2:
             buttons.append(row)
@@ -221,7 +224,7 @@ def districts_keyboard(action: str = "sub") -> InlineKeyboardMarkup:
     if row:
         buttons.append(row)
     buttons.append([InlineKeyboardButton(text="🌍 Все районы", callback_data=f"{action}:все")])
-    buttons.append([InlineKeyboardButton(text="❌ Отмена", callback_data="cancel")])
+    buttons.append([InlineKeyboardButton(text="❌ Отмена",     callback_data="cancel")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -320,6 +323,10 @@ async def cmd_start(message: Message, state: FSMContext):
     except Exception:
         pass
 
+    # Restore city from DB so /start doesn't reset it
+    saved_city = get_user_city_db(message.from_user.id)
+    await state.update_data(city=saved_city)
+
     # Detect new user (registered < 60s ago)
     is_new = False
     created = user.get("created_at", "")
@@ -377,11 +384,11 @@ async def cb_city_select(call: CallbackQuery, state: FSMContext):
     city = call.data.split(":")[1]
     data = await state.get_data()
     lang = data.get("onboard_lang") or get_lang(call.from_user.id)
-
-    # Save city in FSM state
-    await state.update_data(city=city, filters={}, offset=0)
-
     city_label = CITIES.get(city, {}).get("label", city)
+
+    # Save city in FSM AND in DB
+    await state.update_data(city=city, filters={}, offset=0)
+    set_user_city(call.from_user.id, city)
 
     # If coming from onboarding — show disclaimer
     if data.get("onboard_lang"):
@@ -395,12 +402,22 @@ async def cb_city_select(call: CallbackQuery, state: FSMContext):
             reply_markup=kb
         )
     else:
-        # City change from /city command
-        await call.answer(f"✅ Город изменён на {city_label}", show_alert=True)
+        # City change from /city command — confirm and show menu
+        await call.answer(f"✅ Город: {city_label}", show_alert=True)
         try:
             await call.message.delete()
         except Exception:
             pass
+        # Show updated main menu with new city
+        user = get_or_create_user(call.from_user.id)
+        name = call.from_user.first_name or "друг"
+        vip_badge = _vip_badge(user, lang)
+        await call.message.answer(
+            t(lang, "start_greeting", name=name, badge=vip_badge) +
+            f"\n\n📍 Город изменён: <b>{city_label}</b>\nФильтры сброшены.",
+            parse_mode="HTML",
+            reply_markup=main_menu_keyboard(lang)
+        )
 
 
 @router.callback_query(F.data.startswith("onboard_accept_final:"))
@@ -506,11 +523,12 @@ async def cmd_menu(message: Message):
 @router.message(Command("city"))
 async def cmd_city(message: Message, state: FSMContext):
     data = await state.get_data()
-    current = data.get("city", "Warszawa")
+    current = data.get("city") or get_user_city_db(message.from_user.id)
     current_label = CITIES.get(current, {}).get("label", current)
     await message.answer(
         f"🏙 <b>Выбор города</b>\n\nСейчас: <b>{current_label}</b>\n\n"
-        "Выбери город — квартиры будут показываться только из него:",
+        "Выбери город — квартиры будут показываться только из него.\n"
+        "⚠️ Фильтры сбросятся при смене города.",
         parse_mode="HTML",
         reply_markup=city_keyboard()
     )
@@ -730,22 +748,26 @@ async def cb_prev(call: CallbackQuery, state: FSMContext):
 
 @router.message(Command("filter"))
 async def cmd_filter(message: Message, state: FSMContext):
+    data = await state.get_data()
+    city = data.get("city", get_user_city_db(message.from_user.id))
     await state.set_state(FilterState.waiting_district)
     await message.answer(
         "📍 <b>Шаг 1/4: Выбери район</b>",
         parse_mode="HTML",
-        reply_markup=districts_keyboard("filter_d")
+        reply_markup=districts_keyboard("filter_d", city)
     )
 
 
 @router.callback_query(F.data == "open_filter")
 async def cb_open_filter(call: CallbackQuery, state: FSMContext):
     await call.answer()
+    data = await state.get_data()
+    city = data.get("city", get_user_city_db(call.from_user.id))
     await state.set_state(FilterState.waiting_district)
     await call.message.answer(
         "📍 <b>Шаг 1/4: Выбери район</b>",
         parse_mode="HTML",
-        reply_markup=districts_keyboard("filter_d")
+        reply_markup=districts_keyboard("filter_d", city)
     )
 
 
@@ -1226,7 +1248,9 @@ async def _show_alerts(user_id: int, target, state: FSMContext):
 @router.callback_query(F.data == "alert_create")
 async def cb_alert_create(call: CallbackQuery, state: FSMContext):
     await call.answer()
-    await call.message.answer("📍 Район для алерта:", reply_markup=districts_keyboard("alert_d"))
+    data = await state.get_data()
+    city = data.get("city", get_user_city_db(call.from_user.id))
+    await call.message.answer("📍 Район для алерта:", reply_markup=districts_keyboard("alert_d", city))
     await state.set_state(AlertState.waiting_district)
 
 
@@ -1572,15 +1596,29 @@ async def _show_daily(target):
 
 
 @router.callback_query(F.data.startswith("daily_days:"))
-async def cb_daily_days(call: CallbackQuery):
+async def cb_daily_days(call: CallbackQuery, state: FSMContext):
     days = int(call.data.split(":")[1])
     lang = get_lang(call.from_user.id)
+    data = await state.get_data()
+    city = data.get("city", get_user_city_db(call.from_user.id))
+
     from datetime import date, timedelta
-    checkin = date.today().isoformat()
+    checkin  = date.today().isoformat()
     checkout = (date.today() + timedelta(days=days)).isoformat()
-    booking = f"https://www.booking.com/searchresults.pl.html?ss=Warszawa&checkin={checkin}&checkout={checkout}&group_adults=2"
-    airbnb = f"https://www.airbnb.pl/s/Warszawa/homes?checkin={checkin}&checkout={checkout}"
-    nocowanie = f"https://www.nocowanie.pl/noclegi/warszawa/?od={checkin}&do={checkout}"
+
+    city_map = {
+        "Warszawa": ("Warszawa",       "Warsaw--Poland",   "warszawa"),
+        "Kraków":   ("Krakow",         "Krakow--Poland",   "krakow"),
+        "Wrocław":  ("Wroclaw",        "Wroclaw--Poland",  "wroclaw"),
+        "Gdańsk":   ("Gdansk",         "Gdansk--Poland",   "gdansk"),
+        "Poznań":   ("Poznan",         "Poznan--Poland",   "poznan"),
+    }
+    b_city, a_city, n_city = city_map.get(city, ("Warszawa", "Warsaw--Poland", "warszawa"))
+
+    booking   = f"https://www.booking.com/searchresults.pl.html?ss={b_city}&checkin={checkin}&checkout={checkout}&group_adults=2"
+    airbnb    = f"https://www.airbnb.pl/s/{a_city}/homes?checkin={checkin}&checkout={checkout}"
+    nocowanie = f"https://www.nocowanie.pl/noclegi/{n_city}/?od={checkin}&do={checkout}"
+
     await call.answer()
     await call.message.answer(
         t(lang, "daily_links", days=days, booking=booking, airbnb=airbnb, nocowanie=nocowanie),
@@ -1592,7 +1630,7 @@ async def cb_daily_days(call: CallbackQuery):
 # ── /subscribe ───────────────────────────────────────────────
 
 @router.message(Command("subscribe"))
-async def cmd_subscribe(message: Message):
+async def cmd_subscribe(message: Message, state: FSMContext):
     user = get_or_create_user(message.from_user.id)
     if not user.get("vip"):
         kb = InlineKeyboardMarkup(inline_keyboard=[[
@@ -1604,15 +1642,17 @@ async def cmd_subscribe(message: Message):
             reply_markup=kb
         )
         return
+    data = await state.get_data()
+    city = data.get("city", get_user_city_db(message.from_user.id))
     subs = get_user_subscriptions(message.from_user.id)
     await message.answer(
         f"🔔 Подписки: {', '.join(subs) if subs else 'нет'}\n\nВыбери район:",
-        reply_markup=districts_keyboard("sub")
+        reply_markup=districts_keyboard("sub", city)
     )
 
 
 @router.callback_query(F.data.startswith("sub:"))
-async def cb_subscribe(call: CallbackQuery):
+async def cb_subscribe(call: CallbackQuery, state: FSMContext):
     user = get_or_create_user(call.from_user.id)
     if not user.get("vip"):
         await call.answer("💎 Только для VIP!", show_alert=True)
@@ -1620,10 +1660,12 @@ async def cb_subscribe(call: CallbackQuery):
     district = call.data.split(":", 1)[1]
     subscribe_district(call.from_user.id, district)
     await call.answer(f"✅ Подписан на {district}!")
+    data = await state.get_data()
+    city = data.get("city", get_user_city_db(call.from_user.id))
     subs = get_user_subscriptions(call.from_user.id)
     await call.message.edit_text(
         f"🔔 Подписки: {', '.join(subs)}\n\nВыбери ещё:",
-        reply_markup=districts_keyboard("sub")
+        reply_markup=districts_keyboard("sub", city)
     )
 
 
@@ -2759,7 +2801,9 @@ async def _open_advanced(target, state: FSMContext):
 @router.callback_query(F.data == "adv_district")
 async def cb_adv_district(call: CallbackQuery, state: FSMContext):
     await call.answer()
-    await call.message.answer("📍 Выбери район:", reply_markup=districts_keyboard("adv_d"))
+    data = await state.get_data()
+    city = data.get("city", get_user_city_db(call.from_user.id))
+    await call.message.answer("📍 Выбери район:", reply_markup=districts_keyboard("adv_d", city))
 
 
 @router.callback_query(F.data.startswith("adv_d:"))

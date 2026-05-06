@@ -63,12 +63,35 @@ USER_AGENTS = [
     "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0",
 ]
 
-DISTRICTS = [
-    "Mokotów", "Ursynów", "Wilanów", "Wola", "Śródmieście",
-    "Praga-Południe", "Praga-Północ", "Żoliborz", "Bielany",
-    "Bemowo", "Ochota", "Targówek", "Białołęka", "Ursus", "Włochy",
-    "Rembertów", "Wesoła", "Wawer",
-]
+# Districts per city
+CITY_DISTRICTS = {
+    "Warszawa": [
+        "Mokotów", "Ursynów", "Wilanów", "Wola", "Śródmieście",
+        "Praga-Południe", "Praga-Północ", "Żoliborz", "Bielany",
+        "Bemowo", "Ochota", "Targówek", "Białołęka", "Ursus", "Włochy",
+        "Rembertów", "Wesoła", "Wawer",
+    ],
+    "Kraków": [
+        "Stare Miasto", "Kazimierz", "Krowodrza", "Bronowice",
+        "Prądnik Biały", "Prądnik Czerwony", "Grzegórzki", "Dębniki",
+        "Podgórze", "Nowa Huta", "Mistrzejowice", "Bieżanów",
+    ],
+    "Wrocław": [
+        "Stare Miasto", "Śródmieście", "Krzyki", "Fabryczna",
+        "Psie Pole", "Nadodrze", "Biskupin", "Gaj", "Ołtaszyn",
+    ],
+    "Gdańsk": [
+        "Śródmieście", "Wrzeszcz", "Oliwa", "Przymorze", "Zaspa",
+        "Chełm", "Morena", "Piecki-Migowo", "Suchanino",
+    ],
+    "Poznań": [
+        "Stare Miasto", "Grunwald", "Jeżyce", "Nowe Miasto",
+        "Wilda", "Winogrady", "Rataje", "Piątkowo",
+    ],
+}
+
+# Keep DISTRICTS as alias for Warszawa (backward compat)
+DISTRICTS = CITY_DISTRICTS["Warszawa"]
 
 # Other Polish cities — separate from Warsaw
 CITIES = {

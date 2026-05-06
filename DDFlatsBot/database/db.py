@@ -61,6 +61,7 @@ def init_db():
         "ALTER TABLE users ADD COLUMN lang TEXT DEFAULT 'ru'",
         "ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'",
         "ALTER TABLE users ADD COLUMN last_visit TEXT",
+        "ALTER TABLE users ADD COLUMN city TEXT DEFAULT 'Warszawa'",
         "ALTER TABLE apartments ADD COLUMN rooms INTEGER",
         "ALTER TABLE apartments ADD COLUMN area REAL",
         "ALTER TABLE apartments ADD COLUMN floor TEXT",
@@ -753,6 +754,29 @@ def get_user_lang(user_id: int) -> str:
     row = conn.execute("SELECT lang FROM users WHERE user_id=?", (user_id,)).fetchone()
     conn.close()
     return row["lang"] if row and row["lang"] else "ru"
+
+
+def set_user_city(user_id: int, city: str):
+    """Persist user's selected city to DB so it survives /start."""
+    conn = get_conn()
+    try:
+        conn.execute("UPDATE users SET city=? WHERE user_id=?", (city, user_id))
+        conn.commit()
+    except Exception:
+        pass
+    conn.close()
+
+
+def get_user_city_db(user_id: int) -> str:
+    """Get user's saved city from DB."""
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT city FROM users WHERE user_id=?", (user_id,)).fetchone()
+        conn.close()
+        return (row["city"] or "Warszawa") if row else "Warszawa"
+    except Exception:
+        conn.close()
+        return "Warszawa"
 
 
 # ── Ratings ──────────────────────────────────────────────────
