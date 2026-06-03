@@ -21,12 +21,16 @@ from database.db import (
     delete_apartment,
     get_cheapest_apartments, get_apartment_by_id,
     add_user_note, get_user_notes, get_similar_apartments,
-    increment_apt_views, mark_seen, record_conversion, get_conversion_stats,
+    increment_apt_views, mark_seen, get_search_exclude_ids, get_user_hide_seen,
+    set_user_hide_seen, hide_apartment, record_conversion, get_conversion_stats,
     get_new_since, update_last_visit, get_last_visit,
     get_apt_age_days, evaluate_price, parse_natural_query,
     set_user_city, get_user_city_db,
 )
-from config import FREE_VIEWS, VIP_PRICE, DISTRICTS, ADMIN_IDS, CHANNEL_LINK, CITIES, CITY_DISTRICTS
+from config import (
+    FREE_VIEWS, VIP_PRICE, DISTRICTS, ADMIN_IDS, CHANNEL_LINK, CITIES, CITY_DISTRICTS,
+    CITY_MENU_STYLE, BOOKING_LOCATIONS, AIRBNB_LOCATIONS,
+)
 from config import REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS
 from bot.i18n import t
 from datetime import datetime, timedelta
@@ -41,6 +45,14 @@ SOURCE_ICONS = {
     "OLX": "🟠", "Otodom": "🔵", "Gratka": "🟢", "Morizon": "🟣",
     "Adresowo": "🟡", "Domiporta": "🔴", "Lento": "🟤", "Szybko": "🔷",
 }
+
+
+def search_exclude_ids(user_id: int, state_data: dict | None = None) -> list | None:
+    """Exclude hidden + optionally seen — same logic for count and listing."""
+    hide_seen = None
+    if state_data is not None and "hide_seen" in state_data:
+        hide_seen = state_data.get("hide_seen")
+    return get_search_exclude_ids(user_id, hide_seen=hide_seen)
 
 
 def get_lang(user_id: int) -> str:
@@ -58,6 +70,8 @@ def auto_detect_lang(tg_lang: str | None) -> str:
         return "uk"
     if code == "pl":
         return "pl"
+    if code == "en":
+        return "en"
     return "ru"
 
 
@@ -140,10 +154,15 @@ def apt_text(apt: dict, lang: str = "ru") -> str:
     elif apt.get("furnished") == 0:
         furn_tag = " · 🚫 без мебели"
 
+    # Show city + district
+    city = apt.get("city", "Warszawa")
+    district = apt.get("district", "")
+    location = f"{district}, {city}" if district else city
+
     lines = [
         f"{verified}{icon} <b>{apt.get('title', '—')}</b>",
         price_line,
-        f"📍 {apt.get('district', 'Warszawa')}",
+        f"📍 {location}",
     ]
     if details or furn_tag:
         lines.append(f"📐 {details}{furn_tag}" if details else f"📐{furn_tag}")
@@ -209,7 +228,10 @@ def apt_keyboard(apt_id: int, lang: str = "ru", has_prev: bool = False) -> Inlin
             InlineKeyboardButton(text=t(lang, "btn_share"), callback_data=f"share:{apt_id}"),
         ],
         [
-            InlineKeyboardButton(text="👁 Уже смотрел", callback_data=f"seen:{apt_id}"),
+            InlineKeyboardButton(text=t(lang, "btn_hide"), callback_data=f"hide:{apt_id}"),
+            InlineKeyboardButton(text=t(lang, "btn_seen"), callback_data=f"seen:{apt_id}"),
+        ],
+        [
             InlineKeyboardButton(text=t(lang, "btn_found"), callback_data=f"found:{apt_id}"),
             InlineKeyboardButton(text=t(lang, "btn_report"), callback_data=f"scam:{apt_id}"),
         ],
@@ -260,51 +282,122 @@ def rooms_keyboard(action: str) -> InlineKeyboardMarkup:
     ])
 
 
-def main_menu_keyboard(lang: str) -> InlineKeyboardMarkup:
-    """Main menu inline keyboard."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text=t(lang, "btn_find"),      callback_data="next"),
-            InlineKeyboardButton(text=t(lang, "btn_filter"),    callback_data="open_filter"),
-        ],
-        [
-            InlineKeyboardButton(text=t(lang, "btn_favorites"), callback_data="open_favorites"),
-            InlineKeyboardButton(text=t(lang, "btn_alerts"),    callback_data="open_alerts"),
-        ],
-        [
-            InlineKeyboardButton(text=t(lang, "btn_hot"),       callback_data="open_hot"),
-            InlineKeyboardButton(text=t(lang, "btn_drops"),     callback_data="open_drops"),
-        ],
-        [
-            InlineKeyboardButton(text=t(lang, "btn_cheap"),     callback_data="open_cheap"),
-            InlineKeyboardButton(text=t(lang, "btn_map"),       callback_data="open_map"),
-        ],
-        [
-            InlineKeyboardButton(text=t(lang, "btn_vip"),       callback_data="open_vip"),
-            InlineKeyboardButton(text=t(lang, "btn_ref"),       callback_data="open_ref"),
-        ],
-        [
-            InlineKeyboardButton(text=t(lang, "btn_mystats"),   callback_data="open_stats"),
-            InlineKeyboardButton(text=t(lang, "btn_daily"),     callback_data="open_daily"),
-        ],
-        [
-            InlineKeyboardButton(text="📝 Заметки",             callback_data="open_notes"),
-            InlineKeyboardButton(text="📰 Дайджест",            callback_data="open_digest"),
-        ],
-        [
-            InlineKeyboardButton(text="🔬 Расширенный поиск",   callback_data="open_advanced"),
-        ],
-    ])
+def _menu_btn(lang: str, key: str, callback: str) -> InlineKeyboardButton:
+    return InlineKeyboardButton(text=t(lang, key), callback_data=callback)
+
+
+def city_menu_keyboard(lang: str, city: str) -> InlineKeyboardMarkup:
+    """City-specific menu layout — different order and emphasis per city."""
+    style = CITY_MENU_STYLE.get(city, "quiet")
+    style_key = f"menu_style_{style}"
+    rows = [[InlineKeyboardButton(text=t(lang, style_key), callback_data="noop")]]
+
+    B = lambda k, c: _menu_btn(lang, k, c)
+
+    if style == "coastal":
+        body = [
+            [B("btn_daily", "open_daily"), B("btn_map", "open_map")],
+            [B("btn_find", "next"), B("btn_filter", "open_filter")],
+            [B("btn_hot", "open_hot"), B("btn_cheap", "open_cheap")],
+            [B("btn_favorites", "open_favorites"), B("btn_alerts", "open_alerts")],
+            [B("btn_drops", "open_drops"), B("btn_mystats", "open_stats")],
+            [B("btn_vip", "open_vip"), B("btn_ref", "open_ref")],
+            [B("btn_notes", "open_notes"), B("btn_digest", "open_digest")],
+            [B("btn_advanced", "open_advanced")],
+            [B("btn_settings", "open_settings"), B("btn_change_city", "open_city_pick")],
+        ]
+    elif style == "capital":
+        body = [
+            [B("btn_find", "next"), B("btn_filter", "open_filter")],
+            [B("btn_hot", "open_hot"), B("btn_daily", "open_daily")],
+            [B("btn_map", "open_map"), B("btn_cheap", "open_cheap")],
+            [B("btn_favorites", "open_favorites"), B("btn_alerts", "open_alerts")],
+            [B("btn_drops", "open_drops"), B("btn_mystats", "open_stats")],
+            [B("btn_vip", "open_vip"), B("btn_ref", "open_ref")],
+            [B("btn_notes", "open_notes"), B("btn_advanced", "open_advanced")],
+            [B("btn_settings", "open_settings"), B("btn_change_city", "open_city_pick")],
+        ]
+    elif style == "industrial":
+        body = [
+            [B("btn_cheap", "open_cheap"), B("btn_find", "next")],
+            [B("btn_filter", "open_filter"), B("btn_hot", "open_hot")],
+            [B("btn_daily", "open_daily"), B("btn_map", "open_map")],
+            [B("btn_favorites", "open_favorites"), B("btn_alerts", "open_alerts")],
+            [B("btn_drops", "open_drops"), B("btn_mystats", "open_stats")],
+            [B("btn_vip", "open_vip"), B("btn_ref", "open_ref")],
+            [B("btn_notes", "open_notes"), B("btn_digest", "open_digest")],
+            [B("btn_advanced", "open_advanced")],
+            [B("btn_settings", "open_settings"), B("btn_change_city", "open_city_pick")],
+        ]
+    elif style == "culture":
+        body = [
+            [B("btn_find", "next"), B("btn_hot", "open_hot")],
+            [B("btn_filter", "open_filter"), B("btn_daily", "open_daily")],
+            [B("btn_map", "open_map"), B("btn_cheap", "open_cheap")],
+            [B("btn_favorites", "open_favorites"), B("btn_alerts", "open_alerts")],
+            [B("btn_drops", "open_drops"), B("btn_mystats", "open_stats")],
+            [B("btn_vip", "open_vip"), B("btn_ref", "open_ref")],
+            [B("btn_notes", "open_notes"), B("btn_digest", "open_digest")],
+            [B("btn_advanced", "open_advanced")],
+            [B("btn_settings", "open_settings"), B("btn_change_city", "open_city_pick")],
+        ]
+    elif style == "business":
+        body = [
+            [B("btn_find", "next"), B("btn_map", "open_map")],
+            [B("btn_filter", "open_filter"), B("btn_cheap", "open_cheap")],
+            [B("btn_hot", "open_hot"), B("btn_daily", "open_daily")],
+            [B("btn_favorites", "open_favorites"), B("btn_alerts", "open_alerts")],
+            [B("btn_drops", "open_drops"), B("btn_mystats", "open_stats")],
+            [B("btn_vip", "open_vip"), B("btn_ref", "open_ref")],
+            [B("btn_notes", "open_notes"), B("btn_advanced", "open_advanced")],
+            [B("btn_settings", "open_settings"), B("btn_change_city", "open_city_pick")],
+        ]
+    else:  # quiet
+        body = [
+            [B("btn_find", "next"), B("btn_filter", "open_filter")],
+            [B("btn_cheap", "open_cheap"), B("btn_daily", "open_daily")],
+            [B("btn_favorites", "open_favorites"), B("btn_hot", "open_hot")],
+            [B("btn_alerts", "open_alerts"), B("btn_map", "open_map")],
+            [B("btn_drops", "open_drops"), B("btn_mystats", "open_stats")],
+            [B("btn_vip", "open_vip"), B("btn_ref", "open_ref")],
+            [B("btn_notes", "open_notes"), B("btn_digest", "open_digest")],
+            [B("btn_advanced", "open_advanced")],
+            [B("btn_settings", "open_settings"), B("btn_change_city", "open_city_pick")],
+        ]
+
+    return InlineKeyboardMarkup(inline_keyboard=rows + body)
+
+
+def main_menu_keyboard(lang: str, city: str = "Warszawa") -> InlineKeyboardMarkup:
+    return city_menu_keyboard(lang, city)
+
+
+def build_menu_text(user_id: int, lang: str, city: str, name: str, user: dict, extra: str = "") -> str:
+    city_label = CITIES.get(city, {}).get("label", city)
+    count = count_apartments({"city": city}, vip=True)
+    vip_badge = _vip_badge(user, lang)
+    new_msg = ""
+    last_visit = get_last_visit(user_id)
+    if last_visit:
+        new_count = get_new_since(last_visit)
+        if new_count > 0:
+            new_msg = f"\n🆕 <b>+{new_count}</b> new" if lang == "en" else f"\n🆕 <b>+{new_count}</b> новых с прошлого визита!"
+    return t(lang, "start_greeting", name=name, badge=vip_badge, city=city_label, count=count) + extra + new_msg
 
 
 def city_keyboard() -> InlineKeyboardMarkup:
-    """City selection keyboard."""
+    """City selection keyboard (two cities per row)."""
+    items = list(CITIES.items())
     rows = []
-    for city_key, city_data in CITIES.items():
-        rows.append([InlineKeyboardButton(
-            text=city_data["label"],
-            callback_data=f"city_select:{city_key}"
-        )])
+    for i in range(0, len(items), 2):
+        row = [
+            InlineKeyboardButton(
+                text=items[j][1]["label"],
+                callback_data=f"city_select:{items[j][0]}",
+            )
+            for j in range(i, min(i + 2, len(items)))
+        ]
+        rows.append(row)
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -330,7 +423,10 @@ async def cmd_start(message: Message, state: FSMContext):
 
     # Restore city from DB so /start doesn't reset it
     saved_city = get_user_city_db(message.from_user.id)
-    await state.update_data(city=saved_city)
+    await state.update_data(
+        city=saved_city,
+        hide_seen=get_user_hide_seen(message.from_user.id),
+    )
 
     # Detect new user (registered < 60s ago)
     is_new = False
@@ -346,11 +442,16 @@ async def cmd_start(message: Message, state: FSMContext):
 
     if is_new:
         detected = auto_detect_lang(message.from_user.language_code)
-        kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="🇷🇺 Русский",    callback_data="onboard_lang:ru"),
-            InlineKeyboardButton(text="🇺🇦 Українська", callback_data="onboard_lang:uk"),
-            InlineKeyboardButton(text="🇵🇱 Polski",     callback_data="onboard_lang:pl"),
-        ]])
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🇷🇺 Русский",    callback_data="onboard_lang:ru"),
+                InlineKeyboardButton(text="🇺🇦 Українська", callback_data="onboard_lang:uk"),
+            ],
+            [
+                InlineKeyboardButton(text="🇵🇱 Polski",     callback_data="onboard_lang:pl"),
+                InlineKeyboardButton(text="🇬🇧 English",    callback_data="onboard_lang:en"),
+            ],
+        ])
         await message.answer(t(detected, "welcome_new"), parse_mode="HTML", reply_markup=kb)
         return
     await _show_main_menu(message, user)
@@ -415,13 +516,12 @@ async def cb_city_select(call: CallbackQuery, state: FSMContext):
             pass
         # Show updated main menu with new city
         user = get_or_create_user(call.from_user.id)
-        name = call.from_user.first_name or "друг"
-        vip_badge = _vip_badge(user, lang)
+        name = call.from_user.first_name or "Friend"
+        count = count_apartments({"city": city}, vip=True)
         await call.message.answer(
-            t(lang, "start_greeting", name=name, badge=vip_badge) +
-            f"\n\n📍 Город изменён: <b>{city_label}</b>\nФильтры сброшены.",
+            t(lang, "city_changed", city=city_label, count=count),
             parse_mode="HTML",
-            reply_markup=main_menu_keyboard(lang)
+            reply_markup=city_menu_keyboard(lang, city),
         )
 
 
@@ -442,20 +542,13 @@ async def cb_onboard_accept_final(call: CallbackQuery, state: FSMContext):
             await call.message.answer(t(lang, "ref_bonus"))
 
     user = get_or_create_user(call.from_user.id)
-    name = call.from_user.first_name or "друг"
-    vip_badge = _vip_badge(user, lang)
+    name = call.from_user.first_name or "Friend"
     city = data.get("city", "Warszawa")
-    city_label = CITIES.get(city, {}).get("label", city)
-
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="🏠 Смотреть квартиры", callback_data="next"),
-        InlineKeyboardButton(text="🔍 Настроить фильтры", callback_data="open_filter"),
-    ]])
+    text = build_menu_text(call.from_user.id, lang, city, name, user)
     await call.message.answer(
-        t(lang, "start_greeting", name=name, badge=vip_badge) +
-        f"\n\n📍 Город: <b>{city_label}</b>",
+        text,
         parse_mode="HTML",
-        reply_markup=kb
+        reply_markup=city_menu_keyboard(lang, city),
     )
     await show_next_apartment(call.from_user.id, call.bot, state, call.message.chat.id)
 
@@ -492,21 +585,13 @@ async def _show_main_menu(message, user: dict, from_user=None):
         extra = t(lang, "vip_loyal")
         user = get_or_create_user(fu.id)
 
-    vip_badge = _vip_badge(user, lang)
-
-    # New since last visit
-    new_msg = ""
-    last_visit = get_last_visit(fu.id)
-    if last_visit:
-        new_count = get_new_since(last_visit)
-        if new_count > 0:
-            new_msg = f"\n\n🆕 <b>+{new_count}</b> новых квартир с твоего последнего визита!"
+    city = get_user_city_db(fu.id)
     update_last_visit(fu.id)
-
+    text = build_menu_text(fu.id, lang, city, name, user, extra=extra)
     await message.answer(
-        t(lang, "start_greeting", name=name, badge=vip_badge) + extra + new_msg,
+        text,
         parse_mode="HTML",
-        reply_markup=main_menu_keyboard(lang)
+        reply_markup=city_menu_keyboard(lang, city),
     )
 
 
@@ -516,12 +601,26 @@ async def _show_main_menu(message, user: dict, from_user=None):
 async def cmd_menu(message: Message):
     lang = get_lang(message.from_user.id)
     user = get_or_create_user(message.from_user.id)
-    vip_badge = _vip_badge(user, lang)
-    name = message.from_user.first_name or "друг"
+    name = message.from_user.first_name or "Friend"
+    city = get_user_city_db(message.from_user.id)
+    text = build_menu_text(message.from_user.id, lang, city, name, user)
     await message.answer(
-        t(lang, "start_greeting", name=name, badge=vip_badge),
+        text,
         parse_mode="HTML",
-        reply_markup=main_menu_keyboard(lang)
+        reply_markup=city_menu_keyboard(lang, city),
+    )
+
+
+@router.callback_query(F.data == "open_city_pick")
+async def cb_open_city_pick(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    data = await state.get_data()
+    current = data.get("city") or get_user_city_db(call.from_user.id)
+    current_label = CITIES.get(current, {}).get("label", current)
+    await call.message.answer(
+        f"🏙 <b>Выбор города</b>\n\nСейчас: <b>{current_label}</b>",
+        parse_mode="HTML",
+        reply_markup=city_keyboard(),
     )
 
 
@@ -544,12 +643,13 @@ async def cb_open_menu(call: CallbackQuery):
     await call.answer()
     lang = get_lang(call.from_user.id)
     user = get_or_create_user(call.from_user.id)
-    vip_badge = _vip_badge(user, lang)
-    name = call.from_user.first_name or "друг"
+    name = call.from_user.first_name or "Friend"
+    city = get_user_city_db(call.from_user.id)
+    text = build_menu_text(call.from_user.id, lang, city, name, user)
     await call.message.answer(
-        t(lang, "start_greeting", name=name, badge=vip_badge),
+        text,
         parse_mode="HTML",
-        reply_markup=main_menu_keyboard(lang)
+        reply_markup=city_menu_keyboard(lang, city),
     )
 
 
@@ -559,6 +659,9 @@ async def _send_no_apts(bot, chat_id: int, filters: dict, lang: str):
     """Smart 'no results' message — shows what was searched and suggests relaxing filters."""
     # Build what was searched
     parts = []
+    city = filters.get("city", "Warszawa")
+    city_label = CITIES.get(city, {}).get("label", city)
+    
     if filters.get("district"):
         parts.append(f"📍 {filters['district']}")
     if filters.get("price_max"):
@@ -570,24 +673,27 @@ async def _send_no_apts(bot, chat_id: int, filters: dict, lang: str):
     elif filters.get("furnished") == 0:
         parts.append("без мебели")
 
-    # Count what's available without strict filters
+    # Count what's available without strict filters (for hints only)
     total_in_district = 0
     if filters.get("district"):
-        total_in_district = count_apartments({"district": filters["district"]}, vip=True)
+        total_in_district = count_apartments(
+            {"district": filters["district"], "city": city}, vip=True
+        )
 
-    total_all = count_apartments({}, vip=True)
+    total_all = count_apartments({"city": city}, vip=True)
 
     searched = "  ·  ".join(parts) if parts else "все квартиры"
 
     text = (
         f"😔 <b>По фильтрам не найдено</b>\n\n"
-        f"Искал: {searched}\n\n"
+        f"Искал: {searched}\n"
+        f"Город: <b>{city_label}</b>\n\n"
     )
 
     if total_in_district > 0 and filters.get("district"):
         text += f"💡 В районе <b>{filters['district']}</b> есть <b>{total_in_district}</b> квартир без учёта цены/комнат.\n\n"
     elif total_all > 0:
-        text += f"💡 В базе есть <b>{total_all}</b> квартир — попробуй расширить фильтры.\n\n"
+        text += f"💡 В городе <b>{city_label}</b> есть <b>{total_all}</b> квартир — попробуй расширить фильтры.\n\n"
     else:
         text += "⏳ База пока пустая — парсер работает каждые 10 минут.\n\n"
 
@@ -625,26 +731,34 @@ async def show_next_apartment(user_id: int, bot, state: FSMContext, chat_id: int
     offset = data.get("offset", 0)
     filters = data.get("filters", {})
 
-    # Always inject city into filters — prevents city mixing
-    city = data.get("city", "Warszawa")
+    # CRITICAL: Always inject city into filters from FSM state OR DB — prevents city mixing
+    city = data.get("city") or get_user_city_db(user_id)
     city_filters = {**filters, "city": city}
+    exclude_ids = search_exclude_ids(user_id, data)
 
-    apartments = get_apartments(filters=city_filters, offset=offset, vip=is_vip)
-
-    if not apartments:
+    total = count_apartments(city_filters, vip=is_vip, exclude_ids=exclude_ids)
+    if total == 0:
+        await _send_no_apts(bot, chat_id, city_filters, lang)
+        return
+    if offset >= total:
         if offset > 0:
             await state.update_data(offset=0)
-            apartments = get_apartments(filters=city_filters, offset=0, vip=is_vip)
-            if apartments:
-                await bot.send_message(chat_id, t(lang, "wrap_around"))
-            else:
-                await _send_no_apts(bot, chat_id, city_filters, lang)
-                return
+            offset = 0
+            await bot.send_message(chat_id, t(lang, "wrap_around"))
         else:
             await _send_no_apts(bot, chat_id, city_filters, lang)
             return
 
+    apartments = get_apartments(
+        filters=city_filters, offset=offset, vip=is_vip, exclude_ids=exclude_ids
+    )
+
+    if not apartments:
+        await _send_no_apts(bot, chat_id, city_filters, lang)
+        return
+
     apt = apartments[0]
+    mark_seen(user_id, apt["id"])
     await state.update_data(offset=offset + 1, last_apt_id=apt["id"])
     # Keep a small history for "back" button (last 5 IDs)
     history = data.get("history", [])
@@ -655,7 +769,6 @@ async def show_next_apartment(user_id: int, bot, state: FSMContext, chat_id: int
     increment_apt_views(apt["id"])
     record_user_activity(user_id)
 
-    total = count_apartments(city_filters, vip=is_vip)
     text = apt_text(apt, lang)
     remaining = max(0, total - offset - 1)
     if remaining > 0:
@@ -668,7 +781,10 @@ async def show_next_apartment(user_id: int, bot, state: FSMContext, chat_id: int
 
     kb = apt_keyboard(apt["id"], lang=lang, has_prev=len(history) > 1)
     # Add map + similar buttons
-    map_url = f"https://www.google.com/maps/search/{urllib.parse.quote(apt.get('district','') + ', Warszawa')}"
+    city = apt.get("city", "Warszawa")
+    district = apt.get("district", "")
+    map_location = f"{district}, {city}" if district else city
+    map_url = f"https://www.google.com/maps/search/{urllib.parse.quote(map_location)}"
     kb.inline_keyboard.append([
         InlineKeyboardButton(text=t(lang, "btn_on_map"), url=map_url),
         InlineKeyboardButton(text=t(lang, "btn_similar"), callback_data=f"similar:{apt['id']}"),
@@ -730,7 +846,10 @@ async def cb_prev(call: CallbackQuery, state: FSMContext):
 
     text = apt_text(apt, lang)
     kb = apt_keyboard(apt["id"], lang=lang, has_prev=len(history) > 1)
-    map_url = f"https://www.google.com/maps/search/{urllib.parse.quote(apt.get('district','') + ', Warszawa')}"
+    city = apt.get("city", "Warszawa")
+    district = apt.get("district", "")
+    map_location = f"{district}, {city}" if district else city
+    map_url = f"https://www.google.com/maps/search/{urllib.parse.quote(map_location)}"
     kb.inline_keyboard.append([
         InlineKeyboardButton(text=t(lang, "btn_on_map"), url=map_url),
         InlineKeyboardButton(text=t(lang, "btn_similar"), callback_data=f"similar:{apt['id']}"),
@@ -839,15 +958,23 @@ async def cb_filter_furnished(call: CallbackQuery, state: FSMContext):
         filters["furnished"] = 1
     elif val == "0":
         filters["furnished"] = 0
+    
+    # CRITICAL: Always include city in filters
+    city = data.get("city") or get_user_city_db(call.from_user.id)
+    filters["city"] = city
+    
     await state.update_data(filters=filters, offset=0)
     await state.set_state(None)
 
     user = get_or_create_user(call.from_user.id)
-    total = count_apartments(filters, vip=bool(user.get("vip")))
+    exclude_ids = search_exclude_ids(call.from_user.id, data)
+    total = count_apartments(filters, vip=bool(user.get("vip")), exclude_ids=exclude_ids)
 
     parts = []
+    city_label = CITIES.get(city, {}).get("label", city)
+    parts.append(f"📍 {city_label}")
     if filters.get("district"):
-        parts.append(f"📍 {filters['district']}")
+        parts.append(f"{filters['district']}")
     if filters.get("price_max"):
         parts.append(f"до {filters['price_max']} zł")
     if filters.get("rooms"):
@@ -857,13 +984,14 @@ async def cb_filter_furnished(call: CallbackQuery, state: FSMContext):
     elif filters.get("furnished") == 0:
         parts.append("🚫 без мебели")
 
-    summary = "  ·  ".join(parts) if parts else "Все квартиры"
+    summary = "  ·  ".join(parts)
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"🏠 Смотреть ({total})", callback_data="next")],
         [InlineKeyboardButton(text="🔄 Сбросить фильтры", callback_data="reset_filters")],
     ])
+    hint = " (без просмотренных)" if get_user_hide_seen(call.from_user.id) else ""
     await call.message.edit_text(
-        f"✅ <b>Фильтры установлены!</b>\n\n{summary}\n🏠 Найдено: <b>{total}</b> квартир",
+        f"✅ <b>Фильтры установлены!</b>\n\n{summary}\n🏠 Найдено: <b>{total}</b> квартир{hint}",
         parse_mode="HTML",
         reply_markup=kb
     )
@@ -907,8 +1035,12 @@ async def cmd_ask(message: Message, state: FSMContext):
         return
 
     user = get_or_create_user(message.from_user.id)
+    data = await state.get_data()
+    city = data.get("city") or get_user_city_db(message.from_user.id)
+    filters["city"] = city
     await state.update_data(filters=filters, offset=0)
-    total = count_apartments(filters, vip=bool(user.get("vip")))
+    exclude_ids = search_exclude_ids(message.from_user.id, data)
+    total = count_apartments(filters, vip=bool(user.get("vip")), exclude_ids=exclude_ids)
 
     parts = []
     if filters.get("rooms"):
@@ -1364,6 +1496,45 @@ async def cb_open_stats(call: CallbackQuery):
     await _show_stats(call.from_user.id, call.message)
 
 
+@router.callback_query(F.data == "open_settings")
+async def cb_open_settings(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    await _show_settings(call.from_user.id, call.message, state)
+
+
+@router.callback_query(F.data == "toggle_hide_seen")
+async def cb_toggle_hide_seen(call: CallbackQuery, state: FSMContext):
+    hide = not get_user_hide_seen(call.from_user.id)
+    set_user_hide_seen(call.from_user.id, hide)
+    await state.update_data(hide_seen=hide)
+    await call.answer("✅ Сохранено")
+    await _show_settings(call.from_user.id, call.message, state, edit=True)
+
+
+async def _show_settings(user_id: int, target, state: FSMContext, edit: bool = False):
+    hide = get_user_hide_seen(user_id)
+    await state.update_data(hide_seen=hide)
+    city = (await state.get_data()).get("city") or get_user_city_db(user_id)
+    city_label = CITIES.get(city, {}).get("label", city)
+    toggle_label = "✅ Скрывать просмотренные: ВКЛ" if hide else "❌ Скрывать просмотренные: ВЫКЛ"
+    text = (
+        "⚙️ <b>Настройки поиска</b>\n\n"
+        f"🏙 Город: <b>{city_label}</b> (сменить: /city)\n\n"
+        f"<b>Просмотренные квартиры</b>\n"
+        "Если включено — в выдаче и в счётчике «Найдено» не показываются "
+        "уже открытые и скрытые объявления.\n"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=toggle_label, callback_data="toggle_hide_seen")],
+        [InlineKeyboardButton(text="🏙 Сменить город", callback_data="open_city_pick")],
+        [InlineKeyboardButton(text="◀️ В меню", callback_data="open_menu")],
+    ])
+    if edit:
+        await target.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    else:
+        await target.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
 async def _show_stats(user_id: int, target):
     user = get_or_create_user(user_id)
     subs = get_user_subscriptions(user_id)
@@ -1585,31 +1756,34 @@ async def cb_open_daily(call: CallbackQuery, state: FSMContext):
 
 
 async def _start_daily(user_id: int, target, state: FSMContext):
-    """Step 1: choose location."""
+    """Step 1: choose city for short-term rental."""
     data = await state.get_data()
+    lang = get_lang(user_id)
     city = data.get("city", get_user_city_db(user_id))
     city_label = CITIES.get(city, {}).get("label", city)
 
-    # Quick city buttons + option to type custom location
-    city_btns = []
-    for c, info in CITIES.items():
-        city_btns.append(InlineKeyboardButton(
-            text=info["label"] + (" ✅" if c == city else ""),
-            callback_data=f"daily_loc:{c}"
-        ))
+    items = list(CITIES.items())
+    rows = []
+    for i in range(0, len(items), 2):
+        row = []
+        for j in range(i, min(i + 2, len(items))):
+            c, info = items[j]
+            mark = " ✅" if c == city else ""
+            row.append(InlineKeyboardButton(
+                text=info["label"] + mark,
+                callback_data=f"daily_loc:{c}",
+            ))
+        rows.append(row)
+    rows.append([InlineKeyboardButton(
+        text="✏️ " + ("Other city" if lang == "en" else "Другой город"),
+        callback_data="daily_loc_custom",
+    )])
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        city_btns[:3],
-        city_btns[3:],
-        [InlineKeyboardButton(text="✏️ Другой город / район", callback_data="daily_loc_custom")],
-    ])
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
     await target.answer(
-        "🏖 <b>Посуточная аренда</b>\n\n"
-        "📍 <b>Шаг 1/4: Выбери локацию</b>\n\n"
-        f"Текущий город: <b>{city_label}</b>\n"
-        "Или выбери другой / напиши район:",
+        t(lang, "daily_step1", city=city_label),
         parse_mode="HTML",
-        reply_markup=kb
+        reply_markup=kb,
     )
     await state.set_state(DailyState.waiting_location)
 
@@ -1633,33 +1807,96 @@ async def cb_daily_loc_custom(call: CallbackQuery, state: FSMContext):
     )
 
 
+def _guess_city_from_text(text: str) -> str | None:
+    low = text.lower()
+    for city_key, info in CITIES.items():
+        if city_key.lower() in low or info.get("url_olx", "") in low:
+            return city_key
+    return None
+
+
 @router.message(DailyState.waiting_location)
 async def daily_location_text(message: Message, state: FSMContext):
     location = message.text.strip()
-    await state.update_data(daily_location=location, daily_city=None)
+    guessed = _guess_city_from_text(location)
+    await state.update_data(
+        daily_location=location,
+        daily_city=guessed,
+    )
     await _daily_step_checkin(message, state)
 
 
 async def _daily_step_checkin(target, state: FSMContext):
-    """Step 2: choose check-in date."""
+    """Step 2: choose check-in date with improved calendar."""
     from datetime import date, timedelta
     today = date.today()
-    # Show next 14 days as quick buttons
+    
+    # Show calendar for current and next month
     rows = []
-    row = []
-    for i in range(14):
+    rows.append([InlineKeyboardButton(
+        text=f"📅 {today.strftime('%B %Y')}",
+        callback_data="noop"
+    )])
+    
+    # Quick picks for next 7 days
+    quick_row = []
+    for i in range(7):
         d = today + timedelta(days=i)
         label = "Сегодня" if i == 0 else ("Завтра" if i == 1 else d.strftime("%d.%m"))
-        row.append(InlineKeyboardButton(text=label, callback_data=f"daily_ci:{d.isoformat()}"))
-        if len(row) == 4:
-            rows.append(row)
-            row = []
-    if row:
-        rows.append(row)
+        quick_row.append(InlineKeyboardButton(
+            text=label,
+            callback_data=f"daily_ci:{d.isoformat()}"
+        ))
+        if len(quick_row) == 4:
+            rows.append(quick_row)
+            quick_row = []
+    if quick_row:
+        rows.append(quick_row)
+    
+    # Calendar grid for current month (remaining days)
+    month_start = today
+    month_end = (today.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+    
+    cal_row = []
+    for i in range((month_end - today).days + 1):
+        d = today + timedelta(days=i)
+        if i < 7:  # Skip first week (already in quick picks)
+            continue
+        cal_row.append(InlineKeyboardButton(
+            text=d.strftime("%d"),
+            callback_data=f"daily_ci:{d.isoformat()}"
+        ))
+        if len(cal_row) == 7:
+            rows.append(cal_row)
+            cal_row = []
+    if cal_row:
+        rows.append(cal_row)
+    
+    # Next month header + dates
+    next_month = (today.replace(day=28) + timedelta(days=4)).replace(day=1)
+    rows.append([InlineKeyboardButton(
+        text=f"📅 {next_month.strftime('%B %Y')}",
+        callback_data="noop"
+    )])
+    
+    next_month_end = (next_month.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+    cal_row = []
+    for i in range((next_month_end - next_month).days + 1):
+        d = next_month + timedelta(days=i)
+        cal_row.append(InlineKeyboardButton(
+            text=d.strftime("%d"),
+            callback_data=f"daily_ci:{d.isoformat()}"
+        ))
+        if len(cal_row) == 7:
+            rows.append(cal_row)
+            cal_row = []
+    if cal_row:
+        rows.append(cal_row)
 
     kb = InlineKeyboardMarkup(inline_keyboard=rows)
     await target.answer(
-        "📅 <b>Шаг 2/4: Дата заезда</b>",
+        "📅 <b>Шаг 2/4: Дата заезда</b>\n\n"
+        "Выбери дату одним кликом:",
         parse_mode="HTML",
         reply_markup=kb
     )
@@ -1675,25 +1912,58 @@ async def cb_daily_checkin(call: CallbackQuery, state: FSMContext):
 
 
 async def _daily_step_checkout(target, state: FSMContext, checkin: str):
-    """Step 3: choose check-out date."""
+    """Step 3: choose check-out date with improved calendar."""
     from datetime import date, timedelta
     ci = date.fromisoformat(checkin)
+    
+    # Show quick picks for common durations
     rows = []
+    rows.append([InlineKeyboardButton(
+        text=f"Заезд: {ci.strftime('%d.%m.%Y')}",
+        callback_data="noop"
+    )])
+    
+    # Quick duration picks
+    quick_durations = [1, 2, 3, 4, 5, 6, 7, 10, 14, 21, 30]
     row = []
-    for nights in [1, 2, 3, 4, 5, 6, 7, 10, 14, 21, 30]:
+    for nights in quick_durations:
         co = ci + timedelta(days=nights)
         label = f"{nights} н." if nights < 7 else f"{nights} дн."
-        row.append(InlineKeyboardButton(text=label, callback_data=f"daily_co:{co.isoformat()}:{nights}"))
+        row.append(InlineKeyboardButton(
+            text=label,
+            callback_data=f"daily_co:{co.isoformat()}:{nights}"
+        ))
         if len(row) == 4:
             rows.append(row)
             row = []
     if row:
         rows.append(row)
+    
+    # Calendar for next 30 days from check-in
+    rows.append([InlineKeyboardButton(
+        text="📅 Или выбери конкретную дату:",
+        callback_data="noop"
+    )])
+    
+    cal_row = []
+    for i in range(1, 31):
+        co = ci + timedelta(days=i)
+        cal_row.append(InlineKeyboardButton(
+            text=co.strftime("%d.%m"),
+            callback_data=f"daily_co:{co.isoformat()}:{i}"
+        ))
+        if len(cal_row) == 5:
+            rows.append(cal_row)
+            cal_row = []
+    if cal_row:
+        rows.append(cal_row)
 
     kb = InlineKeyboardMarkup(inline_keyboard=rows)
     ci_fmt = ci.strftime("%d.%m.%Y")
     await target.answer(
-        f"📅 <b>Шаг 3/4: Дата выезда</b>\n\nЗаезд: <b>{ci_fmt}</b>\nВыбери количество ночей:",
+        f"📅 <b>Шаг 3/4: Дата выезда</b>\n\n"
+        f"Заезд: <b>{ci_fmt}</b>\n"
+        f"Выбери количество ночей или конкретную дату:",
         parse_mode="HTML",
         reply_markup=kb
     )
@@ -1772,7 +2042,7 @@ async def cb_daily_type(call: CallbackQuery, state: FSMContext):
 
 
 async def _daily_show_results(user_id: int, target, state: FSMContext):
-    """Show booking links with all parameters."""
+    """Show real daily rental listings + booking links."""
     data = await state.get_data()
     location    = data.get("daily_location", "Warszawa")
     city_key    = data.get("daily_city", "Warszawa")
@@ -1791,6 +2061,66 @@ async def _daily_show_results(user_id: int, target, state: FSMContext):
 
     ci_fmt = date.fromisoformat(checkin).strftime("%d.%m.%Y")
     co_fmt = date.fromisoformat(checkout).strftime("%d.%m.%Y")
+    
+    # Search real listings from OLX and Nocowanie
+    from parser.parser_daily import search_daily_rentals
+    lang = get_lang(user_id)
+    
+    if not city_key:
+        city_key = get_user_city_db(user_id)
+    city_label = CITIES.get(city_key, {}).get("label", city_key)
+
+    await target.answer(
+        t(lang, "daily_searching", city=city_label, checkin=ci_fmt, checkout=co_fmt),
+        parse_mode="HTML",
+    )
+
+    try:
+        listings = search_daily_rentals(checkin, checkout, guests, city_key=city_key)
+    except Exception as e:
+        print(f"[Daily] Search error: {e}")
+        listings = []
+
+    if listings:
+        await target.answer(
+            t(lang, "daily_found", n=len(listings), city=city_label),
+            parse_mode="HTML",
+        )
+        for apt in listings[:10]:  # Show top 10
+            price_night = apt.get('price_per_night', 0)
+            total = apt.get('total_price', 0)
+            title = apt.get('title', '—')
+            district = apt.get('district', location)
+            source = apt.get('source', '')
+            link = apt.get('link', '')
+            rating = apt.get('rating')
+            
+            rating_str = f" · ⭐ {rating}/10" if rating else ""
+            
+            text = (
+                f"🏠 <b>{title}</b>\n"
+                f"💰 <b>{price_night} zł/ночь</b> · {total} zł за {nights} ноч.\n"
+                f"📍 {district}{rating_str}\n"
+                f"🔗 <a href=\"{link}\">Открыть на {source}</a>"
+            )
+            
+            kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="🔗 Открыть", url=link)
+            ]])
+            
+            image = apt.get('image', '')
+            if image and image.startswith('http'):
+                try:
+                    await target.answer_photo(image, caption=text, reply_markup=kb, parse_mode="HTML")
+                except Exception:
+                    await target.answer(text, reply_markup=kb, parse_mode="HTML")
+            else:
+                await target.answer(text, reply_markup=kb, parse_mode="HTML")
+    else:
+        await target.answer(
+            t(lang, "daily_none", city=city_label),
+            parse_mode="HTML",
+        )
 
     # Property type mapping per platform
     type_booking = {
@@ -1815,14 +2145,8 @@ async def _daily_show_results(user_id: int, target, state: FSMContext):
         "any":       "🏠 Любой тип",
     }
 
-    city_map = {
-        "Warszawa": ("Warszawa",    "Warsaw--Poland"),
-        "Kraków":   ("Krakow",      "Krakow--Poland"),
-        "Wrocław":  ("Wroclaw",     "Wroclaw--Poland"),
-        "Gdańsk":   ("Gdansk",      "Gdansk--Poland"),
-        "Poznań":   ("Poznan",      "Poznan--Poland"),
-    }
-    b_loc, a_loc = city_map.get(city_key, (location, location.replace(" ", "-")))
+    b_loc = BOOKING_LOCATIONS.get(city_key, city_key)
+    a_loc = AIRBNB_LOCATIONS.get(city_key, city_key.replace(" ", "-") + "--Poland")
 
     t_book = type_booking.get(prop_type, "")
     t_air  = type_airbnb.get(prop_type, "")
@@ -1915,12 +2239,20 @@ async def cb_subscribe(call: CallbackQuery, state: FSMContext):
 
 @router.message(Command("lang"))
 async def cmd_lang(message: Message):
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="🇷🇺 Русский",    callback_data="lang:ru"),
-        InlineKeyboardButton(text="🇺🇦 Українська", callback_data="lang:uk"),
-        InlineKeyboardButton(text="🇵🇱 Polski",     callback_data="lang:pl"),
-    ]])
-    await message.answer("🌍 Выбери язык / Wybierz język / Оберіть мову:", reply_markup=kb)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🇷🇺 Русский",    callback_data="lang:ru"),
+            InlineKeyboardButton(text="🇺🇦 Українська", callback_data="lang:uk"),
+        ],
+        [
+            InlineKeyboardButton(text="🇵🇱 Polski",     callback_data="lang:pl"),
+            InlineKeyboardButton(text="🇬🇧 English",    callback_data="lang:en"),
+        ],
+    ])
+    await message.answer(
+        "🌍 Выбери язык / Wybierz język / Оберіть мову / Choose language:",
+        reply_markup=kb,
+    )
 
 
 @router.callback_query(F.data.startswith("lang:"))
@@ -2045,6 +2377,15 @@ async def cb_share(call: CallbackQuery):
         parse_mode="HTML",
         reply_markup=kb
     )
+
+
+@router.callback_query(F.data.startswith("hide:"))
+async def cb_hide(call: CallbackQuery, state: FSMContext):
+    apt_id = int(call.data.split(":")[1])
+    hide_apartment(call.from_user.id, apt_id)
+    mark_seen(call.from_user.id, apt_id)
+    await call.answer("🚫 Скрыто")
+    await show_next_apartment(call.from_user.id, call.bot, state, call.message.chat.id)
 
 
 @router.callback_query(F.data.startswith("seen:"))
@@ -3273,8 +3614,10 @@ async def cb_adv_apply(call: CallbackQuery, state: FSMContext):
     city_filters = {**f, "city": city}
 
     user = get_or_create_user(call.from_user.id)
-    total = count_apartments(city_filters, vip=bool(user.get("vip")))
+    exclude_ids = search_exclude_ids(call.from_user.id, data)
+    total = count_apartments(city_filters, vip=bool(user.get("vip")), exclude_ids=exclude_ids)
     summary = _adv_summary(f)
+    hint = " (без просмотренных)" if get_user_hide_seen(call.from_user.id) else ""
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"🏠 Смотреть ({total})", callback_data="next")],
@@ -3284,7 +3627,7 @@ async def cb_adv_apply(call: CallbackQuery, state: FSMContext):
     await call.message.answer(
         f"✅ <b>Расширенный поиск применён!</b>\n\n"
         f"{summary}\n\n"
-        f"🏠 Найдено: <b>{total}</b> квартир",
+        f"🏠 Найдено: <b>{total}</b> квартир{hint}",
         parse_mode="HTML",
         reply_markup=kb
     )

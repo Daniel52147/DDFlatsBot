@@ -1,10 +1,10 @@
-# i18n — Russian, Ukrainian, Polish
+# i18n — Russian, Ukrainian, Polish, English
 
 TEXTS = {
     "ru": {
         # ── Onboarding ──────────────────────────────────────────
         "welcome_new": (
-            "🏙 <b>DDFlatsBot</b> — все квартиры Варшавы в одном месте.\n\n"
+            "🏙 <b>DDFlatsBot</b> — все квартиры Польши в одном месте.\n\n"
             "✅ OLX · Otodom · Gratka · Morizon · Lento и другие\n"
             "✅ Обновление каждые 10 минут\n"
             "✅ Фильтры по цене, району, комнатам\n"
@@ -31,10 +31,35 @@ TEXTS = {
         "start_greeting": (
             "👋 Привет, <b>{name}</b>!\n"
             "{badge}\n\n"
-            "🏙 <b>DDFlatsBot</b> — квартиры Варшавы в реальном времени.\n"
-            "Обновляю каждые 10 минут: OLX · Otodom · Gratka · Morizon.\n\n"
+            "🏙 <b>DDFlatsBot</b> — квартиры в <b>{city}</b>.\n"
+            "Обновляю каждые 10 минут: OLX · Otodom · Gratka · Morizon.\n"
+            "📊 В базе: <b>{count}</b> активных объявлений.\n\n"
             "⚠️ <i>Всегда проверяй квартиру лично перед оплатой.</i>"
         ),
+        "city_changed": "📍 Город: <b>{city}</b>\n🏠 Доступно: <b>{count}</b> квартир\nФильтры сброшены.",
+        "menu_style_capital": "🏛 Столичный режим",
+        "menu_style_coastal": "🌊 Прибрежный режим",
+        "menu_style_industrial": "🏭 Промышленный режим",
+        "menu_style_culture": "🎭 Культурный режим",
+        "menu_style_business": "💼 Деловой режим",
+        "menu_style_quiet": "🌿 Спокойный режим",
+        "btn_settings": "⚙️ Настройки",
+        "btn_notes": "📝 Заметки",
+        "btn_digest": "📰 Дайджест",
+        "btn_advanced": "🔬 Расширенный поиск",
+        "btn_change_city": "🏙 Сменить город",
+        "btn_hide": "🚫 Скрыть",
+        "btn_seen": "👁 Уже смотрел",
+        "daily_step1": "🏖 <b>Посуточная аренда</b>\n\n📍 <b>Шаг 1/5: Город</b>\nТекущий: <b>{city}</b>",
+        "daily_step2": "📅 <b>Шаг 2/5: Дата заезда</b>",
+        "daily_step3": "📅 <b>Шаг 3/5: Дата выезда</b>\nЗаезд: <b>{checkin}</b>",
+        "daily_step4": "👥 <b>Шаг 4/5: Гости</b>",
+        "daily_step5": "🏠 <b>Шаг 5/5: Тип жилья</b>",
+        "daily_searching": "🔍 Ищу посуточно в <b>{city}</b>…\n📅 {checkin} → {checkout}",
+        "daily_found": "🏠 <b>{n}</b> вариантов в {city}:",
+        "daily_none": "😔 В {city} мало объявлений посуточно.\nСмотри агрегаторы ниже:",
+        "today": "Сегодня",
+        "tomorrow": "Завтра",
         "btn_find":      "🏠 Найти квартиру",
         "btn_filter":    "🔍 Фильтры",
         "btn_favorites": "❤️ Избранное",
@@ -153,10 +178,12 @@ TEXTS = {
         "start_greeting": (
             "👋 Привіт, <b>{name}</b>!\n"
             "{badge}\n\n"
-            "🏙 <b>DDFlatsBot</b> — квартири Варшави в реальному часі.\n"
-            "Оновлюю кожні 10 хвилин: OLX · Otodom · Gratka · Morizon.\n\n"
+            "🏙 <b>DDFlatsBot</b> — квартири в <b>{city}</b>.\n"
+            "Оновлюю кожні 10 хвилин: OLX · Otodom · Gratka · Morizon.\n"
+            "📊 В базі: <b>{count}</b> оголошень.\n\n"
             "⚠️ <i>Завжди перевіряй квартиру особисто перед оплатою.</i>"
         ),
+        "city_changed": "📍 Місто: <b>{city}</b>\n🏠 Доступно: <b>{count}</b>\nФільтри скинуто.",
         "btn_find":      "🏠 Знайти квартиру",
         "btn_filter":    "🔍 Фільтри",
         "btn_favorites": "❤️ Обране",
@@ -261,10 +288,12 @@ TEXTS = {
         "start_greeting": (
             "👋 Cześć, <b>{name}</b>!\n"
             "{badge}\n\n"
-            "🏙 <b>DDFlatsBot</b> — mieszkania Warszawy w czasie rzeczywistym.\n"
-            "Aktualizuję co 10 minut: OLX · Otodom · Gratka · Morizon.\n\n"
+            "🏙 <b>DDFlatsBot</b> — mieszkania w <b>{city}</b>.\n"
+            "Aktualizuję co 10 minut: OLX · Otodom · Gratka · Morizon.\n"
+            "📊 W bazie: <b>{count}</b> ogłoszeń.\n\n"
             "⚠️ <i>Zawsze sprawdzaj mieszkanie osobiście przed płatnością.</i>"
         ),
+        "city_changed": "📍 Miasto: <b>{city}</b>\n🏠 Dostępne: <b>{count}</b> ogłoszeń\nFiltry zresetowane.",
         "btn_find":      "🏠 Znajdź mieszkanie",
         "btn_filter":    "🔍 Filtry",
         "btn_favorites": "❤️ Ulubione",
@@ -341,13 +370,135 @@ TEXTS = {
             "📋 /menu — szybkie menu"
         ),
     },
+
+    "en": {
+        "welcome_new": (
+            "🏙 <b>DDFlatsBot</b> — all rental listings in Poland in one place.\n\n"
+            "✅ OLX · Otodom · Gratka · Morizon and more\n"
+            "✅ Updates every 10 minutes\n"
+            "✅ Filters by price, district, rooms\n"
+            "✅ Instant alerts for new listings\n\n"
+            "👇 Choose your language:"
+        ),
+        "disclaimer": (
+            "📋 <b>DDFlatsBot Terms of Use</b>\n\n"
+            "The bot aggregates listings from OLX, Otodom, Gratka, Morizon and other sites.\n\n"
+            "<b>⚠️ We are NOT responsible for:</b>\n"
+            "• Accuracy and freshness of listings\n"
+            "• Landlord actions\n"
+            "• Fraudulent ads\n\n"
+            "<b>🔐 Safety rules:</b>\n"
+            "🔍 Always view the apartment in person before paying\n"
+            "💳 Never transfer money without viewing\n"
+            "📋 Require a signed lease agreement\n\n"
+            "By tapping Accept you agree to these terms."
+        ),
+        "btn_accept": "✅ I accept",
+        "btn_decline": "❌ Decline",
+        "start_greeting": (
+            "👋 Hi, <b>{name}</b>!\n"
+            "{badge}\n\n"
+            "🏙 <b>DDFlatsBot</b> — apartments in <b>{city}</b>.\n"
+            "Updated every 10 min: OLX · Otodom · Gratka · Morizon.\n"
+            "📊 Active listings: <b>{count}</b>.\n\n"
+            "⚠️ <i>Always verify the apartment in person before payment.</i>"
+        ),
+        "city_changed": "📍 City: <b>{city}</b>\n🏠 Available: <b>{count}</b> listings\nFilters reset.",
+        "menu_style_capital": "🏛 Capital mode",
+        "menu_style_coastal": "🌊 Coastal mode",
+        "menu_style_industrial": "🏭 Industrial mode",
+        "menu_style_culture": "🎭 Culture mode",
+        "menu_style_business": "💼 Business mode",
+        "menu_style_quiet": "🌿 Quiet mode",
+        "btn_find": "🏠 Find apartment",
+        "btn_filter": "🔍 Filters",
+        "btn_favorites": "❤️ Favorites",
+        "btn_alerts": "🔔 Alerts",
+        "btn_vip": "⭐ VIP",
+        "btn_ref": "👥 Invite friend",
+        "btn_cheap": "💚 Cheapest",
+        "btn_hot": "🔥 Hot deals",
+        "btn_drops": "📉 Price drops",
+        "btn_daily": "🏖 Short-term",
+        "btn_mystats": "📊 Stats",
+        "btn_map": "🗺 Price map",
+        "btn_menu": "📋 Menu",
+        "btn_settings": "⚙️ Settings",
+        "btn_notes": "📝 Notes",
+        "btn_digest": "📰 Digest",
+        "btn_advanced": "🔬 Advanced search",
+        "btn_change_city": "🏙 Change city",
+        "btn_hide": "🚫 Hide",
+        "btn_seen": "👁 Already seen",
+        "btn_next": "➡️ Next",
+        "btn_fav_add": "❤️ Save",
+        "btn_on_map": "🗺 On map",
+        "btn_note": "📝 Note",
+        "btn_similar": "🔍 Similar",
+        "btn_report": "🚨 Report",
+        "btn_share": "📤 Share",
+        "btn_found": "✅ Found one!",
+        "no_apts": "😔 No apartments match your filters.\n\nTry /filter",
+        "no_apts_yet": "😔 No listings yet. Parser runs every 10 minutes.\n\nTry later: /next",
+        "wrap_around": "🔄 Back to start — no new listings yet.",
+        "limit_reached": (
+            "⛔ <b>Free limit of {limit} views reached.</b>\n\n"
+            "💎 <b>VIP — 19 PLN/month:</b>\n"
+            "✅ Unlimited views\n"
+            "✅ Smart alerts\n"
+            "✅ Price drop notifications\n"
+            "✅ District subscriptions"
+        ),
+        "vip_badge": "💎 <b>VIP</b> until {until}",
+        "free_badge": "🆓 {bar} {used}/{total} views",
+        "ref_bonus": "🎁 Referral bonus! Inviter got 7 days VIP.",
+        "vip_fav10": "\n\n🎁 <b>+3 days VIP</b> for 10 saved apartments!",
+        "vip_loyal": "\n\n🎁 <b>+2 days VIP</b> for activity!",
+        "remaining": "\n\n📦 <b>{n}</b> more listings match your filters",
+        "warn_check": "Always verify the apartment in person before payment.",
+        "lang_changed": "🇬🇧 Language set to English",
+        "daily_text": (
+            "🏖 <b>Short-term rental</b>\n\n"
+            "Pick dates — best offers from OLX & Nocowanie.pl:\n\n"
+            "🏨 Booking.com\n"
+            "🏠 Airbnb\n"
+            "🛏 Nocowanie.pl"
+        ),
+        "daily_links": (
+            "🔗 <b>Rent for {days} days:</b>\n\n"
+            "🏨 <a href=\"{booking}\">Booking.com</a>\n"
+            "🏠 <a href=\"{airbnb}\">Airbnb</a>\n"
+            "🛏 <a href=\"{nocowanie}\">Nocowanie.pl</a>"
+        ),
+        "daily_step1": "🏖 <b>Short-term rental</b>\n\n📍 <b>Step 1/5: City</b>\nCurrent: <b>{city}</b>",
+        "daily_step2": "📅 <b>Step 2/5: Check-in</b>",
+        "daily_step3": "📅 <b>Step 3/5: Check-out</b>\nCheck-in: <b>{checkin}</b>",
+        "daily_step4": "👥 <b>Step 4/5: Guests</b>",
+        "daily_step5": "🏠 <b>Step 5/5: Property type</b>",
+        "daily_searching": "🔍 Searching short-term in <b>{city}</b>…\n📅 {checkin} → {checkout}",
+        "daily_found": "🏠 <b>{n}</b> options in {city}:",
+        "daily_none": "😔 Few short-term listings in {city}.\nTry platforms below:",
+        "today": "Today",
+        "tomorrow": "Tomorrow",
+        "help_text": (
+            "📖 <b>DDFlatsBot commands</b>\n\n"
+            "/next — next apartment\n"
+            "/filter — filters\n"
+            "/ask — smart search\n"
+            "/city — change city\n"
+            "/daily — short-term rental\n"
+            "/lang — language\n"
+            "/menu — main menu"
+        ),
+    },
 }
 
+SUPPORTED_LANGS = ("ru", "uk", "pl", "en")
 DEFAULT_LANG = "ru"
 
 
 def t(lang: str, key: str, **kwargs) -> str:
-    lang = lang if lang in TEXTS else DEFAULT_LANG
+    lang = lang if lang in SUPPORTED_LANGS else DEFAULT_LANG
     text = TEXTS[lang].get(key, TEXTS[DEFAULT_LANG].get(key, key))
     try:
         return text.format(**kwargs) if kwargs else text

@@ -201,17 +201,37 @@ def _parse_nieruch(html: str) -> list:
     return results
 
 
-def parse_morizon() -> list:
+def parse_morizon(city: str = "Warszawa") -> list:
+    """Parse Morizon for the specified city."""
+    from database.db import get_conn
+    from validation.integration import ValidationPipeline
+    
+    print(f"[Morizon/{city}] Starting parse (Warszawa only for now)...")
+    
+    # Initialize validation pipeline
+    conn = get_conn()
+    pipeline = ValidationPipeline(conn)
+    
     results = []
     seen = set()
+    validated_count = 0
+    rejected_count = 0
 
     def add(items):
+        nonlocal validated_count, rejected_count
         n = 0
         for apt in items:
             if apt["link"] not in seen:
                 seen.add(apt["link"])
-                results.append(apt)
-                n += 1
+                apt["source_city"] = city
+                # Validate before adding to results
+                validated_apt = pipeline.process_listing(apt, city)
+                if validated_apt:
+                    results.append(validated_apt)
+                    validated_count += 1
+                    n += 1
+                else:
+                    rejected_count += 1
         return n
 
     morizon_ok = False
@@ -251,5 +271,6 @@ def parse_morizon() -> list:
                 break
             time.sleep(random.uniform(2.0, 3.0))
 
-    print(f"[Morizon] Total: {len(results)}")
+    conn.close()
+    print(f"[Morizon] Total: {len(results)} (validated: {validated_count}, rejected: {rejected_count})")
     return results

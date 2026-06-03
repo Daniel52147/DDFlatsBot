@@ -141,6 +141,13 @@ def _parse_api_offer(offer: dict) -> dict | None:
         if not area:
             area = _area_from_title(title)
 
+        lat, lon = None, None
+        if isinstance(loc, dict):
+            m = loc.get("map") or {}
+            if isinstance(m, dict):
+                lat = m.get("lat") or m.get("latitude")
+                lon = m.get("lon") or m.get("longitude")
+
         return {
             "title": title,
             "price": price,
@@ -152,6 +159,8 @@ def _parse_api_offer(offer: dict) -> dict | None:
             "link": url,
             "image": image,
             "source": "OLX",
+            "lat": lat,
+            "lon": lon,
         }
     except Exception:
         return None
@@ -271,59 +280,88 @@ def _parse_page(html: str) -> list:
 
 # ── Main parse function ───────────────────────────────────────
 
-def parse_olx() -> list:
-    results = []
-    seen = set()
+def parse_olx(city: str = "Warszawa") -> list:
+    """Parse OLX for the specified city."""
+    from config import CITIES
+    from database.db import get_conn
+    from validation.integration import ValidationPipeline
+    
+    city_config = CITIES.get(city, CITIES["Warszawa"])
+    city_url = city_config.get("url_olx", "warszawa")
+    city_id = city_config.get("city_id_olx", 39610)
+    region_id = city_config.get("region_id_olx", 7)
+    
+    print(f"[OLX/{city}] Starting parse...")
+    
+    # Initialize validation pipeline
+    conn = get_conn()
+    pipeline = ValidationPipeline(conn)
+    
+    # Update API params for this city
+    api_params = {
+        **OLX_API_PARAMS,
+        "city_id": city_id,
+        "region_id": region_id,
+    }
+    
     session = _session()
+    results = []
+    validated_count = 0
+    rejected_count = 0
 
-    def add(items):
-        n = 0
-        for apt in items:
-            if apt['link'] not in seen:
-                seen.add(apt['link'])
-                results.append(apt)
-                n += 1
-        return n
+    # Try API first
+    try:
+        for offset in [0, 50, 100]:
+            params = {**api_params, "offset": offset}
+            r = session.get(OLX_API, params=params, timeout=15)
+            if r.status_code != 200:
+                break
+            data = r.json()
+            offers = data.get("data") or []
+            if not offers:
+                break
+            for offer in offers:
+                apt = _parse_api_offer(offer)
+                if apt:
+                    apt["source_city"] = city
+                    # Validate before adding to results
+                    validated_apt = pipeline.process_listing(apt, city)
+                    if validated_apt:
+                        results.append(validated_apt)
+                        validated_count += 1
+                    else:
+                        rejected_count += 1
+            time.sleep(random.uniform(0.5, 1.0))
+    except Exception as e:
+        print(f"[OLX/{city}] API error: {e}")
 
-    # ── Pass 1: JSON API (newest) ─────────────────────────────
-    api_ok = False
-    for offset in range(0, 200, 50):
-        items = _fetch_api(session, offset=offset, sort="created_at:desc")
-        new = add(items)
-        print(f"[OLX-API] offset={offset}: {new} new ({len(items)} fetched)")
-        if not items or new == 0:
-            break
-        api_ok = True
-        time.sleep(random.uniform(0.5, 1.0))
-
-    # ── Pass 2: JSON API (price asc) ──────────────────────────
-    for offset in range(0, 100, 50):
-        items = _fetch_api(session, offset=offset, sort="filter_float_price:asc")
-        new = add(items)
-        print(f"[OLX-API-price] offset={offset}: {new} new")
-        if not items or new == 0:
-            break
-        time.sleep(random.uniform(0.5, 1.0))
-
-    # ── Pass 3: HTML fallback if API gave nothing ─────────────
-    if not api_ok:
-        print("[OLX] API failed, falling back to HTML")
-        html_session = _html_session()
-        for page in range(1, 6):
-            url = SORT_NEW if page == 1 else f"{SORT_NEW}&page={page}"
-            try:
-                r = html_session.get(url, timeout=20)
+    # Fallback to HTML if API failed
+    if not results:
+        base_url = f"https://www.olx.pl/nieruchomosci/mieszkania/wynajem/{city_url}/"
+        try:
+            for page in range(1, 4):
+                url = f"{base_url}?page={page}" if page > 1 else base_url
+                r = session.get(url, timeout=15)
                 if r.status_code != 200:
                     break
-                items = _parse_page(r.text[:200_000])
-                new = add(items)
-                print(f"[OLX-HTML] page={page}: {new} new")
-                if new == 0 and page >= 2:
+                html = r.text[:200_000]
+                items = _parse_json_ld(html) or _parse_html_cards(html)
+                for item in items:
+                    item["source_city"] = city
+                    # Validate before adding to results
+                    validated_item = pipeline.process_listing(item, city)
+                    if validated_item:
+                        results.append(validated_item)
+                        validated_count += 1
+                    else:
+                        rejected_count += 1
+                if not items:
                     break
-                time.sleep(random.uniform(2.0, 3.0))
-            except Exception as e:
-                print(f"[OLX-HTML] page={page} error: {e}")
-                break
-
-    print(f"[OLX] Total: {len(results)}")
+                time.sleep(random.uniform(1.0, 2.0))
+        except Exception as e:
+            print(f"[OLX/{city}] HTML error: {e}")
+    
+    conn.close()
+    print(f"[OLX/{city}] Found {len(results)} listings (validated: {validated_count}, rejected: {rejected_count})")
     return results
+

@@ -1,19 +1,14 @@
 """
-Daily rental parser for Warsaw.
-Sources:
-  1. OLX.pl — "na doby" listings (real prices)
-  2. Nocowanie.pl — Polish short-term platform
-  3. Noclegi.pl — another Polish platform
-
-Returns list of dicts: {title, price_per_night, total_price, district, link, image, source, rating, reviews}
+Daily / short-term rental search across Polish cities.
+Sources: OLX (na doby), Nocowanie.pl, OLX JSON API fallback.
 """
 import re
 import json
 import time
 import random
 import requests
-from datetime import datetime, timedelta
-from config import USER_AGENTS
+from datetime import datetime
+from config import USER_AGENTS, CITIES, NOCOWANIE_SLUGS
 
 
 def _session(referer: str = "https://www.olx.pl/") -> requests.Session:
@@ -21,10 +16,21 @@ def _session(referer: str = "https://www.olx.pl/") -> requests.Session:
     s.headers.update({
         "User-Agent": random.choice(USER_AGENTS),
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "pl-PL,pl;q=0.9,ru;q=0.8,en;q=0.7",
+        "Accept-Language": "pl-PL,pl;q=0.9,en;q=0.8",
         "Accept-Encoding": "gzip, deflate",
         "Connection": "close",
         "Referer": referer,
+    })
+    return s
+
+
+def _api_session() -> requests.Session:
+    s = requests.Session()
+    s.headers.update({
+        "User-Agent": random.choice(USER_AGENTS),
+        "Accept": "application/json",
+        "Accept-Language": "pl-PL,pl;q=0.9",
+        "Referer": "https://www.olx.pl/",
     })
     return s
 
@@ -39,52 +45,151 @@ def _price(val) -> int:
         return int(digits) if digits else 0
 
 
-# ── OLX посуточно ─────────────────────────────────────────────
+def _daily_keywords_ok(title: str) -> bool:
+    """Keep only short-term rental listings."""
+    t = title.lower()
+    long_term = ("miesiąc", "miesiecz", "miesięcz", "długotermin", "na rok", "roczn")
+    if any(x in t for x in long_term):
+        return False
+    markers = (
+        "na doby", "doby", "dobow", "nocleg", "noclegi", "krótkotermin",
+        "krótki", "weekend", "dziennie", "/dob", "pobyt", "wakacj",
+        "święta", "ferie", "dobie", "overnight",
+    )
+    return any(m in t for m in markers)
 
-def _parse_olx_daily(html: str) -> list:
+
+def _item_from_offer(offer: dict, city_name: str) -> dict | None:
+    try:
+        title = (offer.get("title") or "").strip()
+        if not title or len(title) < 5:
+            return None
+        if not _daily_keywords_ok(title):
+            return None
+        url = offer.get("url") or ""
+        if not url:
+            return None
+        price = 0
+        price_obj = offer.get("price") or {}
+        if isinstance(price_obj, dict):
+            price = _price(price_obj.get("value", 0))
+        if price < 40 or price > 5000:
+            return None
+        loc = offer.get("location") or {}
+        district = city_name
+        if isinstance(loc, dict):
+            d = loc.get("district") or {}
+            c = loc.get("city") or {}
+            district = (
+                (d.get("name") if isinstance(d, dict) else d)
+                or (c.get("name") if isinstance(c, dict) else c)
+                or city_name
+            )
+        photos = offer.get("photos") or []
+        image = ""
+        if photos and isinstance(photos[0], dict):
+            image = (photos[0].get("link") or "").replace("{width}", "400").replace("{height}", "300")
+        return {
+            "title": title,
+            "price_per_night": price,
+            "district": str(district),
+            "city": city_name,
+            "link": url.split("?")[0],
+            "image": image,
+            "source": "OLX",
+            "rating": None,
+            "reviews": None,
+        }
+    except Exception:
+        return None
+
+
+def search_olx_daily_api(city_key: str, max_pages: int = 3) -> list:
+    """OLX JSON API — city-specific short-term listings."""
+    cfg = CITIES.get(city_key, CITIES["Warszawa"])
+    city_id = cfg.get("city_id_olx", 39610)
+    region_id = cfg.get("region_id_olx", 7)
+    session = _api_session()
     results = []
-    # Try JSON-LD first
-    scripts = re.findall(r'<script[^>]*>(.*?)</script>', html, re.DOTALL)
+    seen = set()
+
+    for page in range(max_pages):
+        offset = page * 50
+        params = {
+            "offset": offset,
+            "limit": 50,
+            "category_id": 15,
+            "region_id": region_id,
+            "city_id": city_id,
+            "sort_by": "created_at:desc",
+        }
+        try:
+            r = session.get("https://www.olx.pl/api/v1/offers/", params=params, timeout=15)
+            if r.status_code != 200:
+                break
+            offers = (r.json().get("data") or [])
+            if not offers:
+                break
+            for offer in offers:
+                item = _item_from_offer(offer, city_key)
+                if item and item["link"] not in seen:
+                    seen.add(item["link"])
+                    results.append(item)
+            time.sleep(random.uniform(0.4, 0.9))
+        except Exception as e:
+            print(f"[Daily/OLX-API/{city_key}] {e}")
+            break
+
+    print(f"[Daily/OLX-API/{city_key}] {len(results)} listings")
+    return results
+
+
+def _parse_olx_daily_html(html: str, city_name: str) -> list:
+    results = []
+    scripts = re.findall(r"<script[^>]*>(.*?)</script>", html, re.DOTALL)
     for script in scripts:
         if '"offers"' not in script or len(script) < 200:
             continue
         try:
-            d = json.loads(script[script.find('{'):])
-            if d.get('@type') != 'Product':
+            d = json.loads(script[script.find("{") :])
+            if d.get("@type") != "Product":
                 continue
-            outer = d.get('offers', {})
-            items = outer.get('offers', []) if isinstance(outer, dict) else []
+            outer = d.get("offers", {})
+            items = outer.get("offers", []) if isinstance(outer, dict) else []
             for item in items:
-                name = (item.get('name') or '').strip()
-                url = item.get('url') or ''
-                if not name or not url:
+                name = (item.get("name") or "").strip()
+                url = item.get("url") or ""
+                if not name or not url or not _daily_keywords_ok(name):
                     continue
-                price = _price(item.get('price', 0))
-                if price < 50 or price > 2000:  # filter: 50-2000 zł/night
+                price = _price(item.get("price", 0))
+                if price < 40 or price > 5000:
                     continue
-                imgs = item.get('image') or []
-                image = imgs[0] if imgs else ''
-                area_obj = item.get('areaServed') or {}
-                district = (area_obj.get('name') if isinstance(area_obj, dict) else '') or 'Warszawa'
+                imgs = item.get("image") or []
+                image = imgs[0] if imgs else ""
+                area_obj = item.get("areaServed") or {}
+                district = (area_obj.get("name") if isinstance(area_obj, dict) else "") or city_name
                 results.append({
-                    'title': name,
-                    'price_per_night': price,
-                    'district': district,
-                    'link': url.split('?')[0],
-                    'image': image,
-                    'source': 'OLX',
-                    'rating': None,
-                    'reviews': None,
+                    "title": name,
+                    "price_per_night": price,
+                    "district": district,
+                    "city": city_name,
+                    "link": url.split("?")[0],
+                    "image": image,
+                    "source": "OLX",
+                    "rating": None,
+                    "reviews": None,
                 })
         except Exception:
             continue
     return results
 
 
-def search_olx_daily(checkin: str, checkout: str, guests: int = 1, district: str = "") -> list:
-    """Search OLX for short-term rentals."""
+def search_olx_daily(city_key: str = "Warszawa") -> list:
+    """HTML scrape OLX na-doby for a given city."""
+    cfg = CITIES.get(city_key, CITIES["Warszawa"])
+    slug = cfg.get("url_olx", "warszawa")
     session = _session()
-    base = "https://www.olx.pl/nieruchomosci/mieszkania/wynajem/warszawa/"
+    base = f"https://www.olx.pl/nieruchomosci/mieszkania/wynajem/{slug}/"
     params = "?search%5Bfilter_enum_type%5D%5B0%5D=na-doby&search%5Border%5D=filter_float_price%3Aasc"
     results = []
     seen = set()
@@ -95,29 +200,26 @@ def search_olx_daily(checkin: str, checkout: str, guests: int = 1, district: str
             r = session.get(url, timeout=15)
             if r.status_code != 200:
                 break
-            html = r.text[:200_000]
-            items = _parse_olx_daily(html)
+            items = _parse_olx_daily_html(r.text[:250_000], city_key)
             for item in items:
-                if item['link'] not in seen:
-                    seen.add(item['link'])
+                if item["link"] not in seen:
+                    seen.add(item["link"])
                     results.append(item)
             if not items:
                 break
-            time.sleep(random.uniform(1.0, 2.0))
+            time.sleep(random.uniform(0.8, 1.5))
         except Exception as e:
-            print(f"[Daily/OLX] page={page} error: {e}")
+            print(f"[Daily/OLX/{city_key}] page={page} error: {e}")
             break
 
-    print(f"[Daily/OLX] Found {len(results)} listings")
+    print(f"[Daily/OLX/{city_key}] HTML {len(results)} listings")
     return results
 
 
-# ── Nocowanie.pl ──────────────────────────────────────────────
-
-def search_nocowanie(checkin: str, checkout: str, guests: int = 1) -> list:
-    """Search nocowanie.pl for Warsaw short-term rentals."""
+def search_nocowanie(checkin: str, checkout: str, guests: int = 1, city_key: str = "Warszawa") -> list:
+    """Nocowanie.pl — city-specific short-term."""
+    slug = NOCOWANIE_SLUGS.get(city_key, "warszawa")
     session = _session("https://nocowanie.pl/")
-    # checkin format: YYYY-MM-DD → nocowanie uses DD.MM.YYYY
     try:
         ci = datetime.strptime(checkin, "%Y-%m-%d").strftime("%d.%m.%Y")
         co = datetime.strptime(checkout, "%Y-%m-%d").strftime("%d.%m.%Y")
@@ -125,7 +227,7 @@ def search_nocowanie(checkin: str, checkout: str, guests: int = 1) -> list:
         ci = co = ""
 
     url = (
-        f"https://nocowanie.pl/noclegi/warszawa/apartamenty/"
+        f"https://nocowanie.pl/noclegi/{slug}/apartamenty/"
         f"?data_od={ci}&data_do={co}&osoby={guests}&sort=cena_asc"
     )
     results = []
@@ -133,81 +235,67 @@ def search_nocowanie(checkin: str, checkout: str, guests: int = 1) -> list:
         r = session.get(url, timeout=15)
         if r.status_code != 200:
             return results
-        html = r.text[:200_000]
-
-        # Parse listing cards
-        cards = re.split(r'<(?:article|div)[^>]+class="[^"]*(?:offer|listing|item)[^"]*"', html)
-        for card in cards[1:21]:
-            try:
-                # Title
-                title_m = re.search(r'<(?:h2|h3|h4)[^>]*>([^<]{5,100})<', card, re.I)
-                if not title_m:
-                    continue
-                title = title_m.group(1).strip()
-
-                # URL
-                url_m = re.search(r'href="(https://nocowanie\.pl/[^"]{10,})"', card)
-                if not url_m:
-                    continue
-                link = url_m.group(1)
-
-                # Price
-                price_m = re.search(r'(\d[\d\s]{1,5})\s*(?:zł|PLN)', card, re.I)
-                price = _price(price_m.group(1)) if price_m else 0
-                if price < 50 or price > 3000:
-                    continue
-
-                # Image
-                img_m = re.search(r'src="(https?://[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"', card, re.I)
-                image = img_m.group(1) if img_m else ""
-
-                # Rating
-                rating_m = re.search(r'(\d+[.,]\d+)\s*/\s*10', card)
-                rating = float(rating_m.group(1).replace(",", ".")) if rating_m else None
-
-                results.append({
-                    'title': title,
-                    'price_per_night': price,
-                    'district': 'Warszawa',
-                    'link': link,
-                    'image': image,
-                    'source': 'Nocowanie.pl',
-                    'rating': rating,
-                    'reviews': None,
-                })
-            except Exception:
+        html = r.text[:250_000]
+        links = re.findall(r'href="(https://nocowanie\.pl/[^"]{15,})"', html)
+        titles = re.findall(r'<(?:h2|h3|h4)[^>]*>([^<]{5,120})<', html, re.I)
+        prices = re.findall(r"(\d[\d\s]{1,5})\s*(?:zł|PLN)", html, re.I)
+        imgs = re.findall(
+            r'src="(https?://[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"', html, re.I
+        )
+        for i, link in enumerate(links[:25]):
+            if link in {x["link"] for x in results}:
                 continue
+            title = titles[i].strip() if i < len(titles) else f"Nocleg {city_key}"
+            price = _price(prices[i]) if i < len(prices) else 0
+            if price < 40 or price > 5000:
+                continue
+            image = imgs[i] if i < len(imgs) else ""
+            rating_m = re.search(r"(\d+[.,]\d+)\s*/\s*10", html)
+            rating = float(rating_m.group(1).replace(",", ".")) if rating_m else None
+            results.append({
+                "title": title,
+                "price_per_night": price,
+                "district": city_key,
+                "city": city_key,
+                "link": link,
+                "image": image,
+                "source": "Nocowanie.pl",
+                "rating": rating,
+                "reviews": None,
+            })
     except Exception as e:
-        print(f"[Daily/Nocowanie] error: {e}")
+        print(f"[Daily/Nocowanie/{city_key}] error: {e}")
 
-    print(f"[Daily/Nocowanie] Found {len(results)} listings")
+    print(f"[Daily/Nocowanie/{city_key}] {len(results)} listings")
     return results
 
 
-# ── Main search function ──────────────────────────────────────
-
-def search_daily_rentals(checkin: str, checkout: str, guests: int = 1, district: str = "Warszawa") -> list:
-    """
-    Search all sources for daily rentals.
-    Returns sorted list by price_per_night ASC.
-    """
+def search_daily_rentals(
+    checkin: str,
+    checkout: str,
+    guests: int = 1,
+    city_key: str = "Warszawa",
+) -> list:
+    """Search all sources for daily rentals in a specific city."""
     all_results = []
 
-    # OLX
     try:
-        olx = search_olx_daily(checkin, checkout, guests, district)
-        all_results.extend(olx)
+        api_items = search_olx_daily_api(city_key)
+        all_results.extend(api_items)
     except Exception as e:
-        print(f"[Daily] OLX error: {e}")
+        print(f"[Daily] OLX API {city_key}: {e}")
 
-    # Nocowanie
+    if len(all_results) < 5:
+        try:
+            all_results.extend(search_olx_daily(city_key))
+        except Exception as e:
+            print(f"[Daily] OLX HTML {city_key}: {e}")
+
     try:
-        noc = search_nocowanie(checkin, checkout, guests)
-        all_results.extend(noc)
+        all_results.extend(search_nocowanie(checkin, checkout, guests, city_key))
     except Exception as e:
-        print(f"[Daily] Nocowanie error: {e}")
+        print(f"[Daily] Nocowanie {city_key}: {e}")
 
-    # Calculate total price
     try:
         ci = datetime.strptime(checkin, "%Y-%m-%d")
         co = datetime.strptime(checkout, "%Y-%m-%d")
@@ -216,19 +304,17 @@ def search_daily_rentals(checkin: str, checkout: str, guests: int = 1, district:
         nights = 1
 
     for r in all_results:
-        r['nights'] = nights
-        r['total_price'] = r['price_per_night'] * nights
+        r["nights"] = nights
+        r["total_price"] = r["price_per_night"] * nights
 
-    # Sort by price per night
-    all_results.sort(key=lambda x: x['price_per_night'])
+    all_results.sort(key=lambda x: x["price_per_night"])
 
-    # Deduplicate by title similarity
-    seen_titles = set()
+    seen = set()
     unique = []
     for r in all_results:
-        key = r['title'].lower()[:30]
-        if key not in seen_titles:
-            seen_titles.add(key)
+        key = (r["link"], r["title"].lower()[:35])
+        if key not in seen:
+            seen.add(key)
             unique.append(r)
 
-    return unique[:20]  # max 20 results
+    return unique[:20]

@@ -192,10 +192,22 @@ def _parse_html_cards(html: str) -> list:
     return results
 
 
-def parse_adresowo() -> list:
+def parse_adresowo(city: str = "Warszawa") -> list:
+    """Parse Adresowo for the specified city."""
+    from database.db import get_conn
+    from validation.integration import ValidationPipeline
+    
+    print(f"[Adresowo/{city}] Starting parse (Warszawa only for now)...")
+    
+    # Initialize validation pipeline
+    conn = get_conn()
+    pipeline = ValidationPipeline(conn)
+    
     results = []
     seen = set()
     session = _session()
+    validated_count = 0
+    rejected_count = 0
 
     for page in range(1, 6):
         url = BASE_URL if page == 1 else f"{BASE_URL}?page={page}"
@@ -217,8 +229,15 @@ def parse_adresowo() -> list:
             for apt in page_results:
                 if apt["link"] not in seen:
                     seen.add(apt["link"])
-                    results.append(apt)
-                    new += 1
+                    apt["source_city"] = city
+                    # Validate before adding to results
+                    validated_apt = pipeline.process_listing(apt, city)
+                    if validated_apt:
+                        results.append(validated_apt)
+                        validated_count += 1
+                        new += 1
+                    else:
+                        rejected_count += 1
 
             print(f"[Adresowo] Page {page}: {new} listings")
             if new == 0 and page >= 2:
@@ -229,5 +248,6 @@ def parse_adresowo() -> list:
             print(f"[Adresowo] Page {page} error: {e}")
             break
 
-    print(f"[Adresowo] Total: {len(results)} listings")
+    conn.close()
+    print(f"[Adresowo] Total: {len(results)} listings (validated: {validated_count}, rejected: {rejected_count})")
     return results

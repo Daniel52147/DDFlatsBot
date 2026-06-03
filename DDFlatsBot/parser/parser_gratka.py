@@ -168,17 +168,37 @@ def _parse_domiporta(html: str) -> list:
     return results
 
 
-def parse_gratka() -> list:
+def parse_gratka(city: str = "Warszawa") -> list:
+    """Parse Gratka for the specified city."""
+    from database.db import get_conn
+    from validation.integration import ValidationPipeline
+    
+    print(f"[Gratka/{city}] Starting parse (Warszawa only for now)...")
+    
+    # Initialize validation pipeline
+    conn = get_conn()
+    pipeline = ValidationPipeline(conn)
+    
     results = []
     seen = set()
+    validated_count = 0
+    rejected_count = 0
 
     def add(items):
+        nonlocal validated_count, rejected_count
         n = 0
         for apt in items:
             if apt["link"] not in seen:
                 seen.add(apt["link"])
-                results.append(apt)
-                n += 1
+                apt["source_city"] = city
+                # Validate before adding to results
+                validated_apt = pipeline.process_listing(apt, city)
+                if validated_apt:
+                    results.append(validated_apt)
+                    validated_count += 1
+                    n += 1
+                else:
+                    rejected_count += 1
         return n
 
     gratka_ok = False
@@ -219,5 +239,6 @@ def parse_gratka() -> list:
                 break
             time.sleep(random.uniform(2.0, 3.0))
 
-    print(f"[Gratka] Total: {len(results)}")
+    conn.close()
+    print(f"[Gratka] Total: {len(results)} (validated: {validated_count}, rejected: {rejected_count})")
     return results

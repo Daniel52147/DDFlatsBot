@@ -13,12 +13,13 @@ from parser.parser_gratka import parse_gratka
 from parser.parser_morizon import parse_morizon
 from parser.parser_adresowo import parse_adresowo
 from database.db import (
-    save_apartment, get_latest_apartments, get_all_user_ids,
+    get_latest_apartments, get_all_user_ids,
     get_all_vip_user_ids, get_subscribers_for_district, log_parse,
     match_alerts, check_vip_expiry, get_daily_digest, check_auto_vip_conditions,
-    get_cheapest_apartments, get_conn, get_morning_push_apts,
+    get_cheapest_apartments, get_conn, get_morning_push_apts, count_apartments,
 )
-from config import CHANNEL_ID, DB_PATH, ADMIN_IDS
+from validation.integration import ValidationPipeline
+from config import CHANNEL_ID, DB_PATH, ADMIN_IDS, CITIES, MIN_LISTINGS_PER_CITY
 
 _bot = None
 _loop = None
@@ -33,6 +34,7 @@ FAIL_NOTIFY_THRESHOLD = 144   # ~24 часа (144 × 10 мин) — уведом
 FAIL_NOTIFY_RESET = 72
 # Sources that are known to be unreliable — skip error notifications entirely
 _SILENT_SOURCES = {"Nieruch-online", "Domiporta", "Szybko", "Lento"}
+_last_low_city_alert: dict[str, str] = {}
 
 
 def set_bot(bot, loop):
@@ -79,47 +81,78 @@ def parse_all():
         print(f"[Scheduler] Starting parse at {datetime.now().isoformat()}")
         before = datetime.now().isoformat()
 
-        sources = [
-            # Primary sources — reliable, work on datacenter IPs
-            ("OLX",     parse_olx),
-            ("Otodom",  parse_otodom),
-            ("Adresowo", parse_adresowo),
-            # Secondary sources — have fallbacks built-in, may be blocked
-            ("Gratka",  parse_gratka),   # falls back to Domiporta internally
-            ("Morizon", parse_morizon),  # falls back to Nieruch-online internally
-            # Optional sources — disabled if consistently blocked
-            # ("Lento",  parse_lento),   # blocked on datacenter IPs
-            # ("Szybko", parse_szybko),  # unreliable
-        ]
-
+        # Parse all cities
+        from config import CITIES
+        
+        # Initialize validation pipeline once for all parsers
+        conn = get_conn()
+        pipeline = ValidationPipeline(conn)
+        
         total_new = 0
-        for source_name, parser_fn in sources:
-            listings = _run_parser_with_timeout(parser_fn, source_name)
-            new = sum(1 for l in listings if save_apartment(l))
-            log_parse(source_name, new)
-            total_new += new
-            print(f"[{source_name}] +{new} new")
+        for city_key in CITIES.keys():
+            print(f"\n[Scheduler] === Parsing {city_key} ===")
+            
+            sources = [
+                # Primary sources — reliable, work on datacenter IPs
+                ("OLX",     lambda: parse_olx(city_key)),
+                ("Otodom",  lambda: parse_otodom(city_key)),
+                ("Adresowo", lambda: parse_adresowo(city_key)),
+                # Secondary sources — have fallbacks built-in, may be blocked
+                ("Gratka",  lambda: parse_gratka(city_key)),
+                ("Morizon", lambda: parse_morizon(city_key)),
+            ]
 
-            # Track consecutive failures
-            if listings == []:
-                _fail_counts[source_name] = _fail_counts.get(source_name, 0) + 1
-                count = _fail_counts[source_name]
-                # Skip notification for known-unreliable sources
-                if source_name not in _SILENT_SOURCES and count == FAIL_NOTIFY_THRESHOLD:
-                    if _bot and _loop:
-                        asyncio.run_coroutine_threadsafe(
-                            _notify_admin_error(
-                                source_name,
-                                f"0 результатов {count} раз подряд (~24ч) — источник недоступен"
-                            ),
-                            _loop
-                        )
-                    # Reset to half so next notification fires in another 12h
-                    _fail_counts[source_name] = FAIL_NOTIFY_RESET
-            else:
-                _fail_counts[source_name] = 0
+            for source_name, parser_fn in sources:
+                listings = _run_parser_with_timeout(parser_fn, f"{source_name}/{city_key}")
+                # Listings are already validated by parsers, now save them
+                new = 0
+                for listing in listings:
+                    listing_id = pipeline.save_listing(listing)
+                    if listing_id:
+                        new += 1
+                log_parse(f"{source_name}/{city_key}", new)
+                total_new += new
+                print(f"[{source_name}/{city_key}] +{new} new")
 
-        print(f"[Scheduler] Done. Total new: {total_new}")
+                # Track consecutive failures
+                key = f"{source_name}/{city_key}"
+                if listings == []:
+                    _fail_counts[key] = _fail_counts.get(key, 0) + 1
+                    count = _fail_counts[key]
+                    # Skip notification for known-unreliable sources
+                    if source_name not in _SILENT_SOURCES and count == FAIL_NOTIFY_THRESHOLD:
+                        if _bot and _loop:
+                            asyncio.run_coroutine_threadsafe(
+                                _notify_admin_error(
+                                    key,
+                                    f"0 результатов {count} раз подряд (~24ч) — источник недоступен"
+                                ),
+                                _loop
+                            )
+                        # Reset to half so next notification fires in another 12h
+                        _fail_counts[key] = FAIL_NOTIFY_RESET
+                else:
+                    _fail_counts[key] = 0
+
+        conn.close()
+        print(f"\n[Scheduler] Done. Total new: {total_new}")
+
+        # Alert if any city has too few active listings (max once per city per day)
+        if _bot and _loop:
+            today = datetime.now().date().isoformat()
+            for city_key, city_info in CITIES.items():
+                n = count_apartments({"city": city_key}, vip=True)
+                if n < MIN_LISTINGS_PER_CITY and _last_low_city_alert.get(city_key) != today:
+                    _last_low_city_alert[city_key] = today
+                    asyncio.run_coroutine_threadsafe(
+                        _notify_admin_error(
+                            f"Low inventory/{city_key}",
+                            f"{city_info.get('label', city_key)}: только <b>{n}</b> объявлений "
+                            f"(минимум {MIN_LISTINGS_PER_CITY}). Проверьте парсеры.",
+                        ),
+                        _loop,
+                    )
+
         check_vip_expiry()
 
         if total_new > 0 and _bot and _loop:
@@ -460,14 +493,18 @@ async def _notify(apartments: list):
                 price_badge = "\n🟢 <b>Очень дёшево!</b>"
             elif ev.get("verdict") == "below_avg":
                 price_badge = "\n🟡 Ниже среднего"
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+            kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="🔗 Открыть", url=apt['link'])
+            ]])
             ok = await _safe_send(
                 uid,
                 f"🎯 <b>Алерт сработал!</b>\n\n"
                 f"🏠 {apt['title']}\n"
                 f"💰 {apt['price']} zł/мес{price_badge}\n"
-                f"📍 {apt.get('district', 'Warszawa')}\n"
-                f"🔗 <a href=\"{apt['link']}\">Открыть</a>",
-                parse_mode="HTML"
+                f"📍 {apt.get('district', 'Warszawa')}",
+                parse_mode="HTML",
+                reply_markup=kb
             )
             if ok:
                 notified.add(uid)
@@ -478,13 +515,17 @@ async def _notify(apartments: list):
         for uid in subscribers:
             if uid in notified:
                 continue
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+            kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="🔗 Открыть", url=apt['link'])
+            ]])
             ok = await _safe_send(
                 uid,
                 f"🔔 <b>Новая квартира в {apt.get('district', 'Warszawa')}!</b>\n\n"
                 f"🏠 {apt['title']}\n"
-                f"💰 {apt['price']} zł/мес\n"
-                f"🔗 <a href=\"{apt['link']}\">Открыть</a>",
-                parse_mode="HTML"
+                f"💰 {apt['price']} zł/мес",
+                parse_mode="HTML",
+                reply_markup=kb
             )
             if ok:
                 notified.add(uid)

@@ -2,6 +2,7 @@ import sqlite3
 import os
 import random
 import string
+import re
 from datetime import datetime, timedelta
 from database.models import (
     CREATE_APARTMENTS, CREATE_USERS, CREATE_FAVORITES,
@@ -62,6 +63,13 @@ def init_db():
         "ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'",
         "ALTER TABLE users ADD COLUMN last_visit TEXT",
         "ALTER TABLE users ADD COLUMN city TEXT DEFAULT 'Warszawa'",
+        "ALTER TABLE users ADD COLUMN hide_seen INTEGER DEFAULT 1",
+        """CREATE TABLE IF NOT EXISTS hidden_apartments (
+            user_id INTEGER NOT NULL,
+            apt_id INTEGER NOT NULL,
+            hidden_at TEXT,
+            UNIQUE(user_id, apt_id)
+        )""",
         "ALTER TABLE apartments ADD COLUMN rooms INTEGER",
         "ALTER TABLE apartments ADD COLUMN area REAL",
         "ALTER TABLE apartments ADD COLUMN floor TEXT",
@@ -109,9 +117,15 @@ def init_db():
 
     conn.commit()
     conn.close()
+    try:
+        from database.migrations import run_all_migrations
+        run_all_migrations(DB_PATH)
+    except Exception as e:
+        print(f"[DB] Schema migrations: {e}")
     cleanup_junk_listings()
     # One-time migration: set city for existing apartments without city
     _migrate_city_field()
+    _backfill_city_from_source()
 
 
 # ── Apartments ───────────────────────────────────────────────
@@ -176,21 +190,37 @@ _CITY_KEYWORDS = {
 }
 
 
+def _has_false_positive_street(text: str, city: str) -> bool:
+    """Street names like Wrocławska must not reassign listing to Wrocław."""
+    try:
+        from validation.geographic import FALSE_POSITIVE_STREETS, _normalize_street
+        streets = FALSE_POSITIVE_STREETS.get(city, [])
+        t = _normalize_street(text)
+    except Exception:
+        return False
+    return any(fp in t for fp in streets)
+
+
 def _detect_city(title: str, district: str, source_city: str = "") -> str:
     """
     Detect which city an apartment belongs to.
-    Priority: source_city hint > district match > title match > default Warszawa.
+    Priority: source_city (parser) > word-boundary title/district > default.
     """
     if source_city and source_city in _CITY_KEYWORDS:
         return source_city
 
     text = f"{district} {title}".lower()
+    if source_city and _has_false_positive_street(text, source_city):
+        return source_city
+
     for city, keywords in _CITY_KEYWORDS.items():
+        if source_city and city != source_city:
+            continue
         for kw in keywords:
-            if kw in text:
+            if _re.search(rf"(?<![a-ząćęłńóśźż]){_re.escape(kw)}(?![a-ząćęłńóśźż])", text):
                 return city
 
-    return "Warszawa"  # default
+    return source_city or "Warszawa"
 
 
 # ── Data normalizer ───────────────────────────────────────────
@@ -283,11 +313,21 @@ def save_apartment(data: dict) -> bool:
     if not _is_apartment_listing(data.get("title", ""), data.get("price", 0)):
         return False
 
-    # City-aware Warsaw check — only block non-Warsaw if city is explicitly Warszawa
-    city = data.get("city", "Warszawa")
-    if city == "Warszawa" and not _is_warsaw(data.get("district", "")):
-        return False
-    # Deduplicate within same source only
+    target_city = data.get("source_city") or data.get("city", "Warszawa")
+    try:
+        from validation.geographic import GeographicValidator
+        from config import CITY_DISTRICTS
+        geo = GeographicValidator(CITY_DISTRICTS).validate(data, target_city)
+        if not geo.valid:
+            return False
+        data["city"] = geo.city or target_city
+        if geo.district:
+            data["district"] = geo.district
+    except Exception:
+        city = data.get("city", "Warszawa")
+        if city == "Warszawa" and not _is_warsaw(data.get("district", "")):
+            return False
+
     if find_duplicate(data.get("title", ""), data.get("price", 0), data.get("source", "")):
         return False
     conn = get_conn()
@@ -315,146 +355,130 @@ def save_apartment(data: dict) -> bool:
     return True
 
 
-def get_apartments(filters: dict = None, offset: int = 0, limit: int = 1,
-                   vip: bool = False, exclude_ids: list = None) -> list[dict]:
-    """
-    Fetch apartments with smart filter fallback.
-    If strict filters return 0 results, progressively relax them:
-    rooms/furnished are treated as soft filters (NULL values always pass).
-    """
-    conn = get_conn()
-    c = conn.cursor()
-
-    def _build_query(f: dict, strict_rooms: bool = True, strict_furnished: bool = True) -> tuple:
-        q = "SELECT * FROM apartments WHERE reported < 10"
-        p = []
-
-        if not vip and VIP_EARLY_ACCESS_MINUTES > 0:
-            cutoff = (datetime.now() - timedelta(minutes=VIP_EARLY_ACCESS_MINUTES)).isoformat()
-            q += " AND created_at <= ?"
-            p.append(cutoff)
-
-        if f:
-            if f.get("district"):
-                q += " AND district LIKE ?"
-                p.append(f"%{f['district']}%")
-            if f.get("price_max"):
-                q += " AND price <= ? AND price > 0"
-                p.append(f["price_max"])
-            if f.get("price_min"):
-                q += " AND price >= ?"
-                p.append(f["price_min"])
-            if f.get("rooms") and strict_rooms:
-                # NULL rooms always pass — many parsers don't extract room count
-                q += " AND (rooms = ? OR rooms IS NULL)"
-                p.append(f["rooms"])
-            if f.get("keyword"):
-                q += " AND (title LIKE ? OR district LIKE ?)"
-                p.append(f"%{f['keyword']}%")
-                p.append(f"%{f['keyword']}%")
-            if f.get("today"):
-                q += " AND created_at >= ?"
-                p.append(f["today"])
-            if f.get("furnished") is not None and strict_furnished:
-                # NULL furnished always passes
-                q += " AND (furnished = ? OR furnished IS NULL)"
-                p.append(f["furnished"])
-            # Advanced filters
-            if f.get("area_min"):
-                q += " AND (area >= ? OR area IS NULL)"
-                p.append(f["area_min"])
-            if f.get("price_per_m_max") and f.get("area_min"):
-                # price/m² = price / area <= X  →  price <= X * area
-                q += " AND area > 0 AND (price * 1.0 / area) <= ?"
-                p.append(f["price_per_m_max"])
-            if f.get("rooms_max"):
-                q += " AND (rooms <= ? OR rooms IS NULL)"
-                p.append(f["rooms_max"])
-            if f.get("floor_min"):
-                q += " AND (CAST(floor AS INTEGER) >= ? OR floor IS NULL)"
-                p.append(f["floor_min"])
-            if f.get("photo_only"):
-                q += " AND image IS NOT NULL AND image != ''"
-            if f.get("new_only"):
-                from datetime import date
-                q += " AND created_at >= ?"
-                p.append(date.today().isoformat())
-            # City isolation — ALWAYS filter by city to prevent mixing
-            city = f.get("city", "Warszawa")
-            q += " AND (city = ? OR city IS NULL OR city = '')"
-            p.append(city)
-        if exclude_ids:
-            placeholders = ",".join("?" * len(exclude_ids))
-            q += f" AND id NOT IN ({placeholders})"
-            p.extend(exclude_ids)
-
-        return q, p
-
-    # Try strict first, then progressively relax
-    fallback_levels = [
-        (True,  True),   # strict rooms + strict furnished
-        (True,  False),  # strict rooms, ignore furnished
-        (False, False),  # ignore both rooms and furnished
-    ]
-
-    for strict_r, strict_f in fallback_levels:
-        q, p = _build_query(filters or {}, strict_r, strict_f)
-        q_count = q.replace("SELECT *", "SELECT COUNT(*)")
-        total = c.execute(q_count, p).fetchone()[0]
-        if total > 0:
-            q += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
-            p += [limit, offset]
-            rows = c.execute(q, p).fetchall()
-            conn.close()
-            return [dict(r) for r in rows]
-
-    conn.close()
-    return []
+_FILTER_FALLBACK = [
+    (True, True),
+    (True, False),
+    (False, False),
+]
 
 
-def count_apartments(filters: dict = None, vip: bool = False) -> int:
-    """Count apartments matching filters. Uses same soft-filter logic as get_apartments."""
-    conn = get_conn()
-    c = conn.cursor()
-    q = "SELECT COUNT(*) FROM apartments WHERE reported < 10"
-    p = []
+def build_filter_query(
+    filters: dict | None = None,
+    strict_rooms: bool = True,
+    strict_furnished: bool = True,
+    vip: bool = False,
+    exclude_ids: list | None = None,
+    select: str = "SELECT *",
+) -> tuple[str, list]:
+    """Shared WHERE clause for count and fetch — keeps totals in sync with results."""
+    q = f"{select} FROM apartments WHERE reported < 10 AND (duplicate_of IS NULL)"
+    p: list = []
 
     if not vip and VIP_EARLY_ACCESS_MINUTES > 0:
         cutoff = (datetime.now() - timedelta(minutes=VIP_EARLY_ACCESS_MINUTES)).isoformat()
         q += " AND created_at <= ?"
         p.append(cutoff)
 
-    if filters:
-        if filters.get("district"):
-            q += " AND district LIKE ?"
-            p.append(f"%{filters['district']}%")
-        if filters.get("price_max"):
-            q += " AND price <= ? AND price > 0"
-            p.append(filters["price_max"])
-        if filters.get("price_min"):
-            q += " AND price >= ?"
-            p.append(filters["price_min"])
-        if filters.get("rooms"):
-            q += " AND (rooms = ? OR rooms IS NULL)"
-            p.append(filters["rooms"])
-        if filters.get("keyword"):
-            q += " AND (title LIKE ? OR district LIKE ?)"
-            p.append(f"%{filters['keyword']}%")
-            p.append(f"%{filters['keyword']}%")
-        if filters.get("today"):
-            q += " AND created_at >= ?"
-            p.append(filters["today"])
-        if filters.get("furnished") is not None:
-            q += " AND (furnished = ? OR furnished IS NULL)"
-            p.append(filters["furnished"])
-        # City isolation
-        city = filters.get("city", "Warszawa")
-        q += " AND (city = ? OR city IS NULL OR city = '')"
-        p.append(city)
+    f = filters or {}
+    if f.get("district"):
+        q += " AND district LIKE ?"
+        p.append(f"%{f['district']}%")
+    if f.get("price_max"):
+        q += " AND price <= ? AND price > 0"
+        p.append(f["price_max"])
+    if f.get("price_min"):
+        q += " AND price >= ?"
+        p.append(f["price_min"])
+    if f.get("rooms") and strict_rooms:
+        q += " AND (rooms = ? OR rooms IS NULL)"
+        p.append(f["rooms"])
+    if f.get("keyword"):
+        q += " AND (title LIKE ? OR district LIKE ?)"
+        p.append(f"%{f['keyword']}%")
+        p.append(f"%{f['keyword']}%")
+    if f.get("today"):
+        q += " AND created_at >= ?"
+        p.append(f["today"])
+    if f.get("furnished") is not None and strict_furnished:
+        q += " AND (furnished = ? OR furnished IS NULL)"
+        p.append(f["furnished"])
+    if f.get("area_min"):
+        q += " AND (area >= ? OR area IS NULL)"
+        p.append(f["area_min"])
+    if f.get("price_per_m_max") and f.get("area_min"):
+        q += " AND area > 0 AND (price * 1.0 / area) <= ?"
+        p.append(f["price_per_m_max"])
+    if f.get("rooms_max"):
+        q += " AND (rooms <= ? OR rooms IS NULL)"
+        p.append(f["rooms_max"])
+    if f.get("floor_min"):
+        q += " AND (CAST(floor AS INTEGER) >= ? OR floor IS NULL)"
+        p.append(f["floor_min"])
+    if f.get("photo_only"):
+        q += " AND image IS NOT NULL AND image != ''"
+    if f.get("new_only"):
+        from datetime import date
+        q += " AND created_at >= ?"
+        p.append(date.today().isoformat())
+    city = f.get("city", "Warszawa")
+    q += " AND (city = ? OR (IFNULL(city, '') = '' AND source_city = ?))"
+    p.extend([city, city])
+    if exclude_ids:
+        placeholders = ",".join("?" * len(exclude_ids))
+        q += f" AND id NOT IN ({placeholders})"
+        p.extend(exclude_ids)
+    return q, p
 
-    count = c.execute(q, p).fetchone()[0]
+
+def _resolve_filter_level(
+    conn,
+    filters: dict | None,
+    vip: bool = False,
+    exclude_ids: list | None = None,
+) -> tuple[bool, bool, int]:
+    """Pick the same fallback tier count and fetch both use."""
+    c = conn.cursor()
+    for strict_r, strict_f in _FILTER_FALLBACK:
+        q, p = build_filter_query(
+            filters, strict_r, strict_f, vip, exclude_ids, select="SELECT COUNT(*)"
+        )
+        total = c.execute(q, p).fetchone()[0]
+        if total > 0:
+            return strict_r, strict_f, total
+    return True, True, 0
+
+
+def get_apartments(
+    filters: dict = None,
+    offset: int = 0,
+    limit: int = 1,
+    vip: bool = False,
+    exclude_ids: list = None,
+) -> list[dict]:
+    """
+    Fetch apartments. Uses the same filter fallback as count_apartments.
+    """
+    conn = get_conn()
+    strict_r, strict_f, total = _resolve_filter_level(conn, filters, vip, exclude_ids)
+    if total == 0:
+        conn.close()
+        return []
+
+    safe_offset = min(offset, max(0, total - 1))
+    q, p = build_filter_query(filters, strict_r, strict_f, vip, exclude_ids)
+    q += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    p += [limit, safe_offset]
+    rows = conn.execute(q, p).fetchall()
     conn.close()
-    return count
+    return [dict(r) for r in rows]
+
+
+def count_apartments(filters: dict = None, vip: bool = False, exclude_ids: list = None) -> int:
+    """Count apartments — identical fallback logic as get_apartments."""
+    conn = get_conn()
+    _, _, total = _resolve_filter_level(conn, filters, vip, exclude_ids)
+    conn.close()
+    return total
 
 
 def get_latest_apartments(since: str) -> list[dict]:
@@ -800,16 +824,24 @@ def rate_apartment(user_id: int, apartment_id: int, rating: int):
 # ── Deduplication ─────────────────────────────────────────────
 
 def find_duplicate(title: str, price: int, source: str = "") -> bool:
-    """Cross-source deduplication: same title+price from ANY source = duplicate."""
+    """
+    Cross-source deduplication: same title+price from ANY source = duplicate.
+    Improved: normalize title more aggressively to catch duplicates.
+    """
     if not title or not price:
         return False
     conn = get_conn()
-    # Normalize: lowercase, strip extra spaces, take first 50 chars
-    short_title = " ".join(title.lower().split())[:50]
-    # Check across ALL sources — same apartment listed on OLX and Otodom is still a duplicate
+    # Normalize: lowercase, strip extra spaces, remove special chars, take first 40 chars
+    normalized = " ".join(re.sub(r'[^\w\s]', '', title.lower()).split())[:40]
+    
+    # Check across ALL sources with fuzzy price match (±50 zł)
     row = conn.execute(
-        "SELECT id FROM apartments WHERE LOWER(TRIM(title)) LIKE ? AND ABS(price - ?) <= 50 LIMIT 1",
-        (f"{short_title[:35]}%", price)
+        """SELECT id FROM apartments 
+           WHERE LOWER(REPLACE(REPLACE(title, '-', ' '), '|', ' ')) LIKE ? 
+           AND ABS(price - ?) <= 50 
+           AND duplicate_of IS NULL
+           LIMIT 1""",
+        (f"%{normalized[:30]}%", price)
     ).fetchone()
     conn.close()
     return row is not None
@@ -1231,18 +1263,46 @@ def get_new_today_count() -> int:
 
 
 def _migrate_city_field():
-    """One-time: set city='Warszawa' for all existing apartments without city."""
+    """One-time: detect and set city for all existing apartments without city."""
     try:
         conn = get_conn()
-        updated = conn.execute(
-            "UPDATE apartments SET city='Warszawa' WHERE city IS NULL OR city = ''"
-        ).rowcount
+        # Get all apartments without city
+        rows = conn.execute(
+            "SELECT id, title, district FROM apartments WHERE city IS NULL OR city = ''"
+        ).fetchall()
+        
+        updated = 0
+        for row in rows:
+            apt_id = row["id"]
+            title = row["title"] or ""
+            district = row["district"] or ""
+            # Detect city from title and district
+            city = _detect_city(title, district, "")
+            conn.execute("UPDATE apartments SET city=? WHERE id=?", (city, apt_id))
+            updated += 1
+        
         conn.commit()
         conn.close()
         if updated > 0:
-            print(f"[Migration] Set city=Warszawa for {updated} existing apartments")
+            print(f"[Migration] Detected and set city for {updated} existing apartments")
     except Exception as e:
         print(f"[Migration] city field: {e}")
+
+
+def _backfill_city_from_source():
+    """Set city from source_city for legacy rows."""
+    try:
+        conn = get_conn()
+        cur = conn.execute(
+            "UPDATE apartments SET city = source_city "
+            "WHERE (city IS NULL OR city = '') AND source_city IS NOT NULL AND source_city != ''"
+        )
+        conn.commit()
+        if cur.rowcount:
+            print(f"[Migration] Backfilled city from source_city for {cur.rowcount} rows")
+        conn.close()
+    except Exception as e:
+        print(f"[Migration] source_city backfill: {e}")
 
 
 def cleanup_junk_listings():
@@ -1445,6 +1505,72 @@ def get_seen_ids(user_id: int) -> list:
         rows = []
     conn.close()
     return [r["apt_id"] for r in rows]
+
+
+def get_user_hide_seen(user_id: int) -> bool:
+    """True = hide already viewed listings from search."""
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT hide_seen FROM users WHERE user_id=?", (user_id,)
+        ).fetchone()
+        if row is not None and row["hide_seen"] is not None:
+            return bool(row["hide_seen"])
+    except Exception:
+        pass
+    finally:
+        conn.close()
+    return True
+
+
+def set_user_hide_seen(user_id: int, hide: bool) -> None:
+    conn = get_conn()
+    try:
+        conn.execute(
+            "UPDATE users SET hide_seen=? WHERE user_id=?",
+            (1 if hide else 0, user_id),
+        )
+        conn.commit()
+    except Exception:
+        pass
+    conn.close()
+
+
+def hide_apartment(user_id: int, apt_id: int) -> None:
+    conn = get_conn()
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO hidden_apartments (user_id, apt_id, hidden_at) VALUES (?,?,?)",
+            (user_id, apt_id, datetime.now().isoformat()),
+        )
+        conn.commit()
+    except Exception:
+        pass
+    conn.close()
+
+
+def get_hidden_ids(user_id: int) -> list:
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT apt_id FROM hidden_apartments WHERE user_id=?", (user_id,)
+        ).fetchall()
+    except Exception:
+        rows = []
+    conn.close()
+    return [r["apt_id"] for r in rows]
+
+
+def get_search_exclude_ids(user_id: int, hide_seen: bool | None = None) -> list | None:
+    """IDs to exclude from search: hidden always; seen if hide_seen enabled."""
+    if hide_seen is None:
+        hide_seen = get_user_hide_seen(user_id)
+    ids: list[int] = list(get_hidden_ids(user_id))
+    if hide_seen:
+        ids.extend(get_seen_ids(user_id))
+    if not ids:
+        return None
+    return list(dict.fromkeys(ids))
 
 
 # ── Conversion tracking ───────────────────────────────────────

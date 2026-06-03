@@ -88,6 +88,26 @@ CITY_DISTRICTS = {
         "Stare Miasto", "Grunwald", "Jeżyce", "Nowe Miasto",
         "Wilda", "Winogrady", "Rataje", "Piątkowo",
     ],
+    "Łódź": [
+        "Śródmieście", "Bałuty", "Górna", "Polesie",
+        "Widzew", "Retkinia", "Mileszki",
+    ],
+    "Katowice": [
+        "Śródmieście", "Bogucice", "Koszutka", "Ligota",
+        "Murcki", "Zawodzie", "Dąb", "Janów",
+    ],
+    "Lublin": [
+        "Śródmieście", "Czuby", "Sławin", "Wieniawa",
+        "Tatary", "Bronowice", "Szerokie", "Węglin",
+    ],
+    "Szczecin": [
+        "Śródmieście", "Prawobrzeże", "Północ", "Zachód",
+        "Bukowo", "Niebuszewo", "Gumieńce",
+    ],
+    "Białystok": [
+        "Centrum", "Bojary", "Piaski", "Skorupy",
+        "Antoniuk", "Dojlidy", "Wygoda",
+    ],
 }
 
 # Keep DISTRICTS as alias for Warszawa (backward compat)
@@ -130,6 +150,98 @@ CITIES = {
         "city_id_olx": 42,
         "region_id_olx": 11,
     },
+    "Łódź": {
+        "label": "🏭 Łódź",
+        "url_olx": "lodz",
+        "url_otodom": "lodz",
+        "city_id_olx": 106,
+        "region_id_olx": 2,
+    },
+    "Katowice": {
+        "label": "⛏ Katowice",
+        "url_olx": "katowice",
+        "url_otodom": "katowice",
+        "city_id_olx": 87,
+        "region_id_olx": 6,
+    },
+    "Lublin": {
+        "label": "🌳 Lublin",
+        "url_olx": "lublin",
+        "url_otodom": "lublin",
+        "city_id_olx": 101,
+        "region_id_olx": 8,
+    },
+    "Szczecin": {
+        "label": "🚢 Szczecin",
+        "url_olx": "szczecin",
+        "url_otodom": "szczecin",
+        "city_id_olx": 131,
+        "region_id_olx": 3,
+    },
+    "Białystok": {
+        "label": "🌲 Białystok",
+        "url_olx": "bialystok",
+        "url_otodom": "bialystok",
+        "city_id_olx": 352,
+        "region_id_olx": 9,
+    },
+}
+
+MIN_LISTINGS_PER_CITY = 100
+
+# Visual menu style per city (different button layout in bot)
+CITY_MENU_STYLE = {
+    "Warszawa": "capital",
+    "Kraków": "capital",
+    "Wrocław": "culture",
+    "Gdańsk": "coastal",
+    "Poznań": "business",
+    "Łódź": "industrial",
+    "Katowice": "industrial",
+    "Lublin": "quiet",
+    "Szczecin": "coastal",
+    "Białystok": "quiet",
+}
+
+# Nocowanie.pl URL slugs
+NOCOWANIE_SLUGS = {
+    "Warszawa": "warszawa",
+    "Kraków": "krakow",
+    "Wrocław": "wroclaw",
+    "Gdańsk": "gdansk",
+    "Poznań": "poznan",
+    "Łódź": "lodz",
+    "Katowice": "katowice",
+    "Lublin": "lublin",
+    "Szczecin": "szczecin",
+    "Białystok": "bialystok",
+}
+
+# Booking / Airbnb location names
+BOOKING_LOCATIONS = {
+    "Warszawa": "Warszawa",
+    "Kraków": "Krakow",
+    "Wrocław": "Wroclaw",
+    "Gdańsk": "Gdansk",
+    "Poznań": "Poznan",
+    "Łódź": "Lodz",
+    "Katowice": "Katowice",
+    "Lublin": "Lublin",
+    "Szczecin": "Szczecin",
+    "Białystok": "Bialystok",
+}
+
+AIRBNB_LOCATIONS = {
+    "Warszawa": "Warsaw--Poland",
+    "Kraków": "Krakow--Lesser-Poland-Poland",
+    "Wrocław": "Wroclaw--Lower-Silesian--Poland",
+    "Gdańsk": "Gdansk--Pomeranian--Poland",
+    "Poznań": "Poznan--Greater-Poland--Poland",
+    "Łódź": "Lodz--Lodz--Poland",
+    "Katowice": "Katowice--Silesian--Poland",
+    "Lublin": "Lublin--Lublin--Poland",
+    "Szczecin": "Szczecin--West-Pomeranian--Poland",
+    "Białystok": "Bialystok--Podlaskie--Poland",
 }
 
 # Parser cookie overrides — set via /admin in bot

@@ -133,10 +133,18 @@ def _parse_item(item: dict) -> dict | None:
         except Exception:
             pass
 
+        lat, lon = None, None
+        if isinstance(loc, dict):
+            coords = loc.get("coordinates") or {}
+            if isinstance(coords, dict):
+                lat = coords.get("latitude")
+                lon = coords.get("longitude")
+
         return {
             "title": title, "price": price, "district": str(district),
             "rooms": rooms, "area": area, "floor": floor, "furnished": 0,
             "link": link, "image": image, "source": "Otodom",
+            "lat": lat, "lon": lon,
         }
     except Exception:
         return None
@@ -179,83 +187,100 @@ def _extract_next_data(html: str) -> list:
     return results
 
 
-def parse_otodom() -> list:
+def parse_otodom(city: str = "Warszawa") -> list:
+    """Parse Otodom for the specified city."""
+    from config import CITIES
+    from database.db import get_conn
+    from validation.integration import ValidationPipeline
+    
+    city_config = CITIES.get(city, CITIES["Warszawa"])
+    city_url = city_config.get("url_otodom", "warszawa")
+    
+    print(f"[Otodom/{city}] Starting parse...")
+    
+    # Initialize validation pipeline
+    conn = get_conn()
+    pipeline = ValidationPipeline(conn)
+    
+    # Build URLs for this city
+    base = f"https://www.otodom.pl/pl/oferty/wynajem/mieszkanie/{city_url}"
+    base_new = f"{base}?daysSinceCreated=1&by=LATEST&direction=DESC"
+    base_price_asc = f"{base}?by=PRICE&direction=ASC"
+    
     results = []
     seen    = set()
     session = _session()
+    validated_count = 0
+    rejected_count = 0
 
     def add(items):
+        nonlocal validated_count, rejected_count
         n = 0
         for apt in items:
+            apt["source_city"] = city
             if apt["link"] not in seen:
                 seen.add(apt["link"])
-                results.append(apt)
-                n += 1
+                # Validate before adding to results
+                validated_apt = pipeline.process_listing(apt, city)
+                if validated_apt:
+                    results.append(validated_apt)
+                    validated_count += 1
+                    n += 1
+                else:
+                    rejected_count += 1
         return n
 
     # ── Pass 1: today's new listings ─────────────────────────
     for page in range(1, 4):
-        url = BASE_NEW if page == 1 else f"{BASE_NEW}&page={page}"
+        url = base_new if page == 1 else f"{base_new}&page={page}"
         try:
             r   = session.get(url, headers={"Accept": "text/html"}, timeout=25)
-            print(f"[Otodom-new] page={page} status={r.status_code} size={len(r.text)}")
+            print(f"[Otodom/{city}-new] page={page} status={r.status_code}")
             if r.status_code != 200:
                 break
             new = add(_extract_next_data(r.text))
-            print(f"[Otodom-new] page={page}: {new} new")
+            print(f"[Otodom/{city}-new] page={page}: {new} new")
             if new == 0:
                 break
             time.sleep(random.uniform(1.5, 2.5))
         except Exception as e:
-            print(f"[Otodom-new] page={page} error: {e}")
+            print(f"[Otodom/{city}-new] page={page} error: {e}")
             break
 
     # ── Pass 2: latest sort, multiple pages ──────────────────
     for page in range(1, 6):
-        url = f"{BASE}?by=LATEST&direction=DESC" if page == 1 else f"{BASE}?by=LATEST&direction=DESC&page={page}"
+        url = base if page == 1 else f"{base}?page={page}"
         try:
-            r   = session.get(url, headers={"Accept": "text/html"}, timeout=25)
-            print(f"[Otodom] page={page} status={r.status_code} size={len(r.text)}")
+            r = session.get(url, timeout=25)
+            print(f"[Otodom/{city}] page={page} status={r.status_code}")
             if r.status_code != 200:
                 break
             new = add(_extract_next_data(r.text))
-            print(f"[Otodom] page={page}: {new} new")
+            print(f"[Otodom/{city}] page={page}: {new} new")
             if new == 0 and page >= 2:
                 break
-            time.sleep(random.uniform(2.0, 3.0))
+            time.sleep(random.uniform(1.5, 2.5))
         except Exception as e:
-            print(f"[Otodom] page={page} error: {e}")
+            print(f"[Otodom/{city}] page={page} error: {e}")
             break
 
-    # ── Pass 3: price ascending (cheap listings) ─────────────
-    for page in range(1, 4):
-        url = BASE_PRICE_ASC if page == 1 else f"{BASE_PRICE_ASC}&page={page}"
+    # ── Pass 3: price ascending ──────────────────────────────
+    for page in range(1, 3):
+        url = base_price_asc if page == 1 else f"{base_price_asc}&page={page}"
         try:
-            r   = session.get(url, headers={"Accept": "text/html"}, timeout=25)
+            r = session.get(url, timeout=25)
             if r.status_code != 200:
                 break
             new = add(_extract_next_data(r.text))
-            print(f"[Otodom-price] page={page}: {new} new")
+            print(f"[Otodom/{city}-price] page={page}: {new} new")
             if new == 0:
                 break
-            time.sleep(random.uniform(2.0, 3.0))
+            time.sleep(random.uniform(1.5, 2.5))
         except Exception as e:
-            print(f"[Otodom-price] page={page} error: {e}")
+            print(f"[Otodom/{city}-price] page={page} error: {e}")
             break
 
-    # ── Pass 3: per-district (broader coverage) ───────────────
-    for dist in WARSAW_DISTRICTS:
-        url = BASE_DIST.format(district=dist)
-        try:
-            r = session.get(url, headers={"Accept": "text/html"}, timeout=25)
-            if r.status_code != 200:
-                continue
-            new = add(_extract_next_data(r.text))
-            print(f"[Otodom-dist] {dist}: {new} new")
-            if new > 0:
-                time.sleep(random.uniform(1.5, 2.5))
-        except Exception as e:
-            print(f"[Otodom-dist] {dist} error: {e}")
-
-    print(f"[Otodom] Total: {len(results)} listings")
+    conn.close()
+    print(f"[Otodom/{city}] Total: {len(results)} (validated: {validated_count}, rejected: {rejected_count})")
     return results
+
