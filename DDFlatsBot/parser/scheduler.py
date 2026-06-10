@@ -14,7 +14,7 @@ from parser.parser_morizon import parse_morizon
 from parser.parser_adresowo import parse_adresowo
 from database.db import (
     get_latest_apartments, get_all_user_ids,
-    get_all_vip_user_ids, get_subscribers_for_district, log_parse,
+    get_subscribers_for_district, log_parse,
     match_alerts, check_vip_expiry, get_daily_digest, check_auto_vip_conditions,
     get_cheapest_apartments, get_conn, get_morning_push_apts, count_apartments,
 )
@@ -180,8 +180,7 @@ def send_reminders():
 
 
 def check_auto_vip():
-    if _bot and _loop:
-        asyncio.run_coroutine_threadsafe(_auto_vip_check(), _loop)
+    return  # public VIP disabled
 
 
 def cleanup_old_listings():
@@ -203,9 +202,7 @@ def cleanup_old_listings():
 
 
 def send_vip_expiry_reminders():
-    """Remind users whose VIP expires in 1-3 days."""
-    if _bot and _loop:
-        asyncio.run_coroutine_threadsafe(_vip_expiry_reminders(), _loop)
+    return  # public VIP disabled
 
 
 def backup_db():
@@ -481,28 +478,37 @@ async def _notify(apartments: list):
         return
 
     notified = set()
-    from database.db import evaluate_price
+    from database.db import evaluate_price, get_user_lang
+    from bot.i18n import t
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+    def _lang(uid: int) -> str:
+        return get_user_lang(uid) or "ru"
 
     for apt in apartments:
         # 1. Smart alerts — highest priority
         alert_users = match_alerts(apt)
         for uid in alert_users:
+            lang = _lang(uid)
             ev = evaluate_price(apt.get("price", 0), apt.get("district", ""), apt.get("rooms"))
             price_badge = ""
             if ev.get("verdict") == "cheap":
-                price_badge = "\n🟢 <b>Очень дёшево!</b>"
+                price_badge = t(lang, "notify_price_cheap")
             elif ev.get("verdict") == "below_avg":
-                price_badge = "\n🟡 Ниже среднего"
-            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                price_badge = t(lang, "notify_price_below_avg")
             kb = InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="🔗 Открыть", url=apt['link'])
+                InlineKeyboardButton(text=t(lang, "notify_btn_open"), url=apt['link'])
             ]])
             ok = await _safe_send(
                 uid,
-                f"🎯 <b>Алерт сработал!</b>\n\n"
-                f"🏠 {apt['title']}\n"
-                f"💰 {apt['price']} zł/мес{price_badge}\n"
-                f"📍 {apt.get('district', 'Warszawa')}",
+                t(
+                    lang,
+                    "notify_alert_fired",
+                    title=apt['title'],
+                    price=apt['price'],
+                    price_badge=price_badge,
+                    district=apt.get('district', 'Warszawa'),
+                ),
                 parse_mode="HTML",
                 reply_markup=kb
             )
@@ -515,15 +521,19 @@ async def _notify(apartments: list):
         for uid in subscribers:
             if uid in notified:
                 continue
-            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+            lang = _lang(uid)
             kb = InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="🔗 Открыть", url=apt['link'])
+                InlineKeyboardButton(text=t(lang, "notify_btn_open"), url=apt['link'])
             ]])
             ok = await _safe_send(
                 uid,
-                f"🔔 <b>Новая квартира в {apt.get('district', 'Warszawa')}!</b>\n\n"
-                f"🏠 {apt['title']}\n"
-                f"💰 {apt['price']} zł/мес",
+                t(
+                    lang,
+                    "notify_new_in_district",
+                    district=apt.get('district', 'Warszawa'),
+                    title=apt['title'],
+                    price=apt['price'],
+                ),
                 parse_mode="HTML",
                 reply_markup=kb
             )
@@ -531,36 +541,6 @@ async def _notify(apartments: list):
                 notified.add(uid)
             await asyncio.sleep(0.05)
 
-    # 3. VIP — notify about cheap new apartments only (avoid spam)
-    cheap_apts = [
-        a for a in apartments
-        if a.get("price") and evaluate_price(
-            a["price"], a.get("district", ""), a.get("rooms")
-        ).get("verdict") in ("cheap", "below_avg")
-    ]
-    if cheap_apts:
-        best = cheap_apts[0]
-        extra = f"\n+ ещё {len(cheap_apts)-1} дешёвых → /next" if len(cheap_apts) > 1 else ""
-        vip_ids = [uid for uid in get_all_vip_user_ids() if uid not in notified]
-        await _batch_send(
-            vip_ids,
-            f"🟢 <b>Дешёвая квартира!</b>\n\n"
-            f"🏠 {best['title']}\n"
-            f"💰 <b>{best['price']} zł/мес</b> — ниже среднего!\n"
-            f"📍 {best.get('district', 'Warszawa')}\n"
-            f"🔗 <a href=\"{best['link']}\">Открыть</a>{extra}",
-            parse_mode="HTML",
-            rate=0.05,
-        )
-    elif len(apartments) >= 10:
-        # Only notify VIP if 10+ new apartments — avoid spam on small batches
-        vip_ids = [uid for uid in get_all_vip_user_ids() if uid not in notified]
-        await _batch_send(
-            vip_ids,
-            f"🏠 Добавлено <b>{len(apartments)}</b> новых квартир!\nНажми /next",
-            parse_mode="HTML",
-            rate=0.05,
-        )
 
 
 async def _vip_expiry_reminders():

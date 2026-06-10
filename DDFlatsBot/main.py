@@ -66,10 +66,12 @@ async def notify_admin_startup():
     try:
         stats = get_stats()
         mode = "webhook" if WEBHOOK_URL else "polling"
+        from config import DB_PATH
         text = (
             f"✅ <b>DDFlatsBot запущен</b>\n\n"
             f"🕐 {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
             f"⚙️ Режим: <b>{mode}</b>\n"
+            f"💾 БД: <code>{DB_PATH}</code>\n"
             f"🏠 Квартир в базе: <b>{stats['apartments']}</b>\n"
             f"👥 Пользователей: <b>{stats['users']}</b>\n"
             f"💎 VIP: <b>{stats['vip']}</b>"
@@ -91,16 +93,16 @@ async def setup_bot_commands():
         BotCommand(command="filter",    description="🔍 Фильтры (район, цена, комнаты)"),
         BotCommand(command="ask",       description="🤖 Умный поиск: /ask 2 комнаты Мокотув до 3000"),
         BotCommand(command="favorites", description="❤️ Моё избранное"),
-        BotCommand(command="vip",       description="⭐ VIP подписка — 19 zł/мес"),
         BotCommand(command="mystats",   description="📊 Моя статистика"),
-        BotCommand(command="alert",     description="🔔 Умный алерт (VIP)"),
+        BotCommand(command="alert",     description="🔔 Умные алерты"),
+        BotCommand(command="subscribe", description="🔔 Подписка на район"),
         BotCommand(command="hot",       description="🔥 Горячие квартиры"),
         BotCommand(command="drops",     description="📉 Снижение цен"),
         BotCommand(command="cheap",     description="💚 Самые дешёвые"),
         BotCommand(command="map",       description="🗺 Карта цен по районам"),
         BotCommand(command="city",      description="🏙 Сменить город"),
         BotCommand(command="notes",     description="📝 Мои заметки"),
-        BotCommand(command="ref",       description="👥 Пригласить друга → VIP"),
+        BotCommand(command="ref",       description="👥 Пригласить друга"),
         BotCommand(command="menu",      description="📋 Быстрое меню"),
         BotCommand(command="help",      description="📖 Все команды"),
     ]
@@ -109,29 +111,39 @@ async def setup_bot_commands():
     try:
         await bot.set_my_description(
             "🏙 DDFlatsBot — квартиры Польши в одном месте!\n\n"
-            "✅ OLX · Otodom · Gratka · Morizon · Lento\n"
+            "✅ OLX · Otodom · Gratka · Morizon · Adresowo\n"
             "✅ Обновление каждые 10 минут\n"
-            "✅ Варшава, Краков, Вроцлав, Гданьск, Познань\n"
-            "✅ Фильтры, алерты, уведомления о снижении цен\n\n"
-            "Нажми START чтобы начать 👇",
+            "✅ 10 городов: Warszawa, Kraków, Wrocław, Gdańsk, Poznań, Łódź, Katowice, Lublin, Szczecin, Białystok\n"
+            "✅ Бесплатно · безлимит · 10 городов · радиус 100 км\n"
+            "✅ Посуточно, алерты, подписка на районы\n\n"
+            "Нажми START 👇",
             language_code="ru"
         )
         await bot.set_my_description(
+            "🏙 DDFlatsBot — apartments across Poland!\n\n"
+            "✅ OLX · Otodom · Gratka · Morizon\n"
+            "✅ Updates every 10 minutes · 10 cities\n"
+            "✅ Free unlimited · 10 cities · 100 km radius\n"
+            "✅ Short-term, alerts, district subscriptions\n\n"
+            "Tap START 👇",
+            language_code="en"
+        )
+        await bot.set_my_description(
             "🏙 DDFlatsBot — mieszkania Polski w jednym miejscu!\n\n"
-            "✅ OLX · Otodom · Gratka · Morizon · Lento\n"
-            "✅ Aktualizacja co 10 minut\n"
-            "✅ Warszawa, Kraków, Wrocław, Gdańsk, Poznań\n"
-            "✅ Filtry, alerty, powiadomienia o obniżkach\n\n"
-            "Naciśnij START aby zacząć 👇",
+            "✅ OLX · Otodom · Gratka · Morizon · Adresowo\n"
+            "✅ Aktualizacja co 10 minut · 10 miast\n"
+            "✅ Darmowo · bez limitu · promień 100 km\n"
+            "✅ Krótkoterminowo, alerty, subskrypcja dzielnic\n\n"
+            "Naciśnij START 👇",
             language_code="pl"
         )
         await bot.set_my_description(
             "🏙 DDFlatsBot — квартири Польщі в одному місці!\n\n"
-            "✅ OLX · Otodom · Gratka · Morizon · Lento\n"
-            "✅ Оновлення кожні 10 хвилин\n"
-            "✅ Варшава, Краків, Вроцлав, Гданськ, Познань\n"
-            "✅ Фільтри, алерти, сповіщення про зниження цін\n\n"
-            "Натисни START щоб почати 👇",
+            "✅ OLX · Otodom · Gratka · Morizon · Adresowo\n"
+            "✅ Оновлення кожні 10 хвилин · 10 міст\n"
+            "✅ Безкоштовно · безліміт · радіус 100 км\n"
+            "✅ Подобово, алерти, підписка на райони\n\n"
+            "Натисни START 👇",
             language_code="uk"
         )
         await bot.set_my_short_description(

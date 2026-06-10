@@ -40,13 +40,28 @@ class ValidationPipeline:
         geo_result = self.geo_validator.validate(listing, target_city)
         
         if not geo_result.valid:
-            print(f"[Validation] Rejected listing: {geo_result.reason}")
+            reason = geo_result.reason or "unknown"
+            link = listing.get("link", "") or ""
+            try:
+                from database.db import log_validation_reject
+                log_validation_reject(reason, target_city, link)
+            except Exception:
+                pass
+            if reason == "link_city_mismatch":
+                from validation.geographic import city_from_link
+                detected = city_from_link(link)
+                print(
+                    f"[Validation] link_city_mismatch: target={target_city} "
+                    f"detected={detected} link={link[:120]}"
+                )
+            else:
+                print(f"[Validation] Rejected listing: {reason}")
             return None
         
-        # Update listing with validated data
-        listing['city'] = geo_result.city
-        listing['district'] = geo_result.district
-        listing['source_city'] = target_city
+        listing["city"] = geo_result.city or target_city
+        listing["source_city"] = listing["city"]
+        if geo_result.district:
+            listing["district"] = geo_result.district
         
         # Step 2: Duplicate detection
         dup_result = self.dup_detector.check_duplicate(listing)

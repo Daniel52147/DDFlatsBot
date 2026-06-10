@@ -64,6 +64,8 @@ def init_db():
         "ALTER TABLE users ADD COLUMN last_visit TEXT",
         "ALTER TABLE users ADD COLUMN city TEXT DEFAULT 'Warszawa'",
         "ALTER TABLE users ADD COLUMN hide_seen INTEGER DEFAULT 1",
+        "ALTER TABLE users ADD COLUMN search_radius_km INTEGER DEFAULT 100",
+        "ALTER TABLE alerts ADD COLUMN city TEXT",
         """CREATE TABLE IF NOT EXISTS hidden_apartments (
             user_id INTEGER NOT NULL,
             apt_id INTEGER NOT NULL,
@@ -108,6 +110,13 @@ def init_db():
             source TEXT,
             created_at TEXT
         )""",
+        """CREATE TABLE IF NOT EXISTS validation_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reason TEXT NOT NULL,
+            target_city TEXT,
+            link TEXT,
+            logged_at TEXT NOT NULL
+        )""",
     ]
     for sql in migrations:
         try:
@@ -126,6 +135,7 @@ def init_db():
     # One-time migration: set city for existing apartments without city
     _migrate_city_field()
     _backfill_city_from_source()
+    sync_apartments_city_from_links()
 
 
 # ── Apartments ───────────────────────────────────────────────
@@ -421,8 +431,30 @@ def build_filter_query(
         q += " AND created_at >= ?"
         p.append(date.today().isoformat())
     city = f.get("city", "Warszawa")
-    q += " AND (city = ? OR (IFNULL(city, '') = '' AND source_city = ?))"
-    p.extend([city, city])
+    radius_km = f.get("search_radius_km")
+    try:
+        from config import CITIES, city_slug, resolve_search_cities, SEARCH_RADIUS_KM_DEFAULT
+        if radius_km is None:
+            radius_km = SEARCH_RADIUS_KM_DEFAULT
+        search_cities = resolve_search_cities(city, radius_km)
+        if len(search_cities) == 1:
+            q += " AND city = ?"
+            p.append(search_cities[0])
+        else:
+            placeholders = ",".join("?" * len(search_cities))
+            q += f" AND city IN ({placeholders})"
+            p.extend(search_cities)
+        allowed = set(search_cities)
+        for other in CITIES:
+            if other in allowed:
+                continue
+            slug = city_slug(other)
+            if slug:
+                q += " AND LOWER(link) NOT LIKE ?"
+                p.append(f"%/{slug}/%")
+    except Exception:
+        q += " AND city = ?"
+        p.append(city)
     if exclude_ids:
         placeholders = ",".join("?" * len(exclude_ids))
         q += f" AND id NOT IN ({placeholders})"
@@ -466,8 +498,20 @@ def get_apartments(
 
     safe_offset = min(offset, max(0, total - 1))
     q, p = build_filter_query(filters, strict_r, strict_f, vip, exclude_ids)
-    q += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
-    p += [limit, safe_offset]
+    f = filters or {}
+    primary = f.get("city", "Warszawa")
+    try:
+        from config import resolve_search_cities
+        radius_km = f.get("search_radius_km")
+        multi_city = len(resolve_search_cities(primary, radius_km)) > 1
+    except Exception:
+        multi_city = False
+    if multi_city:
+        q += " ORDER BY CASE WHEN city = ? THEN 0 ELSE 1 END, created_at DESC LIMIT ? OFFSET ?"
+        p += [primary, limit, safe_offset]
+    else:
+        q += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        p += [limit, safe_offset]
     rows = conn.execute(q, p).fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -705,13 +749,24 @@ def get_subscribers_for_district(district: str) -> list:
 
 # ── Smart Alerts ─────────────────────────────────────────────
 
-def create_alert(user_id: int, district: str = None, price_min: int = None,
-                 price_max: int = None, rooms: int = None):
+def get_alert_limit(vip: bool = False) -> int:
+    from config import FREE_ALERT_LIMIT
+    return FREE_ALERT_LIMIT
+
+
+def create_alert(
+    user_id: int,
+    district: str = None,
+    price_min: int = None,
+    price_max: int = None,
+    rooms: int = None,
+    city: str = None,
+):
     conn = get_conn()
     conn.execute("""
-        INSERT INTO alerts (user_id, district, price_min, price_max, rooms, active, created_at)
-        VALUES (?,?,?,?,?,1,?)
-    """, (user_id, district, price_min, price_max, rooms, datetime.now().isoformat()))
+        INSERT INTO alerts (user_id, district, price_min, price_max, rooms, city, active, created_at)
+        VALUES (?,?,?,?,?,?,1,?)
+    """, (user_id, district, price_min, price_max, rooms, city, datetime.now().isoformat()))
     conn.commit()
     conn.close()
 
@@ -738,8 +793,12 @@ def match_alerts(apartment: dict) -> list:
     conn = get_conn()
     query = "SELECT user_id FROM alerts WHERE active=1"
     params = []
+    apt_city = apartment.get("city")
+    if apt_city:
+        query += " AND (city IS NULL OR city = ?)"
+        params.append(apt_city)
     if apartment.get("district"):
-        query += " AND (district IS NULL OR ? LIKE '%' || district || '%' OR district = 'все')"
+        query += " AND (district IS NULL OR district = '' OR district = 'все' OR ? LIKE '%' || district || '%')"
         params.append(apartment["district"])
     if apartment.get("price"):
         query += " AND (price_min IS NULL OR price_min <= ?)"
@@ -762,6 +821,98 @@ def log_parse(source: str, count: int):
                  (source, count, datetime.now().isoformat()))
     conn.commit()
     conn.close()
+
+
+def log_validation_reject(reason: str, target_city: str, link: str = "") -> None:
+    """Track rejected listings for admin /stats."""
+    try:
+        conn = get_conn()
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS validation_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                reason TEXT NOT NULL,
+                target_city TEXT,
+                link TEXT,
+                logged_at TEXT NOT NULL
+            )"""
+        )
+        conn.execute(
+            "INSERT INTO validation_log (reason, target_city, link, logged_at) VALUES (?,?,?,?)",
+            (reason, target_city, (link or "")[:300], datetime.now().isoformat()),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def get_admin_city_stats() -> dict:
+    """Per-city inventory, parse times, validation rejects — for /stats."""
+    from config import CITIES
+    from validation.geographic import city_from_link
+
+    conn = get_conn()
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS validation_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reason TEXT NOT NULL,
+            target_city TEXT,
+            link TEXT,
+            logged_at TEXT NOT NULL
+        )"""
+    )
+    cutoff = (datetime.now() - timedelta(hours=24)).isoformat()
+    cities = []
+    for city_key, info in CITIES.items():
+        count = conn.execute(
+            """
+            SELECT COUNT(*) FROM apartments
+            WHERE city = ? AND duplicate_of IS NULL AND reported < 10
+            """,
+            (city_key,),
+        ).fetchone()[0]
+        last_parse = conn.execute(
+            """
+            SELECT MAX(logged_at) FROM parse_log
+            WHERE source LIKE ? OR source LIKE ?
+            """,
+            (f"%/{city_key}", f"%/{city_key}/%"),
+        ).fetchone()[0]
+        cities.append({
+            "key": city_key,
+            "label": info.get("label", city_key),
+            "count": count,
+            "last_parse": (last_parse or "")[:16] or "—",
+        })
+
+    rejects = conn.execute(
+        """
+        SELECT reason, target_city, COUNT(*) AS cnt FROM validation_log
+        WHERE logged_at >= ? GROUP BY reason, target_city
+        ORDER BY cnt DESC LIMIT 20
+        """,
+        (cutoff,),
+    ).fetchall()
+
+    mislabeled = 0
+    sample = conn.execute(
+        "SELECT link, city FROM apartments WHERE link IS NOT NULL AND link != '' LIMIT 3000"
+    ).fetchall()
+    for row in sample:
+        detected = city_from_link(row["link"])
+        if detected and detected != (row["city"] or ""):
+            mislabeled += 1
+
+    total = conn.execute(
+        "SELECT COUNT(*) FROM apartments WHERE duplicate_of IS NULL AND reported < 10"
+    ).fetchone()[0]
+    conn.close()
+    return {
+        "cities": cities,
+        "rejects": [dict(r) for r in rejects],
+        "mislabeled_sample": mislabeled,
+        "total": total,
+    }
 
 
 # ── Language ─────────────────────────────────────────────────
@@ -1035,31 +1186,59 @@ def get_user_streak(user_id: int) -> int:
     return row["views"] if row else 0
 
 
-def get_hot_apartments(limit: int = 5) -> list:
-    """Apartments with most likes in last 24h."""
+def get_hot_apartments(limit: int = 5, city: str | None = None, radius_km: int | None = None) -> list:
+    """Apartments with most likes in last 24h, optionally scoped to city + radius."""
     conn = get_conn()
     from datetime import timedelta
     since = (datetime.now() - timedelta(hours=24)).isoformat()
-    rows = conn.execute("""
+    city_sql = ""
+    city_params: list = []
+    if city:
+        try:
+            from config import resolve_search_cities, SEARCH_RADIUS_KM_DEFAULT
+            if radius_km is None:
+                radius_km = SEARCH_RADIUS_KM_DEFAULT
+            cities = resolve_search_cities(city, radius_km)
+            ph = ",".join("?" * len(cities))
+            city_sql = f" AND a.city IN ({ph})"
+            city_params = list(cities)
+        except Exception:
+            city_sql = " AND a.city = ?"
+            city_params = [city]
+    rows = conn.execute(f"""
         SELECT a.*, COALESCE(SUM(r.rating), 0) as hot_score
         FROM apartments a
         LEFT JOIN ratings r ON a.id = r.apartment_id
-        WHERE a.created_at >= ?
+        WHERE a.created_at >= ?{city_sql}
         GROUP BY a.id
         HAVING hot_score > 0
         ORDER BY hot_score DESC
         LIMIT ?
-    """, (since, limit)).fetchall()
+    """, (since, *city_params, limit)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
-def get_price_drops_today(limit: int = 5) -> list:
+def get_price_drops_today(limit: int = 5, city: str | None = None, radius_km: int | None = None) -> list:
     """Apartments where price dropped. Returns only apartments still in DB with valid links."""
     conn = get_conn()
     from datetime import timedelta
     since = (datetime.now() - timedelta(hours=48)).isoformat()
-    rows = conn.execute("""
+    city_sql = ""
+    city_params: list = []
+    if city:
+        try:
+            from config import resolve_search_cities, SEARCH_RADIUS_KM_DEFAULT
+            if radius_km is None:
+                radius_km = SEARCH_RADIUS_KM_DEFAULT
+            cities = resolve_search_cities(city, radius_km)
+            ph = ",".join("?" * len(cities))
+            city_sql = f" AND a.city IN ({ph})"
+            city_params = list(cities)
+        except Exception:
+            city_sql = " AND a.city = ?"
+            city_params = [city]
+    rows = conn.execute(f"""
         SELECT DISTINCT a.*,
                ph.price as new_price,
                (SELECT price FROM price_history
@@ -1067,12 +1246,12 @@ def get_price_drops_today(limit: int = 5) -> list:
         FROM apartments a
         JOIN price_history ph ON a.id = ph.apartment_id
         WHERE ph.recorded_at >= ?
-          AND a.price >= 500 AND a.price <= 25000
+          AND a.price >= 500 AND a.price <= 25000{city_sql}
         GROUP BY a.id
         HAVING old_price IS NOT NULL AND old_price > a.price
         ORDER BY (old_price - a.price) DESC
         LIMIT ?
-    """, (since, limit)).fetchall()
+    """, (since, *city_params, limit)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
@@ -1289,6 +1468,80 @@ def _migrate_city_field():
         print(f"[Migration] city field: {e}")
 
 
+def _city_from_listing_link(link: str) -> str | None:
+    """Detect city from listing URL (all major sources)."""
+    from validation.geographic import city_from_link
+    return city_from_link(link)
+
+
+def sync_apartments_city_from_links() -> int:
+    """Fix listings saved with wrong city (e.g. all Warszawa)."""
+    from config import CITIES
+    conn = get_conn()
+    updated = 0
+    rows = conn.execute(
+        "SELECT id, link, city, source_city FROM apartments"
+    ).fetchall()
+    for row in rows:
+        detected = _city_from_listing_link(row["link"] or "")
+        if not detected:
+            continue
+        cur_city = row["city"] or ""
+        if cur_city != detected:
+            conn.execute(
+                "UPDATE apartments SET city=?, source_city=? WHERE id=?",
+                (detected, detected, row["id"]),
+            )
+            updated += 1
+    conn.commit()
+    conn.close()
+    if updated:
+        print(f"[Migration] Fixed city for {updated} apartments from URLs")
+    return updated
+
+
+def get_daily_listings_from_db(city, limit: int = 15) -> list[dict]:
+    """Short-term listings already in DB for one city or a list of cities."""
+    if isinstance(city, str):
+        cities = [city]
+    else:
+        cities = list(city) or ["Warszawa"]
+    placeholders = ",".join("?" * len(cities))
+    conn = get_conn()
+    rows = conn.execute(
+        f"""
+        SELECT title, price, district, link, image, source, city
+        FROM apartments
+        WHERE city IN ({placeholders}) AND duplicate_of IS NULL AND reported < 10
+          AND price BETWEEN 50 AND 5000
+          AND (
+            LOWER(title) LIKE '%doby%' OR LOWER(title) LIKE '%nocleg%'
+            OR LOWER(title) LIKE '%krótko%' OR LOWER(title) LIKE '%krótkotermin%'
+            OR LOWER(title) LIKE '%weekend%' OR LOWER(title) LIKE '%pobyt%'
+            OR LOWER(title) LIKE '%na doby%' OR LOWER(title) LIKE '%short%'
+          )
+        ORDER BY price ASC LIMIT ?
+        """,
+        (*cities, limit),
+    ).fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        apt_city = r["city"] or cities[0]
+        result.append({
+            "title": r["title"],
+            "price_per_night": r["price"],
+            "district": r["district"] or apt_city,
+            "city": apt_city,
+            "link": r["link"],
+            "image": r["image"] or "",
+            "source": r["source"] or "DB",
+            "rating": None,
+            "reviews": None,
+        })
+    return result
+
+
 def _backfill_city_from_source():
     """Set city from source_city for legacy rows."""
     try:
@@ -1306,34 +1559,25 @@ def _backfill_city_from_source():
 
 
 def cleanup_junk_listings():
-    """Remove obvious non-apartment listings from DB. Called once on startup."""
+    """Remove junk from DB on startup — never delete valid multi-city rows."""
     conn = get_conn()
     junk_keywords = [
         "osuszacz", "osuszanie", "pochłaniacz",
-        "na doby", "noclegi", "godz/", "/doby", "krótkoterminow",
+        "godz/", "/doby",
     ]
     for kw in junk_keywords:
         conn.execute(
             "DELETE FROM apartments WHERE LOWER(title) LIKE ?",
-            (f"%{kw}%",)
+            (f"%{kw}%",),
         )
-    # Remove extreme price outliers
+    # Short-term in title — remove from long-term pool only
+    for kw in ("na doby", "noclegi", "krótkoterminow"):
+        conn.execute(
+            "DELETE FROM apartments WHERE LOWER(title) LIKE ? AND (city IS NULL OR city = 'Warszawa')",
+            (f"%{kw}%",),
+        )
     conn.execute("DELETE FROM apartments WHERE price > 0 AND price < 200")
     conn.execute("DELETE FROM apartments WHERE price > 50000")
-    # Remove non-Warsaw listings — these cities are NOT Warsaw districts
-    non_warsaw_districts = [
-        "Zgierz", "Łódź", "Częstochowa", "Radomsko", "Kutno", "Łęczyca",
-        "Piotrków", "Łask", "Zduńska", "Zelów", "Sieradz", "Tomaszów",
-        "Opoczno", "Ostrowy", "Retkinia", "Bałuty",
-        "Widzew", "Górna", "Polesie", "Śródmieście-Wschód",
-        "Gdańsk", "Kraków", "Wrocław", "Poznań", "Katowice",
-        "Lublin", "Szczecin", "Bydgoszcz", "Białystok",
-    ]
-    for city in non_warsaw_districts:
-        conn.execute(
-            "DELETE FROM apartments WHERE district LIKE ?",
-            (f"%{city}%",)
-        )
     conn.commit()
     conn.close()
 
@@ -1408,8 +1652,13 @@ def get_similar_apartments(apt_id: int, limit: int = 3) -> list:
     return [dict(r) for r in rows]
 
 
-def get_cheapest_apartments(limit: int = 5, price_max: int = 2500) -> list:
-    """Get cheapest real Warsaw apartments, filtering junk."""
+def get_cheapest_apartments(
+    limit: int = 5,
+    price_max: int = 2500,
+    city: str | None = None,
+    radius_km: int | None = None,
+) -> list:
+    """Cheapest apartments for a city (and radius), filtering junk listings."""
     junk_sql = " AND ".join([
         "LOWER(title) NOT LIKE '%osuszacz%'",
         "LOWER(title) NOT LIKE '%garaż%'",
@@ -1468,12 +1717,28 @@ def get_cheapest_apartments(limit: int = 5, price_max: int = 2500) -> list:
         ")"
     )
     conn = get_conn()
-    rows = conn.execute(f"""
-        SELECT * FROM apartments
-        WHERE price > 300 AND price <= ? AND reported < 10
-          AND {junk_sql} AND {warsaw_sql} AND {non_warsaw_sql}
-        ORDER BY price ASC LIMIT ?
-    """, (price_max, limit)).fetchall()
+    if city:
+        try:
+            from config import resolve_search_cities, SEARCH_RADIUS_KM_DEFAULT
+            if radius_km is None:
+                radius_km = SEARCH_RADIUS_KM_DEFAULT
+            cities = resolve_search_cities(city, radius_km)
+            ph = ",".join("?" * len(cities))
+            rows = conn.execute(f"""
+                SELECT * FROM apartments
+                WHERE city IN ({ph}) AND price > 300 AND price <= ?
+                  AND reported < 10 AND duplicate_of IS NULL AND {junk_sql}
+                ORDER BY CASE WHEN city = ? THEN 0 ELSE 1 END, price ASC LIMIT ?
+            """, (*cities, price_max, city, limit)).fetchall()
+        except Exception:
+            rows = []
+    else:
+        rows = conn.execute(f"""
+            SELECT * FROM apartments
+            WHERE price > 300 AND price <= ? AND reported < 10
+              AND {junk_sql} AND {warsaw_sql} AND {non_warsaw_sql}
+            ORDER BY price ASC LIMIT ?
+        """, (price_max, limit)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
@@ -1521,6 +1786,39 @@ def get_user_hide_seen(user_id: int) -> bool:
     finally:
         conn.close()
     return True
+
+
+def get_user_search_radius(user_id: int) -> int:
+    """0 = city only; default 100 km."""
+    try:
+        from config import SEARCH_RADIUS_KM_DEFAULT
+        conn = get_conn()
+        row = conn.execute(
+            "SELECT search_radius_km FROM users WHERE user_id=?", (user_id,)
+        ).fetchone()
+        conn.close()
+        if row is not None and row["search_radius_km"] is not None:
+            return int(row["search_radius_km"])
+    except Exception:
+        pass
+    try:
+        from config import SEARCH_RADIUS_KM_DEFAULT
+        return SEARCH_RADIUS_KM_DEFAULT
+    except Exception:
+        return 100
+
+
+def set_user_search_radius(user_id: int, radius_km: int) -> None:
+    get_or_create_user(user_id)
+    conn = get_conn()
+    try:
+        conn.execute(
+            "UPDATE users SET search_radius_km=? WHERE user_id=?",
+            (max(0, int(radius_km)), user_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def set_user_hide_seen(user_id: int, hide: bool) -> None:

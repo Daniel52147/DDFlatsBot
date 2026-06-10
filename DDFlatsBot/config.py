@@ -2,8 +2,17 @@ import os
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 
-FREE_VIEWS = 7
-VIP_PRICE = 19          # zł / month
+# Fully free bot — no paid tier in UI
+BOT_FREE_MODE = True
+FREE_VIEWS = 7          # used only when BOT_FREE_MODE is False
+VIP_PRICE = 19          # legacy — admin stats only
+
+# Include nearby cities in search (0 = selected city only)
+SEARCH_RADIUS_KM_DEFAULT = 100
+
+# Smart alerts — same limit for everyone
+FREE_ALERT_LIMIT = 5
+VIP_ALERT_LIMIT = 5
 
 # DB path — find a writable persistent location
 _RENDER_DISK = "/var/data"
@@ -188,6 +197,78 @@ CITIES = {
 }
 
 MIN_LISTINGS_PER_CITY = 100
+# Show «Search on sites» hint when city has fewer listings than this
+MIN_LISTINGS_PLATFORM_HINT = 20
+
+
+def city_slug(city: str) -> str:
+    """URL slug used on OLX, Gratka, Morizon, Adresowo, etc."""
+    return CITIES.get(city, CITIES["Warszawa"]).get("url_olx", "warszawa")
+
+
+# City centers for radius search (lat, lon)
+CITY_COORDS = {
+    "Warszawa": (52.2297, 21.0122),
+    "Kraków": (50.0647, 19.9450),
+    "Wrocław": (51.1079, 17.0385),
+    "Gdańsk": (54.3520, 18.6466),
+    "Poznań": (52.4064, 16.9252),
+    "Łódź": (51.7592, 19.4560),
+    "Katowice": (50.2649, 19.0238),
+    "Lublin": (51.2465, 22.5684),
+    "Szczecin": (53.4285, 14.5528),
+    "Białystok": (53.1325, 23.1688),
+}
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    import math
+    r = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(min(1.0, math.sqrt(a)))
+
+
+def get_cities_in_radius(center: str, radius_km: float = SEARCH_RADIUS_KM_DEFAULT) -> list[str]:
+    """Cities from our list within radius_km of center (center first, then by distance)."""
+    if center not in CITY_COORDS or radius_km <= 0:
+        return [center]
+    lat0, lon0 = CITY_COORDS[center]
+    nearby: list[tuple[float, str]] = []
+    for city, (lat, lon) in CITY_COORDS.items():
+        if city == center:
+            continue
+        dist = _haversine_km(lat0, lon0, lat, lon)
+        if dist <= radius_km:
+            nearby.append((dist, city))
+    nearby.sort(key=lambda x: x[0])
+    return [center] + [c for _, c in nearby]
+
+
+def resolve_search_cities(city: str, radius_km: int | float | None = None) -> list[str]:
+    """Primary city + neighbors when radius is enabled."""
+    if radius_km is None:
+        radius_km = SEARCH_RADIUS_KM_DEFAULT
+    if radius_km <= 0:
+        return [city]
+    return get_cities_in_radius(city, float(radius_km))
+
+
+# Domiporta fallback paths: voivodeship/city
+DOMIPORTA_PATHS = {
+    "Warszawa": "mazowieckie/warszawa",
+    "Kraków": "malopolskie/krakow",
+    "Wrocław": "dolnoslaskie/wroclaw",
+    "Gdańsk": "pomorskie/gdansk",
+    "Poznań": "wielkopolskie/poznan",
+    "Łódź": "lodzkie/lodz",
+    "Katowice": "slaskie/katowice",
+    "Lublin": "lubelskie/lublin",
+    "Szczecin": "zachodniopomorskie/szczecin",
+    "Białystok": "podlaskie/bialystok",
+}
 
 # Visual menu style per city (different button layout in bot)
 CITY_MENU_STYLE = {
@@ -216,6 +297,25 @@ NOCOWANIE_SLUGS = {
     "Szczecin": "szczecin",
     "Białystok": "bialystok",
 }
+
+# Flatio.pl short-term rental pages
+FLATIO_SLUGS = {
+    "Warszawa": "warszawa",
+    "Kraków": "krakow",
+    "Wrocław": "wroclaw",
+    "Gdańsk": "gdansk",
+    "Poznań": "poznan",
+    "Łódź": "lodz",
+    "Katowice": "katowice",
+    "Lublin": "lublin",
+    "Szczecin": "szczecin",
+    "Białystok": "bialystok",
+}
+
+
+def flatio_daily_url(city: str) -> str:
+    slug = FLATIO_SLUGS.get(city, "warszawa")
+    return f"https://www.flatio.pl/najem-krotkoterminowy-{slug}"
 
 # Booking / Airbnb location names
 BOOKING_LOCATIONS = {

@@ -7,10 +7,20 @@ import re
 import json
 import time
 from parser._retry import make_session, fetch_with_retry
+from config import city_slug, DOMIPORTA_PATHS
 
-GRATKA_BASE      = "https://gratka.pl/nieruchomosci/mieszkania/warszawa/wynajem?sort=newest"
-GRATKA_PRICE_ASC = "https://gratka.pl/nieruchomosci/mieszkania/warszawa/wynajem?sort=price_asc"
-DOMIPORTA_BASE   = "https://www.domiporta.pl/mieszkanie/wynajme/mazowieckie/warszawa"
+
+def _gratka_urls(city: str) -> tuple[str, str]:
+    slug = city_slug(city)
+    base = f"https://gratka.pl/nieruchomosci/mieszkania/{slug}/wynajem"
+    return f"{base}?sort=newest", f"{base}?sort=price_asc"
+
+
+def _domiporta_base(city: str) -> str | None:
+    path = DOMIPORTA_PATHS.get(city)
+    if not path:
+        return None
+    return f"https://www.domiporta.pl/mieszkanie/wynajme/{path}"
 
 
 def _price(val) -> int:
@@ -38,7 +48,7 @@ def _area(text: str):
     return None
 
 
-def _parse_json_ld(html: str, source: str = "Gratka") -> list:
+def _parse_json_ld(html: str, source: str = "Gratka", default_city: str = "Warszawa") -> list:
     results = []
     blocks = re.findall(r'<script[^>]*ld\+json[^>]*>([^<]{10,80000})</script>', html)
     for block in blocks:
@@ -63,12 +73,12 @@ def _parse_json_ld(html: str, source: str = "Gratka") -> list:
                 image = offer.get("image") or ""
                 if isinstance(image, list):
                     image = image[0] if image else ""
-                district = "Warszawa"
+                district = default_city
                 io = offer.get("itemOffered") or {}
                 if isinstance(io, dict):
                     addr = io.get("address") or {}
                     if isinstance(addr, dict):
-                        district = addr.get("addressLocality") or "Warszawa"
+                        district = addr.get("addressLocality") or default_city
                 results.append({
                     "title": name, "price": price, "district": district,
                     "rooms": _rooms(name), "area": _area(name),
@@ -87,7 +97,7 @@ def _parse_json_ld(html: str, source: str = "Gratka") -> list:
                 price_spec = item.get("offers") or {}
                 price = _price(price_spec.get("price", 0) if isinstance(price_spec, dict) else 0)
                 addr = item.get("address") or {}
-                district = (addr.get("addressLocality") or "Warszawa") if isinstance(addr, dict) else "Warszawa"
+                district = (addr.get("addressLocality") or default_city) if isinstance(addr, dict) else default_city
                 results.append({
                     "title": name, "price": price, "district": district,
                     "rooms": _rooms(name), "area": _area(name),
@@ -97,7 +107,7 @@ def _parse_json_ld(html: str, source: str = "Gratka") -> list:
     return results
 
 
-def _parse_html_cards(html: str, source: str = "Gratka") -> list:
+def _parse_html_cards(html: str, source: str = "Gratka", default_city: str = "Warszawa") -> list:
     results = []
     articles = re.findall(r'<article[^>]*>(.*?)</article>', html, re.DOTALL | re.IGNORECASE)
     for article in articles:
@@ -117,10 +127,10 @@ def _parse_html_cards(html: str, source: str = "Gratka") -> list:
             pm = re.search(r'(\d[\d\s]{2,6})\s*(?:zł|PLN)', article, re.I)
             if pm:
                 price = _price(pm.group(1))
-            district = "Warszawa"
+            district = default_city
             lm = re.search(r'class="[^"]*location[^"]*"[^>]*>([^<]{3,60})<', article, re.I)
             if lm:
-                district = lm.group(1).strip() or "Warszawa"
+                district = lm.group(1).strip() or default_city
             img_m = re.search(r'<img[^>]+src="(https?://[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"', article, re.I)
             image = img_m.group(1) if img_m else ""
             results.append({
@@ -134,8 +144,8 @@ def _parse_html_cards(html: str, source: str = "Gratka") -> list:
     return results
 
 
-def _parse_domiporta(html: str) -> list:
-    results = _parse_json_ld(html, source="Gratka")
+def _parse_domiporta(html: str, default_city: str = "Warszawa") -> list:
+    results = _parse_json_ld(html, source="Gratka", default_city=default_city)
     if results:
         return results
     # HTML fallback
@@ -158,7 +168,7 @@ def _parse_domiporta(html: str) -> list:
             if pm:
                 price = _price(pm.group(1))
             results.append({
-                "title": title, "price": price, "district": "Warszawa",
+                "title": title, "price": price, "district": default_city,
                 "rooms": _rooms(title), "area": None,
                 "floor": None, "furnished": 0,
                 "link": url, "image": "", "source": "Gratka",
@@ -173,7 +183,10 @@ def parse_gratka(city: str = "Warszawa") -> list:
     from database.db import get_conn
     from validation.integration import ValidationPipeline
     
-    print(f"[Gratka/{city}] Starting parse (Warszawa only for now)...")
+    slug = city_slug(city)
+    gratka_base, gratka_price = _gratka_urls(city)
+    domiporta_base = _domiporta_base(city)
+    print(f"[Gratka/{city}] Starting parse (slug={slug})...")
     
     # Initialize validation pipeline
     conn = get_conn()
@@ -202,7 +215,7 @@ def parse_gratka(city: str = "Warszawa") -> list:
         return n
 
     gratka_ok = False
-    for base_url in [GRATKA_BASE, GRATKA_PRICE_ASC]:
+    for base_url in [gratka_base, gratka_price]:
         from config import PARSER_COOKIES
         cookie_str = PARSER_COOKIES.get("Gratka", "")
         session = make_session(referer="https://gratka.pl/", cookie_str=cookie_str)
@@ -214,7 +227,7 @@ def parse_gratka(city: str = "Warszawa") -> list:
             print(f"[Gratka] page={page} status={status} size={len(html)}")
             if status != 200:
                 break
-            items = _parse_json_ld(html) or _parse_html_cards(html)
+            items = _parse_json_ld(html, default_city=city) or _parse_html_cards(html, default_city=city)
             new = add(items)
             print(f"[Gratka] page={page}: {new} new")
             if new > 0:
@@ -223,16 +236,16 @@ def parse_gratka(city: str = "Warszawa") -> list:
                 break
             time.sleep(random.uniform(2.0, 3.5))
 
-    if not gratka_ok:
-        print("[Gratka] Trying Domiporta fallback...")
+    if not gratka_ok and domiporta_base:
+        print(f"[Gratka/{city}] Trying Domiporta fallback...")
         session2 = make_session(referer="https://www.domiporta.pl/")
         for page in range(1, 4):
-            url = DOMIPORTA_BASE if page == 1 else f"{DOMIPORTA_BASE}?PageNumber={page}"
+            url = domiporta_base if page == 1 else f"{domiporta_base}?PageNumber={page}"
             status, html = fetch_with_retry(session2, url, max_retries=2)
             print(f"[Domiporta] page={page} status={status} size={len(html)}")
             if status != 200:
                 break
-            items = _parse_domiporta(html)
+            items = _parse_domiporta(html, default_city=city)
             new = add(items)
             print(f"[Domiporta] page={page}: {new} new")
             if new == 0 and page >= 2:

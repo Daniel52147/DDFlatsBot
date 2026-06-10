@@ -1,0 +1,1239 @@
+# Extra UI strings — merged into TEXTS in i18n.py (ru, uk, pl, en)
+
+LANG_EXTRA = {
+    "ru": {
+        "apt_rooms": "{n} комн.",
+        "apt_area": "{area} м²",
+        "apt_floor": "эт. {floor}",
+        "apt_verified": "✅ <b>Проверено</b>\n",
+        "apt_price_month": "💰 <b>{price} zł/мес</b>{ppm}",
+        "apt_ppm": " · <i>{ppm} zł/м²</i>",
+        "apt_no_price": "💰 <i>Цена не указана</i>",
+        "apt_furnished": " · 🛋 меблированная",
+        "apt_unfurnished": " · 🚫 без мебели",
+        "apt_open": "Открыть объявление",
+        "apt_price_drop": "📉 <b>Цена снижена!</b> {old} → {new} zł (−{drop} zł)",
+        "apt_views_hot": "🔥 <b>Смотрели {n} раз — очень популярное!</b>",
+        "apt_views_some": "👁 <i>Смотрели {n} раз</i>",
+        "apt_stale_14": "⚠️ <i>Объявлению {n} дней — уточни актуальность.</i>",
+        "apt_stale_7": "🕐 <i>Объявлению {n} дней.</i>",
+        "verdict_cheap": "🟢 Очень дёшево",
+        "verdict_below_avg": "🟡 Ниже среднего",
+        "verdict_fair": "✅ Справедливая цена",
+        "verdict_above_avg": "🟠 Выше среднего",
+        "verdict_overpriced": "🔴 Цена завышена",
+        "verdict_line": "💡 {badge} ({sign}{pct}% от ср. {avg} zł)",
+        "btn_back": "⬅️ Назад",
+        "no_apts_title": "😔 <b>По фильтрам не найдено</b>\n\n",
+        "no_apts_searched": "Искал: {searched}\n",
+        "no_apts_city": "Город: <b>{city}</b>\n\n",
+        "no_apts_district_hint": "💡 В районе <b>{district}</b> есть <b>{n}</b> квартир без учёта цены/комнат.\n\n",
+        "no_apts_city_hint": "💡 В городе <b>{city}</b> есть <b>{n}</b> квартир — попробуй расширить фильтры.\n\n",
+        "no_apts_empty_db": "⏳ В базе пока мало объявлений для этого города.\n\n",
+        "no_apts_alt_title": "🔗 <b>Другой путь — поиск на сайтах:</b>\n",
+        "no_apts_actions": "Или в боте:\n• Сбрось фильтры\n• Смени район / цену",
+        "btn_reset_filters": "🔄 Сбросить фильтры",
+        "btn_change_filter": "🔍 Изменить",
+        "btn_all_apts": "🏠 Все квартиры",
+        "btn_search_olx": "🟠 OLX",
+        "btn_search_otodom": "🔵 Otodom",
+        "btn_search_gratka": "🟢 Gratka",
+        "btn_search_morizon": "🟣 Morizon",
+        "btn_platforms": "🌐 Поиск на сайтах",
+        "platforms_intro": "🔗 <b>Прямой поиск в твоём городе</b> — если в боте мало объявлений:",
+        "onboard_city": "Выбери город для поиска квартир.\n\n⚠️ Всегда проверяй квартиру лично перед оплатой.",
+        "onboard_city_step": (
+            "🏙 <b>Выбери город для поиска квартир:</b>\n\n"
+            "Каждый город — отдельная база объявлений.\n"
+            "Сменить город: /city"
+        ),
+        "city_pick_title": "🏙 <b>Выбор города</b>\n\nСейчас: <b>{city}</b>\n\n",
+        "city_pick_hint": "Выбери город — поиск в нём и в радиусе 100 км.\n⚠️ Фильтры сбросятся.",
+        "decline_terms": "❌ Ты отказался от условий.\n\nЕсли передумаешь — /start",
+        "friend_default": "друг",
+        "limit_vip_btn": "⭐ VIP — {price} zł/мес",
+        "limit_ref_btn": "👥 Получить бесплатно",
+        "limit_one_left": "\n\n⚠️ <b>Осталась 1 квартира</b> из бесплатных {limit}.",
+        "filter_furnished": "🛋 меблированная",
+        "filter_unfurnished": "без мебели",
+        "filter_rooms_n": "{n} комн.",
+        "filter_price_max": "до {price} zł",
+        "filter_all_apts": "все квартиры",
+        "filter_all_districts": "🌍 Все районы",
+        "filter_cancel": "❌ Отмена",
+        "filter_any": "🚫 Любое",
+        "filter_room_btn": "{n} комн.",
+        "mw_rate_limit": "⏳ Не так быстро!",
+        "mw_banned": "🚫 Ты заблокирован.",
+        "mw_banned_cb": "🚫 Заблокирован",
+        "mw_subscribe_btn": "📢 Подписаться на @ddflots",
+        "mw_sub_check": "✅ Я подписался — проверить",
+        "mw_sub_title": "🔒 <b>Доступ закрыт</b>\n\n",
+        "mw_sub_body": (
+            "Подпишись на канал @ddflots\n\n"
+            "🏠 Лучшие квартиры\n"
+            "📊 Статистика аренды\n"
+            "💡 Советы\n\n"
+            "После подписки нажми кнопку 👇"
+        ),
+        "mw_sub_first": "❌ Сначала подпишись на канал!",
+        "lang_pick": "🌐 <b>Язык / Language / Język</b>\n\nВыбери:",
+        "welcome_poland": "всех городов Польши",
+        "filter_step1": "📍 <b>Шаг 1/4: Выбери район</b>",
+        "filter_step2": "💰 <b>Шаг 2/4: Максимальная цена</b>",
+        "filter_step3": "🛏 <b>Шаг 3/4: Комнаты</b>",
+        "filter_step4": "🛋 <b>Шаг 4/4: Мебель</b>",
+        "filter_district_set": "📍 Район: <b>{label}</b>\n\n",
+        "filter_all_districts_label": "Все районы",
+        "new_since_visit": "\n🆕 <b>+{n}</b> новых с прошлого визита!",
+        "filter_price_set": "💰 Макс. цена: <b>{label}</b>\n\n",
+        "filter_price_any": "без ограничений",
+        "filter_rooms_set": "🛏 Комнат: <b>{label}</b>\n\n",
+        "filter_rooms_any": "любое",
+        "filter_furn_yes": "✅ Да",
+        "filter_furn_no": "❌ Нет",
+        "filter_furn_any": "🚫 Любая",
+        "filter_applied": "✅ <b>Фильтры установлены!</b>\n\n{summary}\n🏠 Найдено: <b>{total}</b> квартир{hint}",
+        "filter_reset_ok": "✅ Фильтры сброшены!",
+        "filter_view_btn": "🏠 Смотреть ({total})",
+        "filter_hide_seen_hint": " (без просмотренных)",
+        "ask_help": (
+            "🤖 <b>Умный поиск</b>\n\n"
+            "Напиши что ищешь:\n\n"
+            "• <code>/ask 2 комнаты до 3000</code>\n"
+            "• <code>/ask studio центр 2500</code>\n"
+            "• <code>/ask 3 pokoje meblowane</code>"
+        ),
+        "ask_fail": "😔 Не смог распознать параметры.\n\nПопробуй: <code>/ask 2 комнаты до 3000</code>",
+        "ask_ok": "🤖 <b>Понял! Ищу:</b>\n{summary}\n\n🏠 Найдено: <b>{total}</b> квартир",
+        "unknown_cmd": "🤔 Не понял команду.\n\nНажми /menu или /help",
+        "vip_only": "💎 Только для VIP!",
+        "free_unlimited_badge": "🆓 Бесплатно · безлимит просмотров",
+        "settings_title": (
+            "⚙️ <b>Настройки поиска</b>\n\n"
+            "🏙 Город: <b>{city}</b> (сменить: /city)\n"
+            "{radius_hint}\n"
+            "<b>Просмотренные</b> — скрывать уже открытые объявления."
+        ),
+        "settings_radius_hint": "📍 Поиск в радиусе <b>100 км</b> от города — можно отключить ниже.\n",
+        "settings_radius_on": "✅ Радиус {km} км: ВКЛ{extra}",
+        "settings_radius_off": "❌ Радиус 100 км: ВЫКЛ (только город)",
+        "settings_hide_seen_on": "✅ Скрывать просмотренные: ВКЛ",
+        "settings_hide_seen_off": "❌ Скрывать просмотренные: ВЫКЛ",
+        "settings_change_city": "🏙 Сменить город",
+        "settings_back_menu": "◀️ В меню",
+        "daily_radius_note": "\n📍 + города в радиусе {km} км ({n} всего)",
+        "settings_saved": "✅ Сохранено",
+        "apt_nearby_badge": "📍 <i>Рядом: {city}</i>",
+        "btn_save": "❤️ Сохранить",
+        "btn_open_link": "🔗 Открыть",
+        "stats_body": (
+            "📊 <b>Твоя статистика</b>\n\n"
+            "📌 Статус: {vip_line}\n"
+            "👁 Просмотрено: <b>{views}</b> квартир\n"
+            "❤️ Избранное: <b>{favs}</b>\n"
+            "🔔 Подписки: {subs}\n"
+            "🎯 Алертов: <b>{alerts}</b>\n"
+            "👥 Приглашено: <b>{refs}</b> чел.\n"
+            "📅 С нами с: {created}{streak}{next_vip}"
+        ),
+        "stats_none": "нет",
+        "stats_streak_hot": "\n🔥 Стрик: <b>{n} дней подряд</b>! 🏆",
+        "stats_streak": "\n🔥 Стрик: <b>{n} дней подряд</b>!",
+        "stats_active": "\n📆 Активен {n} дн. подряд",
+        "stats_vip_progress": (
+            "\n\n🎯 <b>До бесплатного VIP:</b>\n"
+            "❤️ Сохрани ещё {favs} квартир → 3 дня VIP\n"
+            "👥 Пригласи ещё {refs} друзей → {days} дней VIP"
+        ),
+        "hot_empty": "🔥 <b>Горячих квартир пока нет</b>\n\nСтавь 👍 — популярные появятся здесь!",
+        "hot_title": "🔥 <b>Горячие квартиры (топ лайков за 24ч):</b>",
+        "hot_score": "\n\n🔥 <b>{n} лайков</b>",
+        "drops_empty": (
+            "📉 <b>Снижений цен пока нет</b>\n\n"
+            "Бот отслеживает цены при каждом парсинге.\n"
+            "💡 Настрой алерт: /alert"
+        ),
+        "drops_title": "📉 <b>Снижение цен за 48ч:</b>",
+        "drops_card": (
+            "📉 <b>−{diff} zł (−{pct}%)</b>\n"
+            "🏠 {title}\n"
+            "💰 <s>{old} zł</s> → <b>{current} zł/мес</b>\n"
+            "📍 {district}"
+        ),
+        "cheap_empty": "😔 Дешёвых квартир пока нет. Попробуй позже.",
+        "cheap_title": "💚 <b>Самые дешёвые квартиры:</b>",
+        "map_empty": "🗺 <b>Карта цен</b>\n\nДанных пока мало. Подожди первого парсинга.",
+        "map_title": "🗺 <b>Средние цены по районам {city}:</b>\n",
+        "map_row": "📍 <b>{district}</b>\n   {bar} avg <b>{avg} zł</b> · от {min_price} zł · {cnt} объявл.",
+        "map_pick_district": "🔍 Выбрать район",
+        "vip_benefits": (
+            "✅ Безлимитный просмотр квартир\n"
+            "✅ Умные алерты — мгновенно при совпадении\n"
+            "✅ Подписка на районы\n"
+            "✅ Уведомления о снижении цены\n"
+            "✅ Ежедневный дайджест"
+        ),
+        "vip_benefits_free": (
+            "✅ Умные алерты — мгновенно при совпадении\n"
+            "✅ Подписка на районы\n"
+            "✅ Уведомления о снижении цены\n"
+            "✅ Ежедневный дайджест\n"
+            "✅ Приоритет в рассылках"
+        ),
+        "vip_pitch": (
+            "⭐ <b>VIP — {price} zł/мес</b>\n\n"
+            "{benefits}\n\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "🆓 <b>Как получить бесплатно:</b>\n\n"
+            "👥 Рефералы: {ref_bar} {ref_count}/{ref_required}\n"
+            "   → пригласи {ref_required} друзей = {ref_days} дней VIP\n\n"
+            "❤️ Избранное: {fav_bar} {fav_count}/10\n"
+            "   → сохрани 10 квартир = 3 дня VIP автоматически"
+        ),
+        "fav_empty": "❤️ <b>Избранное пусто</b>\n\nДобавляй квартиры кнопкой ❤️ под объявлением.",
+        "fav_header": "❤️ <b>Избранное — стр. {page}/{total_pages} ({total} квартир):</b>",
+        "fav_nav": "{page}/{total_pages}  ({total} квартир)",
+        "fav_compare_btn": "📊 Сравнить",
+        "fav_delete": "🗑 Удалить",
+        "fav_added": "❤️ Добавлено в избранное!",
+        "fav_removed": "🗑 Удалено из избранного",
+        "compare_need_two": "❤️ Добавь минимум 2 квартиры в избранное для сравнения.",
+        "compare_title": "📊 <b>Сравнение квартир из избранного:</b>\n",
+        "compare_row": (
+            "🏠 <b>{title}</b>\n"
+            "   💰 {price} zł · 🛏 {rooms} комн. · 📐 {area} м² · {ppm}\n"
+            "   📍 {district} · {source_icon} {source}"
+        ),
+        "adv_title": (
+            "🔬 <b>Расширенный поиск</b>\n\n"
+            "Настрой дополнительные параметры:\n\n"
+            "Текущие фильтры:\n"
+            "<i>{summary}</i>"
+        ),
+        "adv_summary_all": "Все квартиры",
+        "adv_part_price": "до {price} zł",
+        "adv_part_rooms_from": "от {n} комн.",
+        "adv_part_rooms_to": "до {n} комн.",
+        "adv_part_area": "от {area} м²",
+        "adv_part_ppm": "до {ppm} zł/м²",
+        "adv_part_floor": "от {floor} эт.",
+        "adv_part_photo": "📷 только с фото",
+        "adv_part_new": "🆕 только новые",
+        "adv_btn_district": "📍 Район",
+        "adv_btn_price": "💰 Макс. цена",
+        "adv_btn_rooms_min": "🛏 Комнат от",
+        "adv_btn_rooms_max": "🛏 Комнат до",
+        "adv_btn_area": "📐 Мин. площадь",
+        "adv_btn_ppm": "💡 Макс. zł/м²",
+        "adv_btn_floor": "🏢 Этаж от",
+        "adv_btn_photo": "📷 Только с фото",
+        "adv_btn_new": "🆕 Только новые",
+        "adv_btn_furn": "🛋 Меблированная",
+        "adv_btn_apply": "✅ Применить и смотреть",
+        "adv_btn_reset": "🔄 Сбросить всё",
+        "adv_btn_edit": "🔬 Изменить фильтры",
+        "adv_btn_view": "🏠 Смотреть ({total})",
+        "adv_pick_district": "📍 Выбери район:",
+        "adv_pick_price": "💰 Максимальная цена:",
+        "adv_pick_rooms_min": "🛏 Минимум комнат:",
+        "adv_pick_rooms_max": "🛏 Максимум комнат:",
+        "adv_pick_area": "📐 Минимальная площадь:",
+        "adv_pick_floor": "🏢 Этаж от:",
+        "adv_ppm_help": (
+            "💡 <b>Максимальная цена за м²</b>\n\n"
+            "Например: 50 м² за 2000 zł = 40 zł/м²\n"
+            "Помогает найти выгодные большие квартиры."
+        ),
+        "adv_no_limit": "🚫 Без ограничений",
+        "adv_any_rooms": "🛏 любое",
+        "adv_any_floor": "🏢 любой этаж",
+        "adv_district_set": "📍 {label}",
+        "adv_price_set": "💰 до {price} zł",
+        "adv_rooms_min_set": "🛏 от {n} комн.",
+        "adv_rooms_max_set": "🛏 до {n} комн.",
+        "adv_area_set": "📐 от {area} м²",
+        "adv_ppm_set": "💡 до {ppm} zł/м²",
+        "adv_floor_set": "🏢 от {floor} эт.",
+        "adv_toggle_photo": "📷 Только с фото: {state}",
+        "adv_toggle_new": "🆕 Только новые: {state}",
+        "adv_toggle_furn": "🛋 Меблированная: {state}",
+        "adv_on": "вкл",
+        "adv_off": "выкл",
+        "adv_applied": "✅ <b>Расширенный поиск применён!</b>\n\n{summary}\n\n🏠 Найдено: <b>{total}</b> квартир{hint}",
+        "adv_reset_ok": "✅ Все фильтры сброшены!",
+        "alert_list": (
+            "🔔 <b>Твои алерты ({n}/{limit}):</b>\n\n"
+            "Напишу сразу, когда появится подходящая квартира.{hint}"
+        ),
+        "alert_vip_hint": "\n\n💎 VIP — до {limit} алертов и подписка на районы.",
+        "alert_btn_create": "➕ Создать алерт",
+        "alert_item": "🗑 #{id}: {district} до {price_max} zł{city}",
+        "alert_any_district": "любой район",
+        "alert_limit_reached": "Лимит {limit} алертов — удали один, чтобы создать новый",
+        "ref_share_btn": "📤 Поделиться ссылкой",
+        "ref_body": (
+            "👥 <b>Пригласи друзей в DDFlatsBot!</b>\n\n"
+            "Твоя ссылка:\n<code>{link}</code>\n\n"
+            "👤 Приглашено: <b>{count}</b> чел.\n"
+            "🎁 Прогресс: {bar} {progress}/{required}\n"
+            "   До бонуса: ещё <b>{next_reward}</b> чел."
+        ),
+        "subscribe_intro": "🔔 <b>Подписка на район</b>\n\nАктивные: {subs}\n\nВыбери район:",
+        "subscribe_more": "🔔 Подписки: {subs}\n\nВыбери ещё:",
+        "subscribe_ok": "✅ Подписан на {district}",
+        "found_share_pitch": (
+            "🎉 <b>Поздравляем с новой квартирой!</b>\n\n"
+            "Если бот помог — расскажи друзьям. 🙏"
+        ),
+        "alert_pick_district": "📍 Район для алерта:",
+        "alert_pick_price": "💰 Максимальная цена для алерта:",
+        "alert_pick_rooms": "🛏 Количество комнат для алерта:",
+        "alert_created": "✅ <b>Алерт создан!</b>\n{summary}\n\nНапишу сразу как появится квартира. 🔔",
+        "alert_deleted": "🗑 Алерт удалён",
+        "notify_btn_open": "🔗 Открыть",
+        "notify_alert_fired": (
+            "🎯 <b>Алерт сработал!</b>\n\n"
+            "🏠 {title}\n"
+            "💰 {price} zł/мес{price_badge}\n"
+            "📍 {district}"
+        ),
+        "notify_price_cheap": "\n🟢 <b>Очень дёшево!</b>",
+        "notify_price_below_avg": "\n🟡 Ниже среднего",
+        "notify_new_in_district": (
+            "🔔 <b>Новая квартира в {district}!</b>\n\n"
+            "🏠 {title}\n"
+            "💰 {price} zł/мес"
+        ),
+        "notify_cheap_apt": (
+            "🟢 <b>Дешёвая квартира!</b>\n\n"
+            "🏠 {title}\n"
+            "💰 <b>{price} zł/мес</b> — ниже среднего!\n"
+            "📍 {district}\n"
+            "<a href=\"{link}\">{open}</a>{extra}"
+        ),
+        "notify_cheap_extra": "\n+ ещё {n} дешёвых → /next",
+        "notify_new_batch": "🏠 Добавлено <b>{n}</b> новых квартир!\nНажми /next",
+    },
+    "uk": {
+        "apt_rooms": "{n} кімн.",
+        "apt_area": "{area} м²",
+        "apt_floor": "пов. {floor}",
+        "apt_verified": "✅ <b>Перевірено</b>\n",
+        "apt_price_month": "💰 <b>{price} zł/міс</b>{ppm}",
+        "apt_ppm": " · <i>{ppm} zł/м²</i>",
+        "apt_no_price": "💰 <i>Ціну не вказано</i>",
+        "apt_furnished": " · 🛋 з меблями",
+        "apt_unfurnished": " · 🚫 без меблів",
+        "apt_open": "Відкрити оголошення",
+        "apt_price_drop": "📉 <b>Ціну знижено!</b> {old} → {new} zł (−{drop} zł)",
+        "apt_views_hot": "🔥 <b>Переглядали {n} разів — дуже популярне!</b>",
+        "apt_views_some": "👁 <i>Переглядали {n} разів</i>",
+        "apt_stale_14": "⚠️ <i>Оголошенню {n} днів — уточни актуальність.</i>",
+        "apt_stale_7": "🕐 <i>Оголошенню {n} днів.</i>",
+        "verdict_cheap": "🟢 Дуже дешево",
+        "verdict_below_avg": "🟡 Нижче середнього",
+        "verdict_fair": "✅ Справедлива ціна",
+        "verdict_above_avg": "🟠 Вище середнього",
+        "verdict_overpriced": "🔴 Завищена ціна",
+        "verdict_line": "💡 {badge} ({sign}{pct}% від сер. {avg} zł)",
+        "btn_back": "⬅️ Назад",
+        "no_apts_title": "😔 <b>За фільтрами нічого не знайдено</b>\n\n",
+        "no_apts_searched": "Шукав: {searched}\n",
+        "no_apts_city": "Місто: <b>{city}</b>\n\n",
+        "no_apts_district_hint": "💡 У районі <b>{district}</b> є <b>{n}</b> квартир без урахування ціни/кімнат.\n\n",
+        "no_apts_city_hint": "💡 У місті <b>{city}</b> є <b>{n}</b> квартир — спробуй розширити фільтри.\n\n",
+        "no_apts_empty_db": "⏳ У базі поки мало оголошень для цього міста.\n\n",
+        "no_apts_alt_title": "🔗 <b>Інший шлях — пошук на сайтах:</b>\n",
+        "no_apts_actions": "Або в боті:\n• Скинь фільтри\n• Зміни район / ціну",
+        "btn_reset_filters": "🔄 Скинути фільтри",
+        "btn_change_filter": "🔍 Змінити",
+        "btn_all_apts": "🏠 Усі квартири",
+        "btn_search_olx": "🟠 OLX",
+        "btn_search_otodom": "🔵 Otodom",
+        "btn_search_gratka": "🟢 Gratka",
+        "btn_search_morizon": "🟣 Morizon",
+        "btn_platforms": "🌐 Пошук на сайтах",
+        "platforms_intro": "🔗 <b>Прямий пошук у твоєму місті</b> — якщо в боті мало оголошень:",
+        "onboard_city": "Обери місто для пошуку квартир.\n\n⚠️ Завжди перевіряй квартиру особисто.",
+        "onboard_city_step": (
+            "🏙 <b>Обери місто для пошуку квартир:</b>\n\n"
+            "Кожне місто — окрема база оголошень.\n"
+            "Змінити місто: /city"
+        ),
+        "city_pick_title": "🏙 <b>Вибір міста</b>\n\nЗараз: <b>{city}</b>\n\n",
+        "city_pick_hint": "Обери місто — пошук у ньому та в радіусі 100 км.\n⚠️ Фільтри скинуться.",
+        "decline_terms": "❌ Ти відмовився від умов.\n\nЯкщо передумаєш — /start",
+        "friend_default": "друже",
+        "limit_vip_btn": "⭐ VIP — {price} zł/міс",
+        "limit_ref_btn": "👥 Отримати безкоштовно",
+        "limit_one_left": "\n\n⚠️ <b>Залишилась 1 квартира</b> з {limit} безкоштовних.",
+        "filter_furnished": "🛋 з меблями",
+        "filter_unfurnished": "без меблів",
+        "filter_rooms_n": "{n} кімн.",
+        "filter_price_max": "до {price} zł",
+        "filter_all_apts": "усі квартири",
+        "filter_all_districts": "🌍 Усі райони",
+        "filter_cancel": "❌ Скасувати",
+        "filter_any": "🚫 Будь-яке",
+        "filter_room_btn": "{n} кімн.",
+        "mw_rate_limit": "⏳ Не так швидко!",
+        "mw_banned": "🚫 Тебе заблоковано.",
+        "mw_banned_cb": "🚫 Заблоковано",
+        "mw_subscribe_btn": "📢 Підписатись на @ddflots",
+        "mw_sub_check": "✅ Я підписався — перевірити",
+        "mw_sub_title": "🔒 <b>Доступ закрито</b>\n\n",
+        "mw_sub_body": (
+            "Підпишись на канал @ddflots\n\n"
+            "🏠 Найкращі квартири\n"
+            "📊 Статистика оренди\n"
+            "💡 Поради\n\n"
+            "Після підписки натисни кнопку 👇"
+        ),
+        "mw_sub_first": "❌ Спочатку підпишись на канал!",
+        "lang_pick": "🌐 <b>Мова / Language / Język</b>\n\nОбери:",
+        "welcome_poland": "усіх міст Польщі",
+        "filter_step1": "📍 <b>Крок 1/4: Район</b>",
+        "filter_step2": "💰 <b>Крок 2/4: Макс. ціна</b>",
+        "filter_step3": "🛏 <b>Крок 3/4: Кімнати</b>",
+        "filter_step4": "🛋 <b>Крок 4/4: Меблі</b>",
+        "filter_district_set": "📍 Район: <b>{label}</b>\n\n",
+        "filter_all_districts_label": "Усі райони",
+        "new_since_visit": "\n🆕 <b>+{n}</b> нових з минулого візиту!",
+        "filter_price_set": "💰 Макс. ціна: <b>{label}</b>\n\n",
+        "filter_price_any": "без обмежень",
+        "filter_rooms_set": "🛏 Кімнат: <b>{label}</b>\n\n",
+        "filter_rooms_any": "будь-яке",
+        "filter_furn_yes": "✅ Так",
+        "filter_furn_no": "❌ Ні",
+        "filter_furn_any": "🚫 Будь-яка",
+        "filter_applied": "✅ <b>Фільтри встановлено!</b>\n\n{summary}\n🏠 Знайдено: <b>{total}</b> квартир{hint}",
+        "filter_reset_ok": "✅ Фільтри скинуто!",
+        "filter_view_btn": "🏠 Дивитись ({total})",
+        "filter_hide_seen_hint": " (без переглянутих)",
+        "ask_help": "🤖 <b>Розумний пошук</b>\n\n<code>/ask 2 кімнати до 3000</code>",
+        "ask_fail": "😔 Не вдалось розпізнати.\n\n<code>/ask 2 кімнати до 3000</code>",
+        "ask_ok": "🤖 <b>Шукаю:</b>\n{summary}\n\n🏠 Знайдено: <b>{total}</b>",
+        "unknown_cmd": "🤔 Не зрозумів команду.\n\n/menu або /help",
+        "vip_only": "💎 Лише для VIP!",
+        "menu_style_capital": "🏛 Столичний режим",
+        "menu_style_coastal": "🌊 Прибережний режим",
+        "menu_style_industrial": "🏭 Промисловий режим",
+        "menu_style_culture": "🎭 Культурний режим",
+        "menu_style_business": "💼 Діловий режим",
+        "menu_style_quiet": "🌿 Спокійний режим",
+        "btn_settings": "⚙️ Налаштування",
+        "btn_notes": "📝 Нотатки",
+        "btn_digest": "📰 Дайджест",
+        "btn_advanced": "🔬 Розширений пошук",
+        "btn_change_city": "🏙 Змінити місто",
+        "btn_hide": "🚫 Сховати",
+        "btn_seen": "👁 Вже дивився",
+        "daily_step1": "🏖 <b>Оренда подобово</b>\n\n📍 <b>Крок 1/5: Місто</b>\nПоточне: <b>{city}</b>",
+        "daily_step2": "📅 <b>Крок 2/5: Дата заїзду</b>",
+        "daily_step3": "📅 <b>Крок 3/5: Дата виїзду</b>\nЗаїзд: <b>{checkin}</b>",
+        "daily_step4": "👥 <b>Крок 4/5: Гості</b>",
+        "daily_step5": "🏠 <b>Крок 5/5: Тип житла</b>",
+        "daily_searching": "🔍 Шукаю подобово в <b>{city}</b>…\n📅 {checkin} → {checkout}",
+        "daily_found": "🏠 <b>{n}</b> варіантів у {city}:",
+        "daily_none": "😔 У {city} мало подобових оголошень.\nДивись агрегатори нижче:",
+        "today": "Сьогодні",
+        "tomorrow": "Завтра",
+        "daily_card": "🏠 <b>{title}</b>\n💰 <b>{price}</b> zł/{night_label} · {total} zł за {nights} {nights_label}\n📍 {district}{rating}\n🔗 <a href=\"{link}\">{open_label}</a>",
+        "daily_night": "ніч",
+        "daily_nights": "ноч.",
+        "daily_open": "Відкрити на {source}",
+        "daily_btn_open": "🔗 Відкрити",
+        "daily_summary": (
+            "🏖 <b>Оренда подобово</b>\n\n"
+            "📍 {city}\n"
+            "📅 {checkin} → {checkout} ({nights} {nights_label})\n"
+            "👥 {guests} {guests_label} · {type}\n\n"
+            "🔗 <b>{best_links}</b>\n\n"
+            "🏨 <a href=\"{booking}\">Booking.com</a>\n"
+            "🏠 <a href=\"{airbnb}\">Airbnb</a>\n"
+            "🛏 <a href=\"{nocowanie}\">Nocowanie.pl</a>\n"
+            "🏢 <a href=\"{flatio}\">Flatio</a> — з меблями{tips}"
+        ),
+        "daily_tips": (
+            "\n\n💡 <b>Поради:</b>\n"
+            "• Зверху — готові OLX/Otodom/Flatio\n"
+            "• Flatio — з меблями, від 14 днів\n"
+            "• Booking — «Геніальна ціна»\n"
+            "• Airbnb — від 7 ночей дешевше"
+        ),
+        "daily_best_links": "Агрегатори (якщо мало оголошень):",
+        "daily_guests_label": "гост.",
+        "daily_type_apartment": "🏠 Квартира",
+        "daily_type_house": "🏡 Будинок/Вілла",
+        "daily_type_room": "🛏 Кімната",
+        "daily_type_hotel": "🏨 Готель",
+        "daily_type_any": "🏕 Будь-який тип",
+        "daily_btn_change": "🔄 Змінити",
+        "daily_btn_menu": "📋 Меню",
+        "daily_custom_city": "✏️ Інше місто",
+        "daily_custom_prompt": "✏️ Напиши місто або район:",
+        "daily_nights_btn": "{n} н.",
+        "daily_nights_btn_long": "{n} дн.",
+        "daily_checkin_label": "Заїзд: {date}",
+        "daily_or_date": "📅 Або обери дату виїзду:",
+        "city_onboard": "✅ Місто: <b>{city}</b>\n\n",
+        "city_alert": "✅ {city}",
+        "free_unlimited_badge": "🆓 Безкоштовно · безліміт переглядів",
+        "settings_title": (
+            "⚙️ <b>Налаштування пошуку</b>\n\n"
+            "🏙 Місто: <b>{city}</b> (змінити: /city)\n"
+            "{radius_hint}\n"
+            "<b>Переглянуті</b> — ховати вже відкриті оголошення."
+        ),
+        "settings_radius_hint": "📍 Пошук у радіусі <b>100 км</b> від міста — можна вимкнути нижче.\n",
+        "settings_radius_on": "✅ Радіус {km} км: УВІМК{extra}",
+        "settings_radius_off": "❌ Радіус 100 км: ВИМК (лише місто)",
+        "settings_hide_seen_on": "✅ Ховати переглянуті: УВІМК",
+        "settings_hide_seen_off": "❌ Ховати переглянуті: ВИМК",
+        "settings_change_city": "🏙 Змінити місто",
+        "settings_back_menu": "◀️ До меню",
+        "daily_radius_note": "\n📍 + міста в радіусі {km} км ({n} всього)",
+        "settings_saved": "✅ Збережено",
+        "apt_nearby_badge": "📍 <i>Поруч: {city}</i>",
+        "btn_save": "❤️ Зберегти",
+        "btn_open_link": "🔗 Відкрити",
+        "stats_body": (
+            "📊 <b>Твоя статистика</b>\n\n"
+            "📌 Статус: {vip_line}\n"
+            "👁 Переглянуто: <b>{views}</b>\n"
+            "❤️ Обране: <b>{favs}</b>\n"
+            "🔔 Підписки: {subs}\n"
+            "🎯 Алертів: <b>{alerts}</b>\n"
+            "👥 Запрошено: <b>{refs}</b>\n"
+            "📅 З нами з: {created}{streak}{next_vip}"
+        ),
+        "stats_none": "немає",
+        "stats_streak_hot": "\n🔥 Стрік: <b>{n} днів</b>! 🏆",
+        "stats_streak": "\n🔥 Стрік: <b>{n} днів</b>!",
+        "stats_active": "\n📆 Активний {n} дн.",
+        "stats_vip_progress": (
+            "\n\n🎯 <b>До безкоштовного VIP:</b>\n"
+            "❤️ Збережи ще {favs} → 3 дні VIP\n"
+            "👥 Запроси ще {refs} друзів → {days} днів VIP"
+        ),
+        "hot_empty": "🔥 <b>Гарячих квартир поки немає</b>\n\nСтав 👍 — з'являться тут!",
+        "hot_title": "🔥 <b>Гарячі квартири (топ лайків за 24г):</b>",
+        "hot_score": "\n\n🔥 <b>{n} лайків</b>",
+        "drops_empty": "📉 <b>Знижень цін поки немає</b>\n\n💡 Налаштуй алерт: /alert",
+        "drops_title": "📉 <b>Зниження цін за 48г:</b>",
+        "drops_card": "📉 <b>−{diff} zł (−{pct}%)</b>\n🏠 {title}\n💰 <s>{old} zł</s> → <b>{current} zł/міс</b>\n📍 {district}",
+        "cheap_empty": "😔 Дешевих квартир поки немає.",
+        "cheap_title": "💚 <b>Найдешевші квартири:</b>",
+        "map_empty": "🗺 <b>Карта цін</b>\n\nДаних поки мало.",
+        "map_title": "🗺 <b>Середні ціни по районах {city}:</b>\n",
+        "map_row": "📍 <b>{district}</b>\n   {bar} avg <b>{avg} zł</b> · від {min_price} zł · {cnt}",
+        "map_pick_district": "🔍 Обрати район",
+        "vip_benefits": "✅ Безліміт · алерти · підписки · дайджест",
+        "vip_benefits_free": "✅ Алерти · підписки · зниження цін · дайджест · пріоритет",
+        "vip_pitch": (
+            "⭐ <b>VIP — {price} zł/міс</b>\n\n{benefits}\n\n"
+            "🆓 <b>Безкоштовно:</b>\n👥 {ref_bar} {ref_count}/{ref_required}\n❤️ {fav_bar} {fav_count}/10"
+        ),
+        "fav_empty": "❤️ <b>Обране порожнє</b>\n\nДодавай кнопкою ❤️ під оголошенням.",
+        "fav_header": "❤️ <b>Обране — стр. {page}/{total_pages} ({total}):</b>",
+        "fav_nav": "{page}/{total_pages}  ({total})",
+        "fav_compare_btn": "📊 Порівняти",
+        "fav_delete": "🗑 Видалити",
+        "fav_added": "❤️ Додано в обране!",
+        "fav_removed": "🗑 Видалено з обраного",
+        "compare_need_two": "❤️ Додай мінімум 2 квартири для порівняння.",
+        "compare_title": "📊 <b>Порівняння з обраного:</b>\n",
+        "compare_row": "🏠 <b>{title}</b>\n   💰 {price} zł · 🛏 {rooms} · 📐 {area} м² · {ppm}\n   📍 {district} · {source_icon} {source}",
+        "adv_title": "🔬 <b>Розширений пошук</b>\n\n<i>{summary}</i>",
+        "adv_summary_all": "Усі квартири",
+        "adv_part_price": "до {price} zł",
+        "adv_part_rooms_from": "від {n} кімн.",
+        "adv_part_rooms_to": "до {n} кімн.",
+        "adv_part_area": "від {area} м²",
+        "adv_part_ppm": "до {ppm} zł/м²",
+        "adv_part_floor": "від {floor} пов.",
+        "adv_part_photo": "📷 лише з фото",
+        "adv_part_new": "🆕 лише нові",
+        "adv_btn_district": "📍 Район",
+        "adv_btn_price": "💰 Макс. ціна",
+        "adv_btn_rooms_min": "🛏 Кімн. від",
+        "adv_btn_rooms_max": "🛏 Кімн. до",
+        "adv_btn_area": "📐 Мін. площа",
+        "adv_btn_ppm": "💡 Макс. zł/м²",
+        "adv_btn_floor": "🏢 Поверх від",
+        "adv_btn_photo": "📷 З фото",
+        "adv_btn_new": "🆕 Нові",
+        "adv_btn_furn": "🛋 З меблями",
+        "adv_btn_apply": "✅ Застосувати",
+        "adv_btn_reset": "🔄 Скинути",
+        "adv_btn_edit": "🔬 Змінити",
+        "adv_btn_view": "🏠 Дивитись ({total})",
+        "adv_pick_district": "📍 Обери район:",
+        "adv_pick_price": "💰 Макс. ціна:",
+        "adv_pick_rooms_min": "🛏 Мін. кімнат:",
+        "adv_pick_rooms_max": "🛏 Макс. кімнат:",
+        "adv_pick_area": "📐 Мін. площа:",
+        "adv_pick_floor": "🏢 Поверх від:",
+        "adv_ppm_help": "💡 <b>Макс. ціна за м²</b>\n\n50 м² за 2000 zł = 40 zł/м²",
+        "adv_no_limit": "🚫 Без обмежень",
+        "adv_any_rooms": "🛏 будь-яке",
+        "adv_any_floor": "🏢 будь-який",
+        "adv_district_set": "📍 {label}",
+        "adv_price_set": "💰 до {price} zł",
+        "adv_rooms_min_set": "🛏 від {n} кімн.",
+        "adv_rooms_max_set": "🛏 до {n} кімн.",
+        "adv_area_set": "📐 від {area} м²",
+        "adv_ppm_set": "💡 до {ppm} zł/м²",
+        "adv_floor_set": "🏢 від {floor} пов.",
+        "adv_toggle_photo": "📷 З фото: {state}",
+        "adv_toggle_new": "🆕 Нові: {state}",
+        "adv_toggle_furn": "🛋 Меблі: {state}",
+        "adv_on": "увімк",
+        "adv_off": "вимк",
+        "adv_applied": "✅ <b>Фільтри застосовано!</b>\n\n{summary}\n\n🏠 Знайдено: <b>{total}</b>{hint}",
+        "adv_reset_ok": "✅ Фільтри скинуто!",
+        "alert_list": "🔔 <b>Алерти ({n}/{limit}):</b>\n\nНапишу одразу, коли з'явиться квартира.{hint}",
+        "alert_vip_hint": "\n\n💎 VIP — до {limit} алертів.",
+        "alert_btn_create": "➕ Створити алерт",
+        "alert_item": "🗑 #{id}: {district} до {price_max} zł{city}",
+        "alert_any_district": "будь-який район",
+        "alert_limit_reached": "Ліміт {limit} алертів — видали один для нового",
+        "ref_share_btn": "📤 Поділитися посиланням",
+        "ref_body": (
+            "👥 <b>Запроси друзів у DDFlatsBot!</b>\n\n"
+            "Твоє посилання:\n<code>{link}</code>\n\n"
+            "👤 Запрошено: <b>{count}</b> осіб\n"
+            "🎁 Прогрес: {bar} {progress}/{required}\n"
+            "   До бонусу: ще <b>{next_reward}</b> осіб"
+        ),
+        "subscribe_intro": "🔔 <b>Підписка на район</b>\n\nАктивні: {subs}\n\nОбери район:",
+        "subscribe_more": "🔔 Підписки: {subs}\n\nОбери ще:",
+        "subscribe_ok": "✅ Підписано на {district}",
+        "found_share_pitch": (
+            "🎉 <b>Вітаємо з новою квартирою!</b>\n\n"
+            "Якщо бот допоміг — розкажи друзям. 🙏"
+        ),
+        "alert_pick_district": "📍 Район для алерту:",
+        "alert_pick_price": "💰 Макс. ціна:",
+        "alert_pick_rooms": "🛏 Кімнати:",
+        "alert_created": "✅ <b>Алерт створено!</b>\n{summary}\n\nНапишу одразу. 🔔",
+        "alert_deleted": "🗑 Алерт видалено",
+        "notify_btn_open": "🔗 Відкрити",
+        "notify_alert_fired": (
+            "🎯 <b>Алерт спрацював!</b>\n\n"
+            "🏠 {title}\n"
+            "💰 {price} zł/міс{price_badge}\n"
+            "📍 {district}"
+        ),
+        "notify_price_cheap": "\n🟢 <b>Дуже дешево!</b>",
+        "notify_price_below_avg": "\n🟡 Нижче середнього",
+        "notify_new_in_district": (
+            "🔔 <b>Нова квартира в {district}!</b>\n\n"
+            "🏠 {title}\n"
+            "💰 {price} zł/міс"
+        ),
+        "notify_cheap_apt": (
+            "🟢 <b>Дешева квартира!</b>\n\n"
+            "🏠 {title}\n"
+            "💰 <b>{price} zł/міс</b> — нижче середнього!\n"
+            "📍 {district}\n"
+            "<a href=\"{link}\">{open}</a>{extra}"
+        ),
+        "notify_cheap_extra": "\n+ ще {n} дешевих → /next",
+        "notify_new_batch": "🏠 Додано <b>{n}</b> нових квартир!\nНатисни /next",
+    },
+    "pl": {
+        "apt_rooms": "{n} pok.",
+        "apt_area": "{area} m²",
+        "apt_floor": "piętro {floor}",
+        "apt_verified": "✅ <b>Zweryfikowane</b>\n",
+        "apt_price_month": "💰 <b>{price} zł/mies.</b>{ppm}",
+        "apt_ppm": " · <i>{ppm} zł/m²</i>",
+        "apt_no_price": "💰 <i>Brak ceny</i>",
+        "apt_furnished": " · 🛋 umeblowane",
+        "apt_unfurnished": " · 🚫 bez mebli",
+        "apt_open": "Otwórz ogłoszenie",
+        "apt_price_drop": "📉 <b>Cena obniżona!</b> {old} → {new} zł (−{drop} zł)",
+        "apt_views_hot": "🔥 <b>Oglądane {n} razy — bardzo popularne!</b>",
+        "apt_views_some": "👁 <i>Oglądane {n} razy</i>",
+        "apt_stale_14": "⚠️ <i>Ogłoszenie ma {n} dni — sprawdź aktualność.</i>",
+        "apt_stale_7": "🕐 <i>Ogłoszenie ma {n} dni.</i>",
+        "verdict_cheap": "🟢 Bardzo tanio",
+        "verdict_below_avg": "🟡 Poniżej średniej",
+        "verdict_fair": "✅ Uczciwa cena",
+        "verdict_above_avg": "🟠 Powyżej średniej",
+        "verdict_overpriced": "🔴 Zawyżona cena",
+        "verdict_line": "💡 {badge} ({sign}{pct}% od śr. {avg} zł)",
+        "btn_back": "⬅️ Wstecz",
+        "no_apts_title": "😔 <b>Brak wyników dla filtrów</b>\n\n",
+        "no_apts_searched": "Szukano: {searched}\n",
+        "no_apts_city": "Miasto: <b>{city}</b>\n\n",
+        "no_apts_district_hint": "💡 W dzielnicy <b>{district}</b> jest <b>{n}</b> mieszkań bez filtra ceny/pokoi.\n\n",
+        "no_apts_city_hint": "💡 W mieście <b>{city}</b> jest <b>{n}</b> ogłoszeń — rozluźnij filtry.\n\n",
+        "no_apts_empty_db": "⏳ W bazie jest mało ogłoszeń dla tego miasta.\n\n",
+        "no_apts_alt_title": "🔗 <b>Inna droga — szukaj na portalach:</b>\n",
+        "no_apts_actions": "W bocie:\n• Reset filtrów\n• Zmień dzielnicę / cenę",
+        "btn_reset_filters": "🔄 Reset filtrów",
+        "btn_change_filter": "🔍 Zmień",
+        "btn_all_apts": "🏠 Wszystkie",
+        "btn_search_olx": "🟠 OLX",
+        "btn_search_otodom": "🔵 Otodom",
+        "btn_search_gratka": "🟢 Gratka",
+        "btn_search_morizon": "🟣 Morizon",
+        "btn_platforms": "🌐 Szukaj na portalach",
+        "platforms_intro": "🔗 <b>Bezpośrednie wyszukiwanie w Twoim mieście</b> — gdy w bocie mało ogłoszeń:",
+        "onboard_city": "Wybierz miasto wyszukiwania.\n\n⚠️ Zawsze oglądaj mieszkanie przed płatnością.",
+        "onboard_city_step": (
+            "🏙 <b>Wybierz miasto:</b>\n\n"
+            "Każde miasto — osobna baza ogłoszeń.\n"
+            "Zmiana miasta: /city"
+        ),
+        "city_pick_title": "🏙 <b>Wybór miasta</b>\n\nTeraz: <b>{city}</b>\n\n",
+        "city_pick_hint": "Wybierz miasto — szukaj w nim i w promieniu 100 km.\n⚠️ Filtry zostaną zresetowane.",
+        "decline_terms": "❌ Odrzuciłeś warunki.\n\nZmiana zdania — /start",
+        "friend_default": "przyjacielu",
+        "limit_vip_btn": "⭐ VIP — {price} zł/mies.",
+        "limit_ref_btn": "👥 Zdobądź za darmo",
+        "limit_one_left": "\n\n⚠️ <b>Zostało 1 mieszkanie</b> z {limit} darmowych.",
+        "filter_furnished": "🛋 umeblowane",
+        "filter_unfurnished": "bez mebli",
+        "filter_rooms_n": "{n} pok.",
+        "filter_price_max": "do {price} zł",
+        "filter_all_apts": "wszystkie mieszkania",
+        "filter_all_districts": "🌍 Wszystkie dzielnice",
+        "filter_cancel": "❌ Anuluj",
+        "filter_any": "🚫 Dowolne",
+        "filter_room_btn": "{n} pok.",
+        "mw_rate_limit": "⏳ Za szybko!",
+        "mw_banned": "🚫 Jesteś zablokowany.",
+        "mw_banned_cb": "🚫 Zablokowany",
+        "mw_subscribe_btn": "📢 Subskrybuj @ddflots",
+        "mw_sub_check": "✅ Subskrybuję — sprawdź",
+        "mw_sub_title": "🔒 <b>Dostęp zamknięty</b>\n\n",
+        "mw_sub_body": (
+            "Subskrybuj kanał @ddflots\n\n"
+            "🏠 Najlepsze mieszkania\n"
+            "📊 Statystyki rynku\n"
+            "💡 Porady\n\n"
+            "Potem naciśnij przycisk 👇"
+        ),
+        "mw_sub_first": "❌ Najpierw subskrybuj kanał!",
+        "lang_pick": "🌐 <b>Język / Language / Мова</b>\n\nWybierz:",
+        "welcome_poland": "wszystkich miast Polski",
+        "filter_step1": "📍 <b>Krok 1/4: Dzielnica</b>",
+        "filter_step2": "💰 <b>Krok 2/4: Cena max</b>",
+        "filter_step3": "🛏 <b>Krok 3/4: Pokoje</b>",
+        "filter_step4": "🛋 <b>Krok 4/4: Meble</b>",
+        "filter_district_set": "📍 Dzielnica: <b>{label}</b>\n\n",
+        "filter_all_districts_label": "Wszystkie dzielnice",
+        "new_since_visit": "\n🆕 <b>+{n}</b> nowych od ostatniej wizyty!",
+        "filter_price_set": "💰 Cena max: <b>{label}</b>\n\n",
+        "filter_price_any": "bez limitu",
+        "filter_rooms_set": "🛏 Pokoi: <b>{label}</b>\n\n",
+        "filter_rooms_any": "dowolne",
+        "filter_furn_yes": "✅ Tak",
+        "filter_furn_no": "❌ Nie",
+        "filter_furn_any": "🚫 Dowolne",
+        "filter_applied": "✅ <b>Filtry ustawione!</b>\n\n{summary}\n🏠 Znaleziono: <b>{total}</b> ogłoszeń{hint}",
+        "filter_reset_ok": "✅ Filtry zresetowane!",
+        "filter_view_btn": "🏠 Zobacz ({total})",
+        "filter_hide_seen_hint": " (bez obejrzanych)",
+        "ask_help": "🤖 <b>Inteligentne wyszukiwanie</b>\n\n<code>/ask 2 pokoje do 3000</code>",
+        "ask_fail": "😔 Nie rozpoznano.\n\n<code>/ask 2 pokoje do 3000</code>",
+        "ask_ok": "🤖 <b>Szukam:</b>\n{summary}\n\n🏠 Znaleziono: <b>{total}</b>",
+        "unknown_cmd": "🤔 Nie rozumiem.\n\n/menu lub /help",
+        "vip_only": "💎 Tylko VIP!",
+        "menu_style_capital": "🏛 Tryb stolicy",
+        "menu_style_coastal": "🌊 Tryb nadmorski",
+        "menu_style_industrial": "🏭 Tryb przemysłowy",
+        "menu_style_culture": "🎭 Tryb kulturalny",
+        "menu_style_business": "💼 Tryb biznesowy",
+        "menu_style_quiet": "🌿 Tryb spokojny",
+        "btn_settings": "⚙️ Ustawienia",
+        "btn_notes": "📝 Notatki",
+        "btn_digest": "📰 Digest",
+        "btn_advanced": "🔬 Wyszukiwanie zaaw.",
+        "btn_change_city": "🏙 Zmień miasto",
+        "btn_hide": "🚫 Ukryj",
+        "btn_seen": "👁 Już widziałem",
+        "daily_step1": "🏖 <b>Wynajem krótkoterminowy</b>\n\n📍 <b>Krok 1/5: Miasto</b>\nAktualne: <b>{city}</b>",
+        "daily_step2": "📅 <b>Krok 2/5: Zameldowanie</b>",
+        "daily_step3": "📅 <b>Krok 3/5: Wymeldowanie</b>\nZameld.: <b>{checkin}</b>",
+        "daily_step4": "👥 <b>Krok 4/5: Goście</b>",
+        "daily_step5": "🏠 <b>Krok 5/5: Typ</b>",
+        "daily_searching": "🔍 Szukam krótkoterminowo w <b>{city}</b>…\n📅 {checkin} → {checkout}",
+        "daily_found": "🏠 <b>{n}</b> ofert w {city}:",
+        "daily_none": "😔 Mało ofert krótkoterminowych w {city}.\nPortale poniżej:",
+        "today": "Dziś",
+        "tomorrow": "Jutro",
+        "daily_card": "🏠 <b>{title}</b>\n💰 <b>{price}</b> zł/{night_label} · {total} zł za {nights} {nights_label}\n📍 {district}{rating}\n🔗 <a href=\"{link}\">{open_label}</a>",
+        "daily_night": "noc",
+        "daily_nights": "nocy",
+        "daily_open": "Otwórz na {source}",
+        "daily_btn_open": "🔗 Otwórz",
+        "daily_summary": (
+            "🏖 <b>Wynajem krótkoterminowy</b>\n\n"
+            "📍 {city}\n"
+            "📅 {checkin} → {checkout} ({nights} {nights_label})\n"
+            "👥 {guests} {guests_label} · {type}\n\n"
+            "🔗 <b>{best_links}</b>\n\n"
+            "🏨 <a href=\"{booking}\">Booking.com</a>\n"
+            "🏠 <a href=\"{airbnb}\">Airbnb</a>\n"
+            "🛏 <a href=\"{nocowanie}\">Nocowanie.pl</a>\n"
+            "🏢 <a href=\"{flatio}\">Flatio</a> — umeblowane{tips}"
+        ),
+        "daily_tips": (
+            "\n\n💡 <b>Wskazówki:</b>\n"
+            "• Wyżej — gotowe OLX/Otodom/Flatio\n"
+            "• Flatio — umeblowane, od 14 dni\n"
+            "• Booking — «Genialna cena»\n"
+            "• Airbnb — 7+ nocy taniej"
+        ),
+        "daily_best_links": "Portale (gdy mało ofert):",
+        "daily_guests_label": "goś.",
+        "daily_type_apartment": "🏠 Mieszkanie",
+        "daily_type_house": "🏡 Dom/Willa",
+        "daily_type_room": "🛏 Pokój",
+        "daily_type_hotel": "🏨 Hotel",
+        "daily_type_any": "🏕 Dowolny",
+        "daily_btn_change": "🔄 Zmień",
+        "daily_btn_menu": "📋 Menu",
+        "daily_custom_city": "✏️ Inne miasto",
+        "daily_custom_prompt": "✏️ Wpisz miasto lub dzielnicę:",
+        "daily_nights_btn": "{n} n.",
+        "daily_nights_btn_long": "{n} d.",
+        "daily_checkin_label": "Zameld.: {date}",
+        "daily_or_date": "📅 Lub wybierz datę wyjazdu:",
+        "city_onboard": "✅ Miasto: <b>{city}</b>\n\n",
+        "city_alert": "✅ {city}",
+        "free_unlimited_badge": "🆓 Za darmo · bez limitu",
+        "settings_title": (
+            "⚙️ <b>Ustawienia wyszukiwania</b>\n\n"
+            "🏙 Miasto: <b>{city}</b> (zmień: /city)\n"
+            "{radius_hint}\n"
+            "<b>Oglądane</b> — ukrywaj już otwarte ogłoszenia."
+        ),
+        "settings_radius_hint": "📍 Szukaj w promieniu <b>100 km</b> od miasta — można wyłączyć poniżej.\n",
+        "settings_radius_on": "✅ Promień {km} km: WŁ ({extra})",
+        "settings_radius_off": "❌ Promień 100 km: WYŁ (tylko miasto)",
+        "settings_hide_seen_on": "✅ Ukrywaj oglądane: WŁ",
+        "settings_hide_seen_off": "❌ Ukrywaj oglądane: WYŁ",
+        "settings_change_city": "🏙 Zmień miasto",
+        "settings_back_menu": "◀️ Menu",
+        "daily_radius_note": "\n📍 + miasta w promieniu {km} km ({n} łącznie)",
+        "settings_saved": "✅ Zapisano",
+        "apt_nearby_badge": "📍 <i>W pobliżu: {city}</i>",
+        "btn_save": "❤️ Zapisz",
+        "btn_open_link": "🔗 Otwórz",
+        "stats_body": (
+            "📊 <b>Twoje statystyki</b>\n\n"
+            "📌 Status: {vip_line}\n"
+            "👁 Obejrzane: <b>{views}</b>\n"
+            "❤️ Ulubione: <b>{favs}</b>\n"
+            "🔔 Subskrypcje: {subs}\n"
+            "🎯 Alertów: <b>{alerts}</b>\n"
+            "👥 Zaproszeni: <b>{refs}</b>\n"
+            "📅 Od: {created}{streak}{next_vip}"
+        ),
+        "stats_none": "brak",
+        "stats_streak_hot": "\n🔥 Seria: <b>{n} dni</b>! 🏆",
+        "stats_streak": "\n🔥 Seria: <b>{n} dni</b>!",
+        "stats_active": "\n📆 Aktywny {n} dni",
+        "stats_vip_progress": (
+            "\n\n🎯 <b>Do darmowego VIP:</b>\n"
+            "❤️ Zapisz jeszcze {favs} → 3 dni VIP\n"
+            "👥 Zaproś {refs} znajomych → {days} dni VIP"
+        ),
+        "hot_empty": "🔥 <b>Brak gorących ofert</b>\n\nDawaj 👍 pod ogłoszeniami!",
+        "hot_title": "🔥 <b>Gorące mieszkania (top lajków 24h):</b>",
+        "hot_score": "\n\n🔥 <b>{n} lajków</b>",
+        "drops_empty": "📉 <b>Brak obniżek cen</b>\n\n💡 Ustaw alert: /alert",
+        "drops_title": "📉 <b>Obniżki cen za 48h:</b>",
+        "drops_card": "📉 <b>−{diff} zł (−{pct}%)</b>\n🏠 {title}\n💰 <s>{old} zł</s> → <b>{current} zł/mies.</b>\n📍 {district}",
+        "cheap_empty": "😔 Brak tanich mieszkań. Spróbuj później.",
+        "cheap_title": "💚 <b>Najtańsze mieszkania:</b>",
+        "map_empty": "🗺 <b>Mapa cen</b>\n\nZa mało danych.",
+        "map_title": "🗺 <b>Średnie ceny wg dzielnic {city}:</b>\n",
+        "map_row": "📍 <b>{district}</b>\n   {bar} avg <b>{avg} zł</b> · od {min_price} zł · {cnt}",
+        "map_pick_district": "🔍 Wybierz dzielnicę",
+        "vip_benefits": "✅ Bez limitu · alerty · subskrypcje · digest",
+        "vip_benefits_free": "✅ Alerty · subskrypcje · obniżki · digest · priorytet",
+        "vip_pitch": (
+            "⭐ <b>VIP — {price} zł/mies.</b>\n\n{benefits}\n\n"
+            "🆓 <b>Za darmo:</b>\n👥 {ref_bar} {ref_count}/{ref_required}\n❤️ {fav_bar} {fav_count}/10"
+        ),
+        "fav_empty": "❤️ <b>Ulubione puste</b>\n\nDodawaj przyciskiem ❤️ pod ogłoszeniem.",
+        "fav_header": "❤️ <b>Ulubione — str. {page}/{total_pages} ({total}):</b>",
+        "fav_nav": "{page}/{total_pages}  ({total})",
+        "fav_compare_btn": "📊 Porównaj",
+        "fav_delete": "🗑 Usuń",
+        "fav_added": "❤️ Dodano do ulubionych!",
+        "fav_removed": "🗑 Usunięto z ulubionych",
+        "compare_need_two": "❤️ Dodaj min. 2 mieszkania do porównania.",
+        "compare_title": "📊 <b>Porównanie z ulubionych:</b>\n",
+        "compare_row": "🏠 <b>{title}</b>\n   💰 {price} zł · 🛏 {rooms} · 📐 {area} m² · {ppm}\n   📍 {district} · {source_icon} {source}",
+        "adv_title": "🔬 <b>Wyszukiwanie zaawansowane</b>\n\n<i>{summary}</i>",
+        "adv_summary_all": "Wszystkie mieszkania",
+        "adv_part_price": "do {price} zł",
+        "adv_part_rooms_from": "od {n} pok.",
+        "adv_part_rooms_to": "do {n} pok.",
+        "adv_part_area": "od {area} m²",
+        "adv_part_ppm": "do {ppm} zł/m²",
+        "adv_part_floor": "od piętra {floor}",
+        "adv_part_photo": "📷 tylko ze zdjęciem",
+        "adv_part_new": "🆕 tylko nowe",
+        "adv_btn_district": "📍 Dzielnica",
+        "adv_btn_price": "💰 Maks. cena",
+        "adv_btn_rooms_min": "🛏 Pokoi od",
+        "adv_btn_rooms_max": "🛏 Pokoi do",
+        "adv_btn_area": "📐 Min. pow.",
+        "adv_btn_ppm": "💡 Maks. zł/m²",
+        "adv_btn_floor": "🏢 Piętro od",
+        "adv_btn_photo": "📷 Ze zdjęciem",
+        "adv_btn_new": "🆕 Nowe",
+        "adv_btn_furn": "🛋 Umeblowane",
+        "adv_btn_apply": "✅ Zastosuj",
+        "adv_btn_reset": "🔄 Resetuj",
+        "adv_btn_edit": "🔬 Zmień filtry",
+        "adv_btn_view": "🏠 Zobacz ({total})",
+        "adv_pick_district": "📍 Wybierz dzielnicę:",
+        "adv_pick_price": "💰 Maksymalna cena:",
+        "adv_pick_rooms_min": "🛏 Min. pokoi:",
+        "adv_pick_rooms_max": "🛏 Maks. pokoi:",
+        "adv_pick_area": "📐 Min. powierzchnia:",
+        "adv_pick_floor": "🏢 Piętro od:",
+        "adv_ppm_help": "💡 <b>Maks. cena za m²</b>\n\n50 m² za 2000 zł = 40 zł/m²",
+        "adv_no_limit": "🚫 Bez limitu",
+        "adv_any_rooms": "🛏 dowolne",
+        "adv_any_floor": "🏢 dowolne",
+        "adv_district_set": "📍 {label}",
+        "adv_price_set": "💰 do {price} zł",
+        "adv_rooms_min_set": "🛏 od {n} pok.",
+        "adv_rooms_max_set": "🛏 do {n} pok.",
+        "adv_area_set": "📐 od {area} m²",
+        "adv_ppm_set": "💡 do {ppm} zł/m²",
+        "adv_floor_set": "🏢 od piętra {floor}",
+        "adv_toggle_photo": "📷 Ze zdjęciem: {state}",
+        "adv_toggle_new": "🆕 Nowe: {state}",
+        "adv_toggle_furn": "🛋 Umeblowane: {state}",
+        "adv_on": "wł",
+        "adv_off": "wył",
+        "adv_applied": "✅ <b>Filtry zastosowane!</b>\n\n{summary}\n\n🏠 Znaleziono: <b>{total}</b>{hint}",
+        "adv_reset_ok": "✅ Filtry zresetowane!",
+        "alert_list": "🔔 <b>Alerty ({n}/{limit}):</b>\n\nPowiadomię gdy pojawi się oferta.{hint}",
+        "alert_vip_hint": "\n\n💎 VIP — do {limit} alertów.",
+        "alert_btn_create": "➕ Nowy alert",
+        "alert_item": "🗑 #{id}: {district} do {price_max} zł{city}",
+        "alert_any_district": "dowolna dzielnica",
+        "alert_limit_reached": "Limit {limit} alertów — usu jeden, by dodać nowy",
+        "ref_share_btn": "📤 Udostępnij link",
+        "ref_body": (
+            "👥 <b>Zaproś znajomych do DDFlatsBot!</b>\n\n"
+            "Twój link:\n<code>{link}</code>\n\n"
+            "👤 Zaproszono: <b>{count}</b> osób\n"
+            "🎁 Postęp: {bar} {progress}/{required}\n"
+            "   Do bonusu: jeszcze <b>{next_reward}</b> osób"
+        ),
+        "subscribe_intro": "🔔 <b>Subskrypcja dzielnicy</b>\n\nAktywne: {subs}\n\nWybierz dzielnicę:",
+        "subscribe_more": "🔔 Subskrypcje: {subs}\n\nWybierz kolejną:",
+        "subscribe_ok": "✅ Subskrypcja: {district}",
+        "found_share_pitch": (
+            "🎉 <b>Gratulacje z nowym mieszkaniem!</b>\n\n"
+            "Jeśli bot pomógł — poleć znajomym. 🙏"
+        ),
+        "alert_pick_district": "📍 Dzielnica alertu:",
+        "alert_pick_price": "💰 Maks. cena:",
+        "alert_pick_rooms": "🛏 Pokoje:",
+        "alert_created": "✅ <b>Alert utworzony!</b>\n{summary}\n\nPowiadomię od razu. 🔔",
+        "alert_deleted": "🗑 Alert usunięty",
+        "notify_btn_open": "🔗 Otwórz",
+        "notify_alert_fired": (
+            "🎯 <b>Alert zadziałał!</b>\n\n"
+            "🏠 {title}\n"
+            "💰 {price} zł/mies.{price_badge}\n"
+            "📍 {district}"
+        ),
+        "notify_price_cheap": "\n🟢 <b>Bardzo tanio!</b>",
+        "notify_price_below_avg": "\n🟡 Poniżej średniej",
+        "notify_new_in_district": (
+            "🔔 <b>Nowe mieszkanie w {district}!</b>\n\n"
+            "🏠 {title}\n"
+            "💰 {price} zł/mies."
+        ),
+        "notify_cheap_apt": (
+            "🟢 <b>Tanie mieszkanie!</b>\n\n"
+            "🏠 {title}\n"
+            "💰 <b>{price} zł/mies.</b> — poniżej średniej!\n"
+            "📍 {district}\n"
+            "<a href=\"{link}\">{open}</a>{extra}"
+        ),
+        "notify_cheap_extra": "\n+ {n} tanich więcej → /next",
+        "notify_new_batch": "🏠 Dodano <b>{n}</b> nowych mieszkań!\nNaciśnij /next",
+    },
+    "en": {
+        "apt_rooms": "{n} rooms",
+        "apt_area": "{area} m²",
+        "apt_floor": "fl. {floor}",
+        "apt_verified": "✅ <b>Verified</b>\n",
+        "apt_price_month": "💰 <b>{price} PLN/mo</b>{ppm}",
+        "apt_ppm": " · <i>{ppm} PLN/m²</i>",
+        "apt_no_price": "💰 <i>Price not listed</i>",
+        "apt_furnished": " · 🛋 furnished",
+        "apt_unfurnished": " · 🚫 unfurnished",
+        "apt_open": "Open listing",
+        "apt_price_drop": "📉 <b>Price dropped!</b> {old} → {new} PLN (−{drop})",
+        "apt_views_hot": "🔥 <b>Viewed {n} times — very popular!</b>",
+        "apt_views_some": "👁 <i>Viewed {n} times</i>",
+        "apt_stale_14": "⚠️ <i>Listing is {n} days old — confirm it's still available.</i>",
+        "apt_stale_7": "🕐 <i>Listing is {n} days old.</i>",
+        "verdict_cheap": "🟢 Very cheap",
+        "verdict_below_avg": "🟡 Below average",
+        "verdict_fair": "✅ Fair price",
+        "verdict_above_avg": "🟠 Above average",
+        "verdict_overpriced": "🔴 Overpriced",
+        "verdict_line": "💡 {badge} ({sign}{pct}% vs avg {avg} PLN)",
+        "btn_back": "⬅️ Back",
+        "no_apts_title": "😔 <b>No matches for your filters</b>\n\n",
+        "no_apts_searched": "Searched: {searched}\n",
+        "no_apts_city": "City: <b>{city}</b>\n\n",
+        "no_apts_district_hint": "💡 District <b>{district}</b> has <b>{n}</b> listings without price/room filters.\n\n",
+        "no_apts_city_hint": "💡 City <b>{city}</b> has <b>{n}</b> listings — try wider filters.\n\n",
+        "no_apts_empty_db": "⏳ Few listings in our database for this city yet.\n\n",
+        "no_apts_alt_title": "🔗 <b>Another way — search on sites:</b>\n",
+        "no_apts_actions": "In the bot:\n• Reset filters\n• Change district / price",
+        "btn_reset_filters": "🔄 Reset filters",
+        "btn_change_filter": "🔍 Change",
+        "btn_all_apts": "🏠 All listings",
+        "btn_search_olx": "🟠 OLX",
+        "btn_search_otodom": "🔵 Otodom",
+        "btn_search_gratka": "🟢 Gratka",
+        "btn_search_morizon": "🟣 Morizon",
+        "btn_platforms": "🌐 Search on sites",
+        "platforms_intro": "🔗 <b>Direct search in your city</b> — when the bot has few listings:",
+        "onboard_city": "Pick a city to search apartments.\n\n⚠️ Always view in person before paying.",
+        "onboard_city_step": (
+            "🏙 <b>Choose a city:</b>\n\n"
+            "Each city has its own listing database.\n"
+            "Change city: /city"
+        ),
+        "city_pick_title": "🏙 <b>Choose city</b>\n\nCurrent: <b>{city}</b>\n\n",
+        "city_pick_hint": "Pick a city — search there and within 100 km.\n⚠️ Filters will reset.",
+        "decline_terms": "❌ You declined the terms.\n\nChanged your mind? /start",
+        "friend_default": "friend",
+        "limit_vip_btn": "⭐ VIP — {price} PLN/mo",
+        "limit_ref_btn": "👥 Get free access",
+        "limit_one_left": "\n\n⚠️ <b>1 free view left</b> of {limit}.",
+        "filter_furnished": "🛋 furnished",
+        "filter_unfurnished": "unfurnished",
+        "filter_rooms_n": "{n} rooms",
+        "filter_price_max": "up to {price} PLN",
+        "filter_all_apts": "all apartments",
+        "filter_all_districts": "🌍 All districts",
+        "filter_cancel": "❌ Cancel",
+        "filter_any": "🚫 Any",
+        "filter_room_btn": "{n} rooms",
+        "mw_rate_limit": "⏳ Slow down!",
+        "mw_banned": "🚫 You are banned.",
+        "mw_banned_cb": "🚫 Banned",
+        "mw_subscribe_btn": "📢 Subscribe to @ddflots",
+        "mw_sub_check": "✅ I subscribed — check",
+        "mw_sub_title": "🔒 <b>Access locked</b>\n\n",
+        "mw_sub_body": (
+            "Subscribe to @ddflots\n\n"
+            "🏠 Best listings\n"
+            "📊 Rental market stats\n"
+            "💡 Tips\n\n"
+            "Then tap the button 👇"
+        ),
+        "mw_sub_first": "❌ Subscribe to the channel first!",
+        "lang_pick": "🌐 <b>Language / Мова / Język</b>\n\nChoose:",
+        "welcome_poland": "all cities in Poland",
+        "filter_step1": "📍 <b>Step 1/4: District</b>",
+        "filter_step2": "💰 <b>Step 2/4: Max price</b>",
+        "filter_step3": "🛏 <b>Step 3/4: Rooms</b>",
+        "filter_step4": "🛋 <b>Step 4/4: Furnished</b>",
+        "filter_district_set": "📍 District: <b>{label}</b>\n\n",
+        "filter_all_districts_label": "All districts",
+        "new_since_visit": "\n🆕 <b>+{n}</b> new since your last visit!",
+        "filter_price_set": "💰 Max price: <b>{label}</b>\n\n",
+        "filter_price_any": "no limit",
+        "filter_rooms_set": "🛏 Rooms: <b>{label}</b>\n\n",
+        "filter_rooms_any": "any",
+        "filter_furn_yes": "✅ Yes",
+        "filter_furn_no": "❌ No",
+        "filter_furn_any": "🚫 Any",
+        "filter_applied": "✅ <b>Filters set!</b>\n\n{summary}\n🏠 Found: <b>{total}</b> listings{hint}",
+        "filter_reset_ok": "✅ Filters reset!",
+        "filter_view_btn": "🏠 View ({total})",
+        "filter_hide_seen_hint": " (excluding seen)",
+        "ask_help": "🤖 <b>Smart search</b>\n\n<code>/ask 2 rooms up to 3000</code>",
+        "ask_fail": "😔 Could not parse query.\n\n<code>/ask 2 rooms up to 3000</code>",
+        "ask_ok": "🤖 <b>Searching:</b>\n{summary}\n\n🏠 Found: <b>{total}</b>",
+        "unknown_cmd": "🤔 Unknown command.\n\nTry /menu or /help",
+        "vip_only": "💎 VIP only!",
+        "free_unlimited_badge": "🆓 Free · unlimited views",
+        "settings_title": (
+            "⚙️ <b>Search settings</b>\n\n"
+            "🏙 City: <b>{city}</b> (change: /city)\n"
+            "{radius_hint}\n"
+            "<b>Seen listings</b> — hide apartments you already opened."
+        ),
+        "settings_radius_hint": "📍 Search within <b>100 km</b> of your city — toggle below.\n",
+        "settings_radius_on": "✅ {km} km radius: ON{extra}",
+        "settings_radius_off": "❌ 100 km radius: OFF (city only)",
+        "settings_hide_seen_on": "✅ Hide seen: ON",
+        "settings_hide_seen_off": "❌ Hide seen: OFF",
+        "settings_change_city": "🏙 Change city",
+        "settings_back_menu": "◀️ Menu",
+        "daily_radius_note": "\n📍 + cities within {km} km ({n} total)",
+        "settings_saved": "✅ Saved",
+        "apt_nearby_badge": "📍 <i>Nearby: {city}</i>",
+        "btn_save": "❤️ Save",
+        "btn_open_link": "🔗 Open",
+        "stats_body": (
+            "📊 <b>Your stats</b>\n\n"
+            "📌 Status: {vip_line}\n"
+            "👁 Viewed: <b>{views}</b>\n"
+            "❤️ Favorites: <b>{favs}</b>\n"
+            "🔔 Subscriptions: {subs}\n"
+            "🎯 Alerts: <b>{alerts}</b>\n"
+            "👥 Invited: <b>{refs}</b>\n"
+            "📅 Since: {created}{streak}{next_vip}"
+        ),
+        "stats_none": "none",
+        "stats_streak_hot": "\n🔥 Streak: <b>{n} days</b>! 🏆",
+        "stats_streak": "\n🔥 Streak: <b>{n} days</b>!",
+        "stats_active": "\n📆 Active {n} days",
+        "stats_vip_progress": (
+            "\n\n🎯 <b>Free VIP progress:</b>\n"
+            "❤️ Save {favs} more → 3 days VIP\n"
+            "👥 Invite {refs} friends → {days} days VIP"
+        ),
+        "hot_empty": "🔥 <b>No hot listings yet</b>\n\nLike apartments — top ones appear here!",
+        "hot_title": "🔥 <b>Hot listings (top likes 24h):</b>",
+        "hot_score": "\n\n🔥 <b>{n} likes</b>",
+        "drops_empty": "📉 <b>No price drops yet</b>\n\n💡 Set an alert: /alert",
+        "drops_title": "📉 <b>Price drops (48h):</b>",
+        "drops_card": "📉 <b>−{diff} PLN (−{pct}%)</b>\n🏠 {title}\n💰 <s>{old}</s> → <b>{current} PLN/mo</b>\n📍 {district}",
+        "cheap_empty": "😔 No cheap listings yet. Try later.",
+        "cheap_title": "💚 <b>Cheapest apartments:</b>",
+        "map_empty": "🗺 <b>Price map</b>\n\nNot enough data yet.",
+        "map_title": "🗺 <b>Average prices by district — {city}:</b>\n",
+        "map_row": "📍 <b>{district}</b>\n   {bar} avg <b>{avg} PLN</b> · from {min_price} · {cnt} ads",
+        "map_pick_district": "🔍 Pick district",
+        "vip_benefits": "✅ Unlimited views · alerts · subscriptions · digest",
+        "vip_benefits_free": "✅ Smart alerts · district subs · price drops · digest · priority",
+        "vip_pitch": (
+            "⭐ <b>VIP — {price} PLN/mo</b>\n\n{benefits}\n\n"
+            "🆓 <b>Get free:</b>\n👥 {ref_bar} {ref_count}/{ref_required}\n❤️ {fav_bar} {fav_count}/10"
+        ),
+        "fav_empty": "❤️ <b>Favorites empty</b>\n\nTap ❤️ under a listing to save it.",
+        "fav_header": "❤️ <b>Favorites — p. {page}/{total_pages} ({total}):</b>",
+        "fav_nav": "{page}/{total_pages}  ({total})",
+        "fav_compare_btn": "📊 Compare",
+        "fav_delete": "🗑 Remove",
+        "fav_added": "❤️ Saved to favorites!",
+        "fav_removed": "🗑 Removed from favorites",
+        "compare_need_two": "❤️ Save at least 2 apartments to compare.",
+        "compare_title": "📊 <b>Compare favorites:</b>\n",
+        "compare_row": "🏠 <b>{title}</b>\n   💰 {price} PLN · 🛏 {rooms} · 📐 {area} m² · {ppm}\n   📍 {district} · {source_icon} {source}",
+        "adv_title": "🔬 <b>Advanced search</b>\n\n<i>{summary}</i>",
+        "adv_summary_all": "All listings",
+        "adv_part_price": "up to {price} PLN",
+        "adv_part_rooms_from": "from {n} rooms",
+        "adv_part_rooms_to": "up to {n} rooms",
+        "adv_part_area": "from {area} m²",
+        "adv_part_ppm": "up to {ppm} PLN/m²",
+        "adv_part_floor": "from floor {floor}",
+        "adv_part_photo": "📷 with photo only",
+        "adv_part_new": "🆕 new only",
+        "adv_btn_district": "📍 District",
+        "adv_btn_price": "💰 Max price",
+        "adv_btn_rooms_min": "🛏 Rooms min",
+        "adv_btn_rooms_max": "🛏 Rooms max",
+        "adv_btn_area": "📐 Min area",
+        "adv_btn_ppm": "💡 Max PLN/m²",
+        "adv_btn_floor": "🏢 Floor from",
+        "adv_btn_photo": "📷 With photo",
+        "adv_btn_new": "🆕 New only",
+        "adv_btn_furn": "🛋 Furnished",
+        "adv_btn_apply": "✅ Apply & view",
+        "adv_btn_reset": "🔄 Reset all",
+        "adv_btn_edit": "🔬 Edit filters",
+        "adv_btn_view": "🏠 View ({total})",
+        "adv_pick_district": "📍 Pick district:",
+        "adv_pick_price": "💰 Max price:",
+        "adv_pick_rooms_min": "🛏 Min rooms:",
+        "adv_pick_rooms_max": "🛏 Max rooms:",
+        "adv_pick_area": "📐 Min area:",
+        "adv_pick_floor": "🏢 Floor from:",
+        "adv_ppm_help": "💡 <b>Max price per m²</b>\n\n50 m² at 2000 PLN = 40 PLN/m²",
+        "adv_no_limit": "🚫 No limit",
+        "adv_any_rooms": "🛏 any",
+        "adv_any_floor": "🏢 any floor",
+        "adv_district_set": "📍 {label}",
+        "adv_price_set": "💰 up to {price} PLN",
+        "adv_rooms_min_set": "🛏 from {n} rooms",
+        "adv_rooms_max_set": "🛏 up to {n} rooms",
+        "adv_area_set": "📐 from {area} m²",
+        "adv_ppm_set": "💡 up to {ppm} PLN/m²",
+        "adv_floor_set": "🏢 from floor {floor}",
+        "adv_toggle_photo": "📷 With photo: {state}",
+        "adv_toggle_new": "🆕 New only: {state}",
+        "adv_toggle_furn": "🛋 Furnished: {state}",
+        "adv_on": "on",
+        "adv_off": "off",
+        "adv_applied": "✅ <b>Advanced filters applied!</b>\n\n{summary}\n\n🏠 Found: <b>{total}</b>{hint}",
+        "adv_reset_ok": "✅ All filters reset!",
+        "alert_list": "🔔 <b>Alerts ({n}/{limit}):</b>\n\nI'll notify you when a match appears.{hint}",
+        "alert_vip_hint": "\n\n💎 VIP — up to {limit} alerts.",
+        "alert_btn_create": "➕ Create alert",
+        "alert_item": "🗑 #{id}: {district} up to {price_max} PLN{city}",
+        "alert_any_district": "any district",
+        "alert_limit_reached": "Limit of {limit} alerts — delete one to add another",
+        "ref_share_btn": "📤 Share link",
+        "ref_body": (
+            "👥 <b>Invite friends to DDFlatsBot!</b>\n\n"
+            "Your link:\n<code>{link}</code>\n\n"
+            "👤 Invited: <b>{count}</b> people\n"
+            "🎁 Progress: {bar} {progress}/{required}\n"
+            "   To bonus: <b>{next_reward}</b> more"
+        ),
+        "subscribe_intro": "🔔 <b>District subscription</b>\n\nActive: {subs}\n\nPick a district:",
+        "subscribe_more": "🔔 Subscriptions: {subs}\n\nPick another:",
+        "subscribe_ok": "✅ Subscribed to {district}",
+        "found_share_pitch": (
+            "🎉 <b>Congrats on your new place!</b>\n\n"
+            "If the bot helped — tell your friends. 🙏"
+        ),
+        "alert_pick_district": "📍 District for alert:",
+        "alert_pick_price": "💰 Max price:",
+        "alert_pick_rooms": "🛏 Rooms:",
+        "alert_created": "✅ <b>Alert created!</b>\n{summary}\n\nI'll notify you instantly. 🔔",
+        "alert_deleted": "🗑 Alert deleted",
+        "notify_btn_open": "🔗 Open",
+        "notify_alert_fired": (
+            "🎯 <b>Alert matched!</b>\n\n"
+            "🏠 {title}\n"
+            "💰 {price} PLN/mo{price_badge}\n"
+            "📍 {district}"
+        ),
+        "notify_price_cheap": "\n🟢 <b>Very cheap!</b>",
+        "notify_price_below_avg": "\n🟡 Below average",
+        "notify_new_in_district": (
+            "🔔 <b>New listing in {district}!</b>\n\n"
+            "🏠 {title}\n"
+            "💰 {price} PLN/mo"
+        ),
+        "notify_cheap_apt": (
+            "🟢 <b>Cheap listing!</b>\n\n"
+            "🏠 {title}\n"
+            "💰 <b>{price} PLN/mo</b> — below average!\n"
+            "📍 {district}\n"
+            "<a href=\"{link}\">{open}</a>{extra}"
+        ),
+        "notify_cheap_extra": "\n+ {n} more cheap → /next",
+        "notify_new_batch": "🏠 <b>{n}</b> new listings added!\nTap /next",
+    },
+}

@@ -9,6 +9,8 @@ import re
 from dataclasses import dataclass
 from typing import Optional, Dict, List, Tuple
 
+from config import CITIES, city_slug
+
 
 # City boundary coordinates (lat_min, lat_max, lon_min, lon_max)
 CITY_BOUNDARIES = {
@@ -69,6 +71,37 @@ class ValidationResult:
     reason: Optional[str] = None
 
 
+def city_from_link(link: str) -> Optional[str]:
+    """Detect city from listing URL (OLX, Otodom, Gratka, Morizon, Adresowo)."""
+    if not link:
+        return None
+    low = link.lower()
+    best_city = None
+    best_pos = -1
+    for city_key in CITIES:
+        slug = city_slug(city_key)
+        if not slug:
+            continue
+        for needle in (
+            f"/{slug}/", f"/{slug}?", f"/{slug},",
+            f"wynajem/{slug}", f"mieszkania/{slug}", f"mieszkanie/{slug}/",
+            f"mieszkanie/{slug}", f"-{slug}-", f"/{slug}",
+        ):
+            pos = low.find(needle.split("?")[0])
+            if pos >= 0 and pos > best_pos:
+                best_pos = pos
+                best_city = city_key
+    return best_city
+
+
+def link_matches_city(link: str, target_city: str) -> bool:
+    """True if URL does not clearly belong to another city."""
+    detected = city_from_link(link or "")
+    if detected and detected != target_city:
+        return False
+    return True
+
+
 class GeographicValidator:
     """Validates listing geographic data against city boundaries."""
     
@@ -94,6 +127,23 @@ class GeographicValidator:
         """
         confidence = 0
         validated_district = None
+
+        # URL is authoritative — reject cross-city contamination from wrong parser feeds
+        link_city = city_from_link(listing.get("link", ""))
+        if link_city and link_city != target_city:
+            return ValidationResult(
+                valid=False,
+                reason="link_city_mismatch",
+            )
+        if link_city == target_city:
+            confidence += 55
+
+        district_raw = (listing.get("district") or "").strip()
+        if district_raw:
+            dnorm = district_raw.lower()
+            for other in CITIES:
+                if other != target_city and other.lower() == dnorm:
+                    return ValidationResult(valid=False, reason="district_wrong_city")
         
         # Priority 1: Coordinate validation (highest confidence)
         if listing.get('lat') and listing.get('lon'):
@@ -119,10 +169,6 @@ class GeographicValidator:
                     reason="postal_code_mismatch"
                 )
         
-        # Trust listings scraped from a city-specific feed when no contradictory geo data
-        if listing.get('source_city') == target_city:
-            confidence = max(confidence, 50)
-
         # Priority 3: District validation
         district = listing.get('district', '')
         if district:

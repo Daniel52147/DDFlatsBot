@@ -7,10 +7,18 @@ import re
 import json
 import time
 from parser._retry import make_session, fetch_with_retry
+from config import city_slug
 
-MORIZON_BASE      = "https://www.morizon.pl/do-wynajecia/mieszkania/warszawa/?sort=newest"
-MORIZON_PRICE_ASC = "https://www.morizon.pl/do-wynajecia/mieszkania/warszawa/?sort=price_from_lowest"
-NIERUCH_BASE      = "https://www.nieruchomosci-online.pl/szukaj.html"
+
+def _morizon_urls(city: str) -> tuple[str, str]:
+    slug = city_slug(city)
+    base = f"https://www.morizon.pl/do-wynajecia/mieszkania/{slug}/"
+    return f"{base}?sort=newest", f"{base}?sort=price_from_lowest"
+
+
+NIERUCH_BASE = "https://www.nieruchomosci-online.pl/szukaj.html"
+# Nieruchomosci-online city_id (Warszawa only — use only for Warszawa fallback)
+NIERUCH_CITY_IDS = {"Warszawa": "26"}
 
 
 def _price(val) -> int:
@@ -38,7 +46,7 @@ def _area(text: str):
     return None
 
 
-def _parse_next_data(html: str) -> list:
+def _parse_next_data(html: str, default_city: str = "Warszawa") -> list:
     results = []
     m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.DOTALL)
     if not m:
@@ -70,7 +78,7 @@ def _parse_next_data(html: str) -> list:
             if not url.startswith("http"):
                 url = f"https://www.morizon.pl{url}"
             price    = _price(item.get("price") or item.get("totalPrice") or 0)
-            district = str(item.get("district") or item.get("city") or "Warszawa")
+            district = str(item.get("district") or item.get("city") or default_city)
             results.append({
                 "title": title, "price": price, "district": district,
                 "rooms": _rooms(title), "area": _area(title),
@@ -82,7 +90,7 @@ def _parse_next_data(html: str) -> list:
     return results
 
 
-def _parse_json_ld(html: str) -> list:
+def _parse_json_ld(html: str, default_city: str = "Warszawa") -> list:
     results = []
     blocks = re.findall(r'<script[^>]*ld\+json[^>]*>([^<]{10,80000})</script>', html)
     for block in blocks:
@@ -105,12 +113,12 @@ def _parse_json_ld(html: str) -> list:
                 image = offer.get("image") or ""
                 if isinstance(image, list):
                     image = image[0] if image else ""
-                district = "Warszawa"
+                district = default_city
                 io = offer.get("itemOffered") or {}
                 if isinstance(io, dict):
                     addr = io.get("address") or {}
                     if isinstance(addr, dict):
-                        district = addr.get("addressLocality") or "Warszawa"
+                        district = addr.get("addressLocality") or default_city
                 results.append({
                     "title": name, "price": price, "district": district,
                     "rooms": _rooms(name), "area": _area(name),
@@ -127,7 +135,7 @@ def _parse_json_ld(html: str) -> list:
                 price_spec = item.get("offers") or {}
                 price = _price(price_spec.get("price", 0) if isinstance(price_spec, dict) else 0)
                 results.append({
-                    "title": name, "price": price, "district": "Warszawa",
+                    "title": name, "price": price, "district": default_city,
                     "rooms": _rooms(name), "area": _area(name),
                     "floor": None, "furnished": 0,
                     "link": url, "image": "", "source": "Morizon",
@@ -135,7 +143,7 @@ def _parse_json_ld(html: str) -> list:
     return results
 
 
-def _parse_html_cards(html: str) -> list:
+def _parse_html_cards(html: str, default_city: str = "Warszawa") -> list:
     results = []
     articles = re.findall(r'<article[^>]*>(.*?)</article>', html, re.DOTALL | re.IGNORECASE)
     for article in articles:
@@ -155,10 +163,10 @@ def _parse_html_cards(html: str) -> list:
             pm = re.search(r'(\d[\d\s]{2,6})\s*(?:zł|PLN)', article, re.I)
             if pm:
                 price = _price(pm.group(1))
-            district = "Warszawa"
+            district = default_city
             lm = re.search(r'class="[^"]*(?:location|address)[^"]*"[^>]*>([^<]{3,60})<', article, re.I)
             if lm:
-                district = lm.group(1).strip() or "Warszawa"
+                district = lm.group(1).strip() or default_city
             img_m = re.search(r'<img[^>]+src="(https?://[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"', article, re.I)
             image = img_m.group(1) if img_m else ""
             results.append({
@@ -172,7 +180,7 @@ def _parse_html_cards(html: str) -> list:
     return results
 
 
-def _parse_nieruch(html: str) -> list:
+def _parse_nieruch(html: str, default_city: str = "Warszawa") -> list:
     results = []
     blocks = re.findall(r'<script[^>]*ld\+json[^>]*>([^<]{10,80000})</script>', html)
     for block in blocks:
@@ -189,7 +197,7 @@ def _parse_nieruch(html: str) -> list:
                 price_spec = item.get("offers") or {}
                 price = _price(price_spec.get("price", 0) if isinstance(price_spec, dict) else 0)
                 addr = item.get("address") or {}
-                district = (addr.get("addressLocality") or "Warszawa") if isinstance(addr, dict) else "Warszawa"
+                district = (addr.get("addressLocality") or default_city) if isinstance(addr, dict) else default_city
                 results.append({
                     "title": name, "price": price, "district": district,
                     "rooms": _rooms(name), "area": _area(name),
@@ -206,7 +214,8 @@ def parse_morizon(city: str = "Warszawa") -> list:
     from database.db import get_conn
     from validation.integration import ValidationPipeline
     
-    print(f"[Morizon/{city}] Starting parse (Warszawa only for now)...")
+    morizon_base, morizon_price = _morizon_urls(city)
+    print(f"[Morizon/{city}] Starting parse (slug={city_slug(city)})...")
     
     # Initialize validation pipeline
     conn = get_conn()
@@ -235,7 +244,7 @@ def parse_morizon(city: str = "Warszawa") -> list:
         return n
 
     morizon_ok = False
-    for base_url in [MORIZON_BASE, MORIZON_PRICE_ASC]:
+    for base_url in [morizon_base, morizon_price]:
         from config import PARSER_COOKIES
         cookie_str = PARSER_COOKIES.get("Morizon", "")
         session = make_session(referer="https://www.morizon.pl/", cookie_str=cookie_str)
@@ -246,7 +255,11 @@ def parse_morizon(city: str = "Warszawa") -> list:
             print(f"[Morizon] page={page} status={status} size={len(html)}")
             if status != 200:
                 break
-            items = _parse_next_data(html) or _parse_json_ld(html) or _parse_html_cards(html)
+            items = (
+                _parse_next_data(html, default_city=city)
+                or _parse_json_ld(html, default_city=city)
+                or _parse_html_cards(html, default_city=city)
+            )
             new = add(items)
             print(f"[Morizon] page={page}: {new} new")
             if new > 0:
@@ -255,16 +268,17 @@ def parse_morizon(city: str = "Warszawa") -> list:
                 break
             time.sleep(random.uniform(2.0, 3.5))
 
-    if not morizon_ok:
-        print("[Morizon] Trying nieruchomosci-online fallback...")
+    nieruch_id = NIERUCH_CITY_IDS.get(city)
+    if not morizon_ok and nieruch_id:
+        print(f"[Morizon/{city}] Trying nieruchomosci-online fallback...")
         session2 = make_session(referer="https://www.nieruchomosci-online.pl/")
         for page in range(1, 4):
-            params = f"?transaction=2&category=1&city_id=26&page={page}"
+            params = f"?transaction=2&category=1&city_id={nieruch_id}&page={page}"
             status, html = fetch_with_retry(session2, NIERUCH_BASE + params, max_retries=2)
             print(f"[Nieruch-online] page={page} status={status} size={len(html)}")
             if status != 200:
                 break
-            items = _parse_nieruch(html)
+            items = _parse_nieruch(html, default_city=city)
             new = add(items)
             print(f"[Nieruch-online] page={page}: {new} new")
             if new == 0 and page >= 2:

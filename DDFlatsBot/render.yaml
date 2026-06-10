@@ -1,3 +1,5 @@
+# Render Blueprint — matches dashboard: worker ddflatsbot, rootDir DDFlatsBot
+# Worker = polling mode (do NOT set WEBHOOK_HOST). For webhook use type: web instead.
 services:
   - type: worker
     name: ddflatsbot
@@ -7,7 +9,7 @@ services:
     startCommand: python main.py
     envVars:
       - key: BOT_TOKEN
-        sync: false          # Set manually in Render dashboard
+        sync: false
       - key: ADMIN_IDS
         value: "2066158453"
       - key: CHANNEL_ID
@@ -15,7 +17,7 @@ services:
       - key: DATA_DIR
         value: /var/data
       - key: PYTHONUNBUFFERED
-        value: "1"           # Flush logs immediately — see output in real time
+        value: "1"
       - key: PYTHONDONTWRITEBYTECODE
         value: "1"
     disk:

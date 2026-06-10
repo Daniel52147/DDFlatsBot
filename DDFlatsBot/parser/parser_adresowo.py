@@ -8,9 +8,11 @@ import re
 import json
 import time
 import requests
-from config import USER_AGENTS
+from config import USER_AGENTS, city_slug
 
-BASE_URL = "https://adresowo.pl/mieszkania/wynajem/warszawa"
+
+def _adresowo_base(city: str) -> str:
+    return f"https://adresowo.pl/mieszkania/wynajem/{city_slug(city)}"
 
 
 def _session():
@@ -52,7 +54,7 @@ def _area_from_text(text: str):
     return None
 
 
-def _parse_json_ld(html: str) -> list:
+def _parse_json_ld(html: str, default_city: str = "Warszawa") -> list:
     results = []
     blocks = re.findall(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL)
     for block in blocks:
@@ -89,12 +91,12 @@ def _parse_json_ld(html: str) -> list:
 
             # District
             addr = item.get("address") or {}
-            district = "Warszawa"
+            district = default_city
             if isinstance(addr, dict):
                 district = (
                     addr.get("addressLocality")
                     or addr.get("addressRegion")
-                    or "Warszawa"
+                    or default_city
                 )
 
             # Image
@@ -121,7 +123,7 @@ def _parse_json_ld(html: str) -> list:
     return results
 
 
-def _parse_html_cards(html: str) -> list:
+def _parse_html_cards(html: str, default_city: str = "Warszawa") -> list:
     results = []
 
     # Try article tags
@@ -162,13 +164,13 @@ def _parse_html_cards(html: str) -> list:
                 price = _price(pm.group(1))
 
             # District
-            district = "Warszawa"
+            district = default_city
             lm = re.search(
                 r'<[^>]*class="[^"]*(?:location|address|city|district|dzielnica)[^"]*"[^>]*>([^<]{3,60})<',
                 card, re.I
             )
             if lm:
-                district = lm.group(1).strip()
+                district = lm.group(1).strip() or default_city
 
             # Image
             img_m = re.search(r'<img[^>]+src="(https?://[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"', card, re.I)
@@ -197,7 +199,8 @@ def parse_adresowo(city: str = "Warszawa") -> list:
     from database.db import get_conn
     from validation.integration import ValidationPipeline
     
-    print(f"[Adresowo/{city}] Starting parse (Warszawa only for now)...")
+    base_url = _adresowo_base(city)
+    print(f"[Adresowo/{city}] Starting parse (slug={city_slug(city)})...")
     
     # Initialize validation pipeline
     conn = get_conn()
@@ -210,7 +213,7 @@ def parse_adresowo(city: str = "Warszawa") -> list:
     rejected_count = 0
 
     for page in range(1, 6):
-        url = BASE_URL if page == 1 else f"{BASE_URL}?page={page}"
+        url = base_url if page == 1 else f"{base_url}?page={page}"
         try:
             r = session.get(url, timeout=25)
             print(f"[Adresowo] Page {page} status={r.status_code} size={len(r.text)}")
@@ -221,9 +224,9 @@ def parse_adresowo(city: str = "Warszawa") -> list:
                 print(f"[Adresowo] Blocked (status {r.status_code})")
                 break
 
-            page_results = _parse_json_ld(r.text)
+            page_results = _parse_json_ld(r.text, default_city=city)
             if not page_results:
-                page_results = _parse_html_cards(r.text)
+                page_results = _parse_html_cards(r.text, default_city=city)
 
             new = 0
             for apt in page_results:

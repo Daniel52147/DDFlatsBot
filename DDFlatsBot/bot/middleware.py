@@ -55,8 +55,8 @@ async def is_subscribed(bot, user_id: int) -> bool:
 
 # Callbacks always allowed regardless of subscription
 ALLOWED_CALLBACKS = {
-    "check_sub", "open_vip", "vip_how_to_pay", "vip_request", "vip_stars",
-    "open_filter", "open_favorites", "open_alerts", "open_stats",
+    "check_sub",
+    "open_filter", "open_favorites", "open_alerts", "open_stats", "open_subscribe",
     "open_ref", "open_today", "cancel", "reset_filters",
     "open_hot", "open_drops", "open_map", "open_cheap", "open_notes",
     "open_compare", "open_leaderboard", "open_menu", "open_daily",
@@ -74,7 +74,7 @@ ALLOWED_PREFIXES = (
     "filter_d:", "filter_pmax:", "filter_rooms:", "filter_furn:",
     "onboard_", "share:", "sub:", "lang:", "rate:", "report_reason:",
     "note:", "similar:", "mod_", "vip_", "seen:", "hide:", "found:", "scam:",
-    "toggle_hide_seen", "open_settings", "open_city_pick",
+    "toggle_hide_seen", "toggle_search_radius", "open_settings", "open_city_pick",
     "daily_days:", "city_select:", "quick:",
     "adv_", "adv_d:", "adv_p:", "adv_rmin:", "adv_rmax:", "adv_a:",
     "adv_pm:", "adv_fl:", "adv_toggle:",
@@ -115,7 +115,10 @@ class SubscriptionMiddleware(BaseMiddleware):
                 return
         elif isinstance(event, CallbackQuery):
             if _check_rate(_cb_store, user.id, RATE_LIMIT_CALLBACKS):
-                await event.answer("⏳ Не так быстро!", show_alert=False)
+                from database.db import get_user_lang
+                from bot.i18n import t
+                _lg = get_user_lang(user.id) or "ru"
+                await event.answer(t(_lg, "mw_rate_limit"), show_alert=False)
                 return
 
         # ── Ban check ─────────────────────────────────────────
@@ -125,39 +128,37 @@ class SubscriptionMiddleware(BaseMiddleware):
             row  = conn.execute("SELECT vip FROM users WHERE user_id=?", (user.id,)).fetchone()
             conn.close()
             if row and row["vip"] == -1:
+                from database.db import get_user_lang
+                from bot.i18n import t
+                _lg = get_user_lang(user.id) or "ru"
                 if isinstance(event, Message):
-                    await event.answer("🚫 Ты заблокирован.")
+                    await event.answer(t(_lg, "mw_banned"))
                 elif isinstance(event, CallbackQuery):
-                    await event.answer("🚫 Заблокирован", show_alert=True)
+                    await event.answer(t(_lg, "mw_banned_cb"), show_alert=True)
                 return
         except Exception:
             pass
 
         # ── Subscription check ────────────────────────────────
         if not await is_subscribed(bot, user.id):
+            from database.db import get_user_lang
+            from bot.i18n import t
+            _lg = get_user_lang(user.id) or "ru"
             kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(
-                    text="📢 Подписаться на @ddflots",
-                    url=CHANNEL_LINK
+                    text=t(_lg, "mw_subscribe_btn"),
+                    url=CHANNEL_LINK,
                 )],
                 [InlineKeyboardButton(
-                    text="✅ Я подписался — проверить",
-                    callback_data="check_sub"
+                    text=t(_lg, "mw_sub_check"),
+                    callback_data="check_sub",
                 )],
             ])
-            text = (
-                "🔒 <b>Доступ закрыт</b>\n\n"
-                "Чтобы пользоваться ботом — подпишись на канал @ddflots\n\n"
-                "Там публикуем:\n"
-                "🏠 Лучшие квартиры дня\n"
-                "📊 Статистику рынка аренды Варшавы\n"
-                "💡 Советы по аренде\n\n"
-                "После подписки нажми кнопку ниже 👇"
-            )
+            text = t(_lg, "mw_sub_title") + t(_lg, "mw_sub_body")
             if isinstance(event, Message):
                 await event.answer(text, reply_markup=kb, parse_mode="HTML")
             elif isinstance(event, CallbackQuery):
-                await event.answer("❌ Сначала подпишись на канал!", show_alert=True)
+                await event.answer(t(_lg, "mw_sub_first"), show_alert=True)
                 await event.message.answer(text, reply_markup=kb, parse_mode="HTML")
             return
 
