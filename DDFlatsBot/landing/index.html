@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="DDFlatsBot — bot Telegram do wynajmu mieszkań w Polsce. OLX, Otodom, Gratka, Morizon. Aktualizacja co 10 minut. Warszawa, Kraków, Wrocław, Gdańsk.">
+<meta name="description" content="DDFlatsBot — darmowy bot Telegram do wynajmu mieszkań w Polsce. 10 miast, promień 100 km. OLX, Otodom, Gratka, Morizon. Aktualizacja co 10 minut.">
+<meta name="ddflats-api" content="https://ddflatsbot.onrender.com">
 <meta name="keywords" content="mieszkania wynajem bot telegram, OLX Otodom wynajem Warszawa, bot mieszkania Polska">
 <meta property="og:title" content="DDFlatsBot — Mieszkania w Polsce">
 <meta property="og:description" content="Wszystkie mieszkania na wynajem w jednym miejscu. OLX · Otodom · Gratka · Morizon. Aktualizacja co 10 minut.">
@@ -16,7 +17,7 @@
   <a class="logo" href="#">🏠 <em>DDFlats</em>Bot</a>
   <div class="nav-r">
     <a href="#features" class="hide-m">Funkcje</a>
-    <a href="#pricing" class="hide-m">Cennik</a>
+    <a href="#pricing" class="hide-m">Darmo</a>
     <a href="#faq" class="hide-m">FAQ</a>
     <a href="https://t.me/DDFlatsBot" class="nav-cta">Otwórz bota →</a>
   </div>
@@ -252,10 +253,12 @@ const obs = new IntersectionObserver(entries => {
 }, { threshold: 0.1 });
 document.querySelectorAll('.anim').forEach(el => obs.observe(el));
 
-// Load live stats from API
+// Load live stats from API (Render worker when landing is static)
 async function loadStats() {
+  const apiBase = document.querySelector('meta[name="ddflats-api"]')?.content || '';
+  if (!apiBase) return;
   try {
-    const r = await fetch('/api/stats');
+    const r = await fetch(apiBase.replace(/\/$/, '') + '/api/stats');
     if (!r.ok) return;
     const d = await r.json();
     if (d.apartments) {

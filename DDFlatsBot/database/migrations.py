@@ -144,6 +144,21 @@ def migrate_add_user_preferences(db_path: str) -> None:
         conn.close()
 
 
+def migrate_district_all_sentinel(db_path: str) -> None:
+    """Normalize legacy Cyrillic 'все' district sentinel to __all__."""
+    conn = sqlite3.connect(db_path)
+    try:
+        for table in ("subscriptions", "alerts"):
+            conn.execute(
+                f"UPDATE {table} SET district = ? WHERE district = ?",
+                ("__all__", "все"),
+            )
+        conn.commit()
+        print("[Migration] Normalized district sentinel to __all__")
+    finally:
+        conn.close()
+
+
 def run_all_migrations(db_path: str) -> None:
     """Run all pending migrations."""
     print(f"[Migration] Running migrations on {db_path}")
@@ -153,6 +168,7 @@ def run_all_migrations(db_path: str) -> None:
     migrate_add_quality_fields(db_path)
     migrate_add_performance_indexes(db_path)
     migrate_add_user_preferences(db_path)
+    migrate_district_all_sentinel(db_path)
     
     print("[Migration] All migrations completed successfully")
 

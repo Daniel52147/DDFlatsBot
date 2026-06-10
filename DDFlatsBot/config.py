@@ -10,6 +10,20 @@ VIP_PRICE = 19          # legacy — admin stats only
 # Include nearby cities in search (0 = selected city only)
 SEARCH_RADIUS_KM_DEFAULT = 100
 
+# Sentinel for "all districts" in callbacks/DB (avoid Cyrillic in callback_data)
+DISTRICT_ALL = "__all__"
+_LEGACY_DISTRICT_ALL = "все"
+
+
+def is_all_district(district: str | None) -> bool:
+    if district is None or district == "":
+        return True
+    return district in (DISTRICT_ALL, _LEGACY_DISTRICT_ALL)
+
+
+def normalize_district(district: str) -> str:
+    return DISTRICT_ALL if is_all_district(district) else district
+
 # Smart alerts — same limit for everyone
 FREE_ALERT_LIMIT = 5
 VIP_ALERT_LIMIT = 5

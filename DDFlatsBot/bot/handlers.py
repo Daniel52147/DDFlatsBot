@@ -33,6 +33,7 @@ from config import (
     CITY_DISTRICTS, resolve_search_cities, get_cities_in_radius,
     MIN_LISTINGS_PLATFORM_HINT,
     CITY_MENU_STYLE, BOOKING_LOCATIONS, AIRBNB_LOCATIONS, flatio_daily_url,
+    DISTRICT_ALL, is_all_district,
 )
 from config import REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS
 from bot.i18n import t
@@ -273,6 +274,18 @@ def apt_keyboard(apt_id: int, lang: str = "ru", has_prev: bool = False) -> Inlin
     ])
 
 
+def _district_label(district: str, lang: str) -> str:
+    if is_all_district(district):
+        return t(lang, "filter_all_districts_label")
+    return district
+
+
+def _format_subs(subs: list[str], lang: str) -> str:
+    if not subs:
+        return t(lang, "stats_none")
+    return ", ".join(_district_label(s, lang) for s in subs)
+
+
 def districts_keyboard(action: str = "sub", city: str = "Warszawa", lang: str = "ru") -> InlineKeyboardMarkup:
     """Build districts keyboard for the given city."""
     city_districts = CITY_DISTRICTS.get(city, CITY_DISTRICTS["Warszawa"])
@@ -286,7 +299,7 @@ def districts_keyboard(action: str = "sub", city: str = "Warszawa", lang: str = 
     if row:
         buttons.append(row)
     buttons.append([InlineKeyboardButton(
-        text=t(lang, "filter_all_districts"), callback_data=f"{action}:все",
+        text=t(lang, "filter_all_districts"), callback_data=f"{action}:{DISTRICT_ALL}",
     )])
     buttons.append([InlineKeyboardButton(text=t(lang, "filter_cancel"), callback_data="cancel")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -1023,9 +1036,9 @@ async def cb_open_filter(call: CallbackQuery, state: FSMContext):
 async def cb_filter_district(call: CallbackQuery, state: FSMContext):
     lang = get_lang(call.from_user.id)
     district = call.data.split(":", 1)[1]
-    filters = {} if district == "все" else {"district": district}
+    filters = {} if is_all_district(district) else {"district": district}
     await state.update_data(filters=filters, offset=0)
-    label = t(lang, "filter_all_districts_label") if district == "все" else district
+    label = _district_label(district, lang)
     await call.message.edit_text(
         t(lang, "filter_district_set", label=label) + t(lang, "filter_step2"),
         parse_mode="HTML",
@@ -1317,7 +1330,7 @@ async def cb_alert_create(call: CallbackQuery, state: FSMContext):
     await state.update_data(alert_city=city)
     await call.message.answer(
         t(lang, "alert_pick_district"),
-        reply_markup=districts_keyboard("alert_d", city),
+        reply_markup=districts_keyboard("alert_d", city, lang),
     )
     await state.set_state(AlertState.waiting_district)
 
@@ -1326,7 +1339,7 @@ async def cb_alert_create(call: CallbackQuery, state: FSMContext):
 async def cb_alert_district(call: CallbackQuery, state: FSMContext):
     lang = get_lang(call.from_user.id)
     district = call.data.split(":", 1)[1]
-    await state.update_data(alert_district=None if district == "все" else district)
+    await state.update_data(alert_district=None if is_all_district(district) else district)
     await call.message.edit_text(
         t(lang, "alert_pick_price"),
         reply_markup=price_keyboard("alert_pmax"),
@@ -1523,7 +1536,7 @@ async def _show_stats(user_id: int, target):
     fav_count = len(favs)
     streak = get_user_streak_days(user_id)
     created = (user.get("created_at") or "")[:10]
-    subs_text = ", ".join(subs) if subs else t(lang, "stats_none")
+    subs_text = _format_subs(subs, lang)
     streak_line = ""
     if streak >= 7:
         streak_line = t(lang, "stats_streak_hot", n=streak)
@@ -1691,34 +1704,61 @@ async def _show_map(target, user_id: int | None = None):
     lang = get_lang(uid) if uid else "ru"
     city = get_user_city_db(uid) if uid else "Warszawa"
     city_label = CITIES.get(city, {}).get("label", city)
+    radius = get_user_search_radius(uid) if uid else 100
+    cities = resolve_search_cities(city, radius)
+    multi_city = len(cities) > 1
     from database.db import get_conn
     conn = get_conn()
-    rows = conn.execute("""
-        SELECT district, COUNT(*) as cnt, AVG(price) as avg_price, MIN(price) as min_price
-        FROM apartments
-        WHERE city = ? AND price > 500 AND price < 20000
-          AND district != '' AND district IS NOT NULL AND reported < 10
-        GROUP BY district
-        HAVING cnt >= 2
-        ORDER BY avg_price ASC
-        LIMIT 15
-    """, (city,)).fetchall()
+    placeholders = ",".join("?" * len(cities))
+    if multi_city:
+        rows = conn.execute(f"""
+            SELECT district, city, COUNT(*) as cnt, AVG(price) as avg_price, MIN(price) as min_price
+            FROM apartments
+            WHERE city IN ({placeholders}) AND price > 500 AND price < 20000
+              AND district != '' AND district IS NOT NULL AND reported < 10
+            GROUP BY district, city
+            HAVING cnt >= 2
+            ORDER BY avg_price ASC
+            LIMIT 20
+        """, tuple(cities)).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT district, COUNT(*) as cnt, AVG(price) as avg_price, MIN(price) as min_price
+            FROM apartments
+            WHERE city = ? AND price > 500 AND price < 20000
+              AND district != '' AND district IS NOT NULL AND reported < 10
+            GROUP BY district
+            HAVING cnt >= 2
+            ORDER BY avg_price ASC
+            LIMIT 15
+        """, (city,)).fetchall()
     conn.close()
 
     if not rows:
         await target.answer(t(lang, "map_empty"), parse_mode="HTML")
         return
 
-    lines = [t(lang, "map_title", city=city_label)]
+    if multi_city:
+        lines = [t(lang, "map_title_radius", city=city_label, n=len(cities) - 1)]
+    else:
+        lines = [t(lang, "map_title", city=city_label)]
     for r in rows:
         avg = int(r["avg_price"])
         bar_len = min(int(avg / 600), 8)
         bar = "█" * bar_len + "░" * (8 - bar_len)
-        lines.append(t(
-            lang, "map_row",
-            district=r["district"], bar=bar, avg=avg,
-            min_price=r["min_price"], cnt=r["cnt"],
-        ))
+        if multi_city:
+            row_city = CITIES.get(r["city"], {}).get("label", r["city"])
+            lines.append(t(
+                lang, "map_row_city",
+                district=r["district"], city=row_city, bar=bar, avg=avg,
+                min_price=r["min_price"], cnt=r["cnt"],
+            ))
+        else:
+            lines.append(t(
+                lang, "map_row",
+                district=r["district"], bar=bar, avg=avg,
+                min_price=r["min_price"], cnt=r["cnt"],
+            ))
 
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text=t(lang, "map_pick_district"), callback_data="open_filter"),
@@ -2191,11 +2231,11 @@ async def _show_subscribe(user_id: int, target, state: FSMContext):
     data = await state.get_data()
     city = data.get("city", get_user_city_db(user_id))
     subs = get_user_subscriptions(user_id)
-    subs_text = ", ".join(subs) if subs else t(lang, "stats_none")
+    subs_text = _format_subs(subs, lang)
     await target.answer(
         t(lang, "subscribe_intro", subs=subs_text),
         parse_mode="HTML",
-        reply_markup=districts_keyboard("sub", city),
+        reply_markup=districts_keyboard("sub", city, lang),
     )
 
 
@@ -2215,15 +2255,15 @@ async def cb_subscribe(call: CallbackQuery, state: FSMContext):
     lang = get_lang(call.from_user.id)
     district = call.data.split(":", 1)[1]
     subscribe_district(call.from_user.id, district)
-    await call.answer(t(lang, "subscribe_ok", district=district))
+    await call.answer(t(lang, "subscribe_ok", district=_district_label(district, lang)))
     data = await state.get_data()
     city = data.get("city", get_user_city_db(call.from_user.id))
     subs = get_user_subscriptions(call.from_user.id)
-    subs_text = ", ".join(subs) if subs else t(lang, "stats_none")
+    subs_text = _format_subs(subs, lang)
     await call.message.edit_text(
         t(lang, "subscribe_more", subs=subs_text),
         parse_mode="HTML",
-        reply_markup=districts_keyboard("sub", city),
+        reply_markup=districts_keyboard("sub", city, lang),
     )
 
 
@@ -2506,7 +2546,10 @@ async def cb_open_compare(call: CallbackQuery):
         price = apt.get("price", 0) or 0
         rooms = apt.get("rooms", "?")
         area = apt.get("area", "?")
-        ppm = f"{int(price / apt['area'])} zł/м²" if apt.get("area") and price else "—"
+        if apt.get("area") and price:
+            ppm = t(lang, "compare_ppm", ppm=int(price / apt["area"]))
+        else:
+            ppm = t(lang, "compare_ppm_na")
         lines.append(t(
             lang, "compare_row",
             title=apt.get("title", "—")[:40],
@@ -2514,11 +2557,16 @@ async def cb_open_compare(call: CallbackQuery):
             rooms=rooms,
             area=area,
             ppm=ppm,
-            district=apt.get("district", "Warszawa"),
+            district=apt.get("district", "—"),
             source_icon=SOURCE_ICONS.get(apt.get("source", ""), "📡"),
             source=apt.get("source", ""),
         ))
     await call.message.answer("\n\n".join(lines), parse_mode="HTML")
+    for apt in favs[:5]:
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text=t(lang, "notify_btn_open"), url=apt["link"]),
+        ]])
+        await call.message.answer(apt_text(apt, lang), reply_markup=kb, parse_mode="HTML")
 
 
 @router.callback_query(F.data == "cancel")
@@ -3427,7 +3475,7 @@ async def cb_adv_district(call: CallbackQuery, state: FSMContext):
     city = data.get("city", get_user_city_db(call.from_user.id))
     await call.message.answer(
         t(lang, "adv_pick_district"),
-        reply_markup=districts_keyboard("adv_d", city),
+        reply_markup=districts_keyboard("adv_d", city, lang),
     )
 
 
@@ -3437,7 +3485,7 @@ async def cb_adv_d(call: CallbackQuery, state: FSMContext):
     district = call.data.split(":", 1)[1]
     data = await state.get_data()
     f = data.get("filters", {})
-    if district == "все":
+    if is_all_district(district):
         f.pop("district", None)
         label = t(lang, "filter_all_districts_label")
     else:

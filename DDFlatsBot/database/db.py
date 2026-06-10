@@ -698,6 +698,8 @@ def get_favorites(user_id: int) -> list:
 # ── Subscriptions ────────────────────────────────────────────
 
 def subscribe_district(user_id: int, district: str):
+    from config import normalize_district
+    district = normalize_district(district)
     conn = get_conn()
     try:
         conn.execute("INSERT INTO subscriptions (user_id, district) VALUES (?,?)",
@@ -726,10 +728,12 @@ def get_user_subscriptions(user_id: int) -> list:
 
 
 def get_subscribers_for_district(district: str) -> list:
+    from config import DISTRICT_ALL, _LEGACY_DISTRICT_ALL
     conn = get_conn()
     rows = conn.execute(
-        "SELECT DISTINCT user_id FROM subscriptions WHERE ? LIKE '%' || district || '%' OR district = 'все'",
-        (district,)
+        "SELECT DISTINCT user_id FROM subscriptions "
+        "WHERE ? LIKE '%' || district || '%' OR district IN (?, ?)",
+        (district, DISTRICT_ALL, _LEGACY_DISTRICT_ALL),
     ).fetchall()
     conn.close()
     return [r["user_id"] for r in rows]
@@ -786,8 +790,12 @@ def match_alerts(apartment: dict) -> list:
         query += " AND (city IS NULL OR city = ?)"
         params.append(apt_city)
     if apartment.get("district"):
-        query += " AND (district IS NULL OR district = '' OR district = 'все' OR ? LIKE '%' || district || '%')"
-        params.append(apartment["district"])
+        from config import DISTRICT_ALL, _LEGACY_DISTRICT_ALL
+        query += (
+            " AND (district IS NULL OR district = '' OR district IN (?, ?) "
+            "OR ? LIKE '%' || district || '%')"
+        )
+        params.extend([DISTRICT_ALL, _LEGACY_DISTRICT_ALL, apartment["district"]])
     if apartment.get("price"):
         query += " AND (price_min IS NULL OR price_min <= ?)"
         params.append(apartment["price"])
