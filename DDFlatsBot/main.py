@@ -74,7 +74,7 @@ async def notify_admin_startup():
             f"💾 БД: <code>{DB_PATH}</code>\n"
             f"🏠 Квартир в базе: <b>{stats['apartments']}</b>\n"
             f"👥 Пользователей: <b>{stats['users']}</b>\n"
-            f"💎 VIP: <b>{stats['vip']}</b>"
+            f"👥 Активных: <b>{stats.get('active_yesterday', 0)}</b> вчера"
         )
         for admin_id in ADMIN_IDS:
             try:
@@ -87,28 +87,60 @@ async def notify_admin_startup():
 
 async def setup_bot_commands():
     from aiogram.types import BotCommand, BotCommandScopeDefault
-    commands = [
-        BotCommand(command="start",     description="🏠 Главная / перезапуск"),
-        BotCommand(command="next",      description="➡️ Следующая квартира"),
-        BotCommand(command="filter",    description="🔍 Фильтры (район, цена, комнаты)"),
-        BotCommand(command="ask",       description="🤖 Умный поиск: /ask 2 комнаты Мокотув до 3000"),
-        BotCommand(command="favorites", description="❤️ Моё избранное"),
-        BotCommand(command="mystats",   description="📊 Моя статистика"),
-        BotCommand(command="alert",     description="🔔 Умные алерты"),
-        BotCommand(command="subscribe", description="🔔 Подписка на район"),
-        BotCommand(command="daily",     description="🏖 Посуточная аренда"),
-        BotCommand(command="digest",    description="📰 Дайджест за сегодня"),
-        BotCommand(command="hot",       description="🔥 Горячие квартиры"),
-        BotCommand(command="drops",     description="📉 Снижение цен"),
-        BotCommand(command="cheap",     description="💚 Самые дешёвые"),
-        BotCommand(command="map",       description="🗺 Карта цен по районам"),
-        BotCommand(command="city",      description="🏙 Сменить город"),
-        BotCommand(command="notes",     description="📝 Мои заметки"),
-        BotCommand(command="ref",       description="👥 Пригласить друга"),
-        BotCommand(command="menu",      description="📋 Быстрое меню"),
-        BotCommand(command="help",      description="📖 Все команды"),
-    ]
-    await bot.set_my_commands(commands, scope=BotCommandScopeDefault())
+
+    commands_by_lang = {
+        "ru": [
+            BotCommand(command="start", description="🏠 Главная"),
+            BotCommand(command="next", description="➡️ Следующая квартира"),
+            BotCommand(command="filter", description="🔍 Фильтры"),
+            BotCommand(command="favorites", description="❤️ Избранное"),
+            BotCommand(command="alert", description="🔔 Алерты"),
+            BotCommand(command="daily", description="🏖 Посуточно"),
+            BotCommand(command="settings", description="⚙️ Настройки"),
+            BotCommand(command="city", description="🏙 Сменить город"),
+            BotCommand(command="menu", description="📋 Меню"),
+            BotCommand(command="help", description="📖 Все команды"),
+        ],
+        "uk": [
+            BotCommand(command="start", description="🏠 Головна"),
+            BotCommand(command="next", description="➡️ Наступна квартира"),
+            BotCommand(command="filter", description="🔍 Фільтри"),
+            BotCommand(command="favorites", description="❤️ Обране"),
+            BotCommand(command="alert", description="🔔 Алерти"),
+            BotCommand(command="daily", description="🏖 Подобово"),
+            BotCommand(command="settings", description="⚙️ Налаштування"),
+            BotCommand(command="city", description="🏙 Змінити місто"),
+            BotCommand(command="menu", description="📋 Меню"),
+            BotCommand(command="help", description="📖 Команди"),
+        ],
+        "pl": [
+            BotCommand(command="start", description="🏠 Start"),
+            BotCommand(command="next", description="➡️ Następne mieszkanie"),
+            BotCommand(command="filter", description="🔍 Filtry"),
+            BotCommand(command="favorites", description="❤️ Ulubione"),
+            BotCommand(command="alert", description="🔔 Alerty"),
+            BotCommand(command="daily", description="🏖 Na doby"),
+            BotCommand(command="settings", description="⚙️ Ustawienia"),
+            BotCommand(command="city", description="🏙 Zmień miasto"),
+            BotCommand(command="menu", description="📋 Menu"),
+            BotCommand(command="help", description="📖 Komendy"),
+        ],
+        "en": [
+            BotCommand(command="start", description="🏠 Home"),
+            BotCommand(command="next", description="➡️ Next listing"),
+            BotCommand(command="filter", description="🔍 Filters"),
+            BotCommand(command="favorites", description="❤️ Favorites"),
+            BotCommand(command="alert", description="🔔 Alerts"),
+            BotCommand(command="daily", description="🏖 Short-term"),
+            BotCommand(command="settings", description="⚙️ Settings"),
+            BotCommand(command="city", description="🏙 Change city"),
+            BotCommand(command="menu", description="📋 Menu"),
+            BotCommand(command="help", description="📖 All commands"),
+        ],
+    }
+    for lang, cmds in commands_by_lang.items():
+        await bot.set_my_commands(cmds, scope=BotCommandScopeDefault(), language_code=lang)
+    await bot.set_my_commands(commands_by_lang["ru"], scope=BotCommandScopeDefault())
 
     try:
         await bot.set_my_description(
@@ -148,9 +180,15 @@ async def setup_bot_commands():
             "Натисни START 👇",
             language_code="uk"
         )
-        await bot.set_my_short_description(
-            "🏠 Квартиры Польши — OLX, Otodom, Gratka и другие в одном боте"
-        )
+        short_desc = {
+            "ru": "🏠 Квартиры Польши — 10 городов, бесплатно, радиус 100 км",
+            "uk": "🏠 Квартири Польщі — 10 міст, безкоштовно, радіус 100 км",
+            "pl": "🏠 Mieszkania Polski — 10 miast, za darmo, promień 100 km",
+            "en": "🏠 Poland apartments — 10 cities, free, 100 km radius",
+        }
+        for lang, desc in short_desc.items():
+            await bot.set_my_short_description(desc, language_code=lang)
+        await bot.set_my_short_description(short_desc["ru"])
     except Exception as e:
         print(f"[Bot] Description error (non-critical): {e}")
 

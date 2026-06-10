@@ -265,7 +265,7 @@ async def _post_channel():
                 f"💰 <b>{apt['price']} zł/мес</b>\n"
                 f"📍 {apt.get('district', 'Warszawa')}\n"
                 f"🔗 <a href=\"{apt['link']}\">Открыть объявление</a> {icon}\n\n"
-                f"🤖 @DDFlatsBot — все квартиры Варшавы"
+                f"🤖 @DDFlatsBot — 10 miast Polski · za darmo"
             )
             try:
                 if apt.get("image"):
@@ -592,13 +592,11 @@ def run_scheduler():
     schedule.every(10).minutes.do(parse_all)
     schedule.every(2).hours.do(post_to_channel)
     schedule.every(6).hours.do(_heartbeat_sync)   # admin heartbeat
-    schedule.every().hour.do(check_auto_vip)
     schedule.every().day.at("03:00").do(backup_db)
     schedule.every().day.at("04:00").do(cleanup_old_listings)
     schedule.every().day.at("09:00").do(send_daily_digest)
-    schedule.every().day.at("12:00").do(send_vip_expiry_reminders)
     schedule.every().day.at("18:00").do(send_reminders)
-    print("[Scheduler] Running: parse 10min, channel 2h, heartbeat 6h, digest 09:00, vip-reminder 12:00, reminders 18:00, cleanup 04:00, backup 03:00")
+    print("[Scheduler] Running: parse 10min, channel 2h, heartbeat 6h, digest 09:00, reminders 18:00, cleanup 04:00, backup 03:00")
     while True:
         schedule.run_pending()
         time.sleep(1)

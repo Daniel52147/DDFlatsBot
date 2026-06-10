@@ -483,12 +483,17 @@ async def cmd_start(message: Message, state: FSMContext):
     created = user.get("created_at", "")
     if created:
         try:
-            is_new = (datetime.now() - datetime.fromisoformat(created)).seconds < 60
+            is_new = (datetime.now() - datetime.fromisoformat(created)).total_seconds() < 60
         except Exception:
             pass
 
     if len(args) > 1:
-        await state.update_data(pending_ref=args[1])
+        ref_arg = args[1]
+        await state.update_data(pending_ref=ref_arg)
+        if ref_arg.startswith("ref_") and not is_new:
+            if apply_referral(message.from_user.id, ref_arg[4:]):
+                lang = get_lang(message.from_user.id)
+                await message.answer(t(lang, "ref_bonus"))
 
     if is_new:
         detected = auto_detect_lang(message.from_user.language_code)
@@ -551,17 +556,27 @@ async def cb_city_select(call: CallbackQuery, state: FSMContext):
         history=[],
     )
 
-    # If coming from onboarding — show disclaimer
+    # Onboarding: city picked after terms — finish setup
     if data.get("onboard_lang"):
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=t(lang, "btn_accept"),  callback_data=f"onboard_accept_final:{lang}")],
-            [InlineKeyboardButton(text=t(lang, "btn_decline"), callback_data="onboard_decline")],
-        ])
-        await call.message.edit_text(
-            t(lang, "city_onboard", city=city_label) + t(lang, "disclaimer"),
+        await call.answer(t(lang, "city_alert", city=city_label), show_alert=True)
+        try:
+            await call.message.delete()
+        except Exception:
+            pass
+        pending_ref = data.get("pending_ref", "")
+        if pending_ref and pending_ref.startswith("ref_"):
+            if apply_referral(call.from_user.id, pending_ref[4:]):
+                await call.message.answer(t(lang, "ref_bonus"))
+        user = get_or_create_user(call.from_user.id)
+        name = call.from_user.first_name or t(lang, "friend_default")
+        text = build_menu_text(call.from_user.id, lang, city, name, user)
+        await call.message.answer(
+            text,
             parse_mode="HTML",
-            reply_markup=kb
+            reply_markup=city_menu_keyboard(lang, city),
         )
+        await show_next_apartment(call.from_user.id, call.bot, state, call.message.chat.id)
+        await state.update_data(onboard_lang=None)
     else:
         # City change from /city command — confirm and show menu
         await call.answer(t(lang, "city_alert", city=city_label), show_alert=True)
@@ -571,7 +586,7 @@ async def cb_city_select(call: CallbackQuery, state: FSMContext):
             pass
         # Show updated main menu with new city
         user = get_or_create_user(call.from_user.id)
-        name = call.from_user.first_name or "Friend"
+        name = call.from_user.first_name or t(lang, "friend_default")
         count = count_apartments(_search_filters(call.from_user.id, {"city": city}), vip=True)
         await call.message.answer(
             t(lang, "city_changed", city=city_label, count=count),
@@ -603,7 +618,7 @@ async def cb_onboard_accept_final(call: CallbackQuery, state: FSMContext):
             await call.message.answer(t(lang, "ref_bonus"))
 
     user = get_or_create_user(call.from_user.id)
-    name = call.from_user.first_name or "Friend"
+    name = call.from_user.first_name or t(lang, "friend_default")
     city = data.get("city", "Warszawa")
     text = build_menu_text(call.from_user.id, lang, city, name, user)
     await call.message.answer(
@@ -651,7 +666,7 @@ async def _show_main_menu(message, user: dict, from_user=None):
 async def cmd_menu(message: Message):
     lang = get_lang(message.from_user.id)
     user = get_or_create_user(message.from_user.id)
-    name = message.from_user.first_name or "Friend"
+    name = message.from_user.first_name or t(lang, "friend_default")
     city = get_user_city_db(message.from_user.id)
     text = build_menu_text(message.from_user.id, lang, city, name, user)
     await message.answer(
@@ -705,7 +720,7 @@ async def cb_open_menu(call: CallbackQuery):
     await call.answer()
     lang = get_lang(call.from_user.id)
     user = get_or_create_user(call.from_user.id)
-    name = call.from_user.first_name or "Friend"
+    name = call.from_user.first_name or t(lang, "friend_default")
     city = get_user_city_db(call.from_user.id)
     text = build_menu_text(call.from_user.id, lang, city, name, user)
     await call.message.answer(
@@ -1423,6 +1438,11 @@ async def cmd_mystats(message: Message):
 async def cb_open_stats(call: CallbackQuery):
     await call.answer()
     await _show_stats(call.from_user.id, call.message)
+
+
+@router.message(Command("settings"))
+async def cmd_settings(message: Message, state: FSMContext):
+    await _show_settings(message.from_user.id, message, state)
 
 
 @router.callback_query(F.data == "open_settings")
@@ -2503,8 +2523,9 @@ async def cb_open_compare(call: CallbackQuery):
 
 @router.callback_query(F.data == "cancel")
 async def cb_cancel(call: CallbackQuery, state: FSMContext):
+    lang = get_lang(call.from_user.id)
     await state.clear()
-    await call.answer("Отменено")
+    await call.answer(t(lang, "cancel_ok"))
     try:
         await call.message.delete()
     except Exception:
@@ -2519,8 +2540,9 @@ async def cb_noop(call: CallbackQuery):
 @router.callback_query(F.data == "check_sub")
 async def cb_check_sub(call: CallbackQuery, state: FSMContext):
     from bot.middleware import is_subscribed
+    lang = get_lang(call.from_user.id)
     if await is_subscribed(call.bot, call.from_user.id):
-        await call.answer("✅ Подписка подтверждена!", show_alert=True)
+        await call.answer(t(lang, "mw_sub_ok"), show_alert=True)
         try:
             await call.message.delete()
         except Exception:
@@ -2528,7 +2550,7 @@ async def cb_check_sub(call: CallbackQuery, state: FSMContext):
         user = get_or_create_user(call.from_user.id)
         await _show_main_menu(call.message, user, from_user=call.from_user)
     else:
-        await call.answer("❌ Ты ещё не подписался на @ddflots!", show_alert=True)
+        await call.answer(t(lang, "mw_sub_fail"), show_alert=True)
 
 
 # ── Admin panel ───────────────────────────────────────────────
@@ -3238,17 +3260,18 @@ async def cmd_userinfo(message: Message):
 
 @router.message(Command("leaderboard"))
 async def cmd_leaderboard(message: Message):
+    lang = get_lang(message.from_user.id)
     leaders = get_leaderboard()
     if not leaders:
-        await message.answer("🏆 Пока никто не пригласил друзей.\nБудь первым! /ref")
+        await message.answer(t(lang, "leaderboard_empty"), parse_mode="HTML")
         return
     medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
-    lines = ["🏆 <b>Топ рефералов месяца:</b>\n"]
+    lines = [t(lang, "leaderboard_title")]
     for i, leader in enumerate(leaders):
         medal = medals[i] if i < len(medals) else f"{i+1}."
-        marker = " ← ты" if leader["user_id"] == message.from_user.id else ""
-        lines.append(f"{medal} ID{leader['user_id']} — {leader['ref_count']} чел.{marker}")
-    lines.append("\n👥 Приглашай друзей — /ref")
+        marker = t(lang, "leaderboard_you") if leader["user_id"] == message.from_user.id else ""
+        lines.append(t(lang, "leaderboard_row", medal=medal, id=leader["user_id"], count=leader["ref_count"], marker=marker))
+    lines.append(t(lang, "leaderboard_footer"))
     await message.answer("\n".join(lines), parse_mode="HTML")
 
 

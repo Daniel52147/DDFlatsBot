@@ -68,6 +68,14 @@ LANG_EXTRA = {
         "mw_banned_cb": "🚫 Заблокирован",
         "mw_subscribe_btn": "📢 Подписаться на @ddflots",
         "mw_sub_check": "✅ Я подписался — проверить",
+        "mw_sub_ok": "✅ Подписка подтверждена!",
+        "mw_sub_fail": "❌ Ты ещё не подписался на канал!",
+        "cancel_ok": "Отменено",
+        "leaderboard_empty": "🏆 Пока никто не пригласил друзей.\nБудь первым! /ref",
+        "leaderboard_title": "🏆 <b>Топ рефералов месяца:</b>\n",
+        "leaderboard_row": "{medal} ID{id} — {count} чел.{marker}",
+        "leaderboard_you": " ← ты",
+        "leaderboard_footer": "\n👥 Приглашай друзей — /ref",
         "mw_sub_title": "🔒 <b>Доступ закрыт</b>\n\n",
         "mw_sub_body": (
             "Подпишись на канал @ddflots\n\n"
@@ -424,6 +432,14 @@ LANG_EXTRA = {
         "mw_banned_cb": "🚫 Заблоковано",
         "mw_subscribe_btn": "📢 Підписатись на @ddflots",
         "mw_sub_check": "✅ Я підписався — перевірити",
+        "mw_sub_ok": "✅ Підписку підтверджено!",
+        "mw_sub_fail": "❌ Ти ще не підписався на канал!",
+        "cancel_ok": "Скасовано",
+        "leaderboard_empty": "🏆 Поки ніхто не запросив друзів.\nБудь першим! /ref",
+        "leaderboard_title": "🏆 <b>Топ рефералів місяця:</b>\n",
+        "leaderboard_row": "{medal} ID{id} — {count} осіб{marker}",
+        "leaderboard_you": " ← ти",
+        "leaderboard_footer": "\n👥 Запрошуй друзів — /ref",
         "mw_sub_title": "🔒 <b>Доступ закрито</b>\n\n",
         "mw_sub_body": (
             "Підпишись на канал @ddflots\n\n"
@@ -794,6 +810,14 @@ LANG_EXTRA = {
         "mw_banned_cb": "🚫 Zablokowany",
         "mw_subscribe_btn": "📢 Subskrybuj @ddflots",
         "mw_sub_check": "✅ Subskrybuję — sprawdź",
+        "mw_sub_ok": "✅ Subskrypcja potwierdzona!",
+        "mw_sub_fail": "❌ Nie subskrybujesz jeszcze kanału!",
+        "cancel_ok": "Anulowano",
+        "leaderboard_empty": "🏆 Nikt jeszcze nie zaprosił znajomych.\nBądź pierwszy! /ref",
+        "leaderboard_title": "🏆 <b>Top poleceń miesiąca:</b>\n",
+        "leaderboard_row": "{medal} ID{id} — {count} os.{marker}",
+        "leaderboard_you": " ← Ty",
+        "leaderboard_footer": "\n👥 Zaproś znajomych — /ref",
         "mw_sub_title": "🔒 <b>Dostęp zamknięty</b>\n\n",
         "mw_sub_body": (
             "Subskrybuj kanał @ddflots\n\n"
@@ -1164,6 +1188,14 @@ LANG_EXTRA = {
         "mw_banned_cb": "🚫 Banned",
         "mw_subscribe_btn": "📢 Subscribe to @ddflots",
         "mw_sub_check": "✅ I subscribed — check",
+        "mw_sub_ok": "✅ Subscription confirmed!",
+        "mw_sub_fail": "❌ You haven't subscribed to the channel yet!",
+        "cancel_ok": "Cancelled",
+        "leaderboard_empty": "🏆 No referrals yet.\nBe the first! /ref",
+        "leaderboard_title": "🏆 <b>Top referrers this month:</b>\n",
+        "leaderboard_row": "{medal} ID{id} — {count} people{marker}",
+        "leaderboard_you": " ← you",
+        "leaderboard_footer": "\n👥 Invite friends — /ref",
         "mw_sub_title": "🔒 <b>Access locked</b>\n\n",
         "mw_sub_body": (
             "Subscribe to @ddflots\n\n"

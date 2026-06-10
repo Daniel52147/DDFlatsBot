@@ -568,16 +568,8 @@ def get_or_create_user(user_id: int) -> dict:
         )
         conn.commit()
         row = c.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
-
-        # Early adopter bonus: first N users get 7 days VIP free
-        # Everyone else gets 1 day trial
-        total_users = c.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         conn.close()
-        if total_users <= EARLY_ADOPTER_LIMIT:
-            set_vip(user_id, 1, days=7)
-        else:
-            set_vip(user_id, 1, days=1)  # 1 day trial for all new users
-        return get_or_create_user(user_id)
+        return dict(row)
 
     conn.close()
     return dict(row)
@@ -658,12 +650,8 @@ def apply_referral(new_user_id: int, ref_code: str) -> bool:
     conn.commit()
     conn.close()
 
-    # Every 3 referrals = 7 days VIP
     from config import REFERRAL_REQUIRED
-    if new_count % REFERRAL_REQUIRED == 0:
-        set_vip(referrer["user_id"], 1, days=REFERRAL_REWARD_DAYS)
-        return True
-    return False
+    return new_count % REFERRAL_REQUIRED == 0
 
 
 def get_ref_stats(user_id: int) -> dict:
@@ -1040,47 +1028,7 @@ def get_stats() -> dict:
 # ── Auto VIP conditions ───────────────────────────────────────
 
 def check_auto_vip_conditions(user_id: int) -> str | None:
-    conn = get_conn()
-    c = conn.cursor()
-
-    user = c.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
-    if not user or user["vip"]:
-        conn.close()
-        return None
-
-    # Condition 1: saved 10+ favorites
-    fav_count = c.execute(
-        "SELECT COUNT(*) FROM favorites WHERE user_id=?", (user_id,)
-    ).fetchone()[0]
-
-    # Condition 2: active user (registered 7+ days ago, viewed 20+ apartments)
-    created = user["created_at"] or ""
-    views = user["views"] or 0
-    loyal = False
-    if created and views >= 20:
-        try:
-            days_since = (datetime.now() - datetime.fromisoformat(created)).days
-            if days_since >= 7:
-                loyal = True
-        except Exception:
-            pass
-
-    conn.close()
-
-    if fav_count >= 10:
-        set_vip(user_id, 1, days=3)
-        return "fav10"
-
-    if loyal:
-        set_vip(user_id, 1, days=2)
-        return "loyal"
-
-    # Condition 3: 7-day activity streak → 1 day VIP
-    streak = get_user_streak_days(user_id)
-    if streak >= 7:
-        set_vip(user_id, 1, days=1)
-        return "streak7"
-
+    """Legacy hook — public VIP disabled; no auto grants."""
     return None
 
 
