@@ -96,6 +96,8 @@ async def setup_bot_commands():
         BotCommand(command="mystats",   description="📊 Моя статистика"),
         BotCommand(command="alert",     description="🔔 Умные алерты"),
         BotCommand(command="subscribe", description="🔔 Подписка на район"),
+        BotCommand(command="daily",     description="🏖 Посуточная аренда"),
+        BotCommand(command="digest",    description="📰 Дайджест за сегодня"),
         BotCommand(command="hot",       description="🔥 Горячие квартиры"),
         BotCommand(command="drops",     description="📉 Снижение цен"),
         BotCommand(command="cheap",     description="💚 Самые дешёвые"),

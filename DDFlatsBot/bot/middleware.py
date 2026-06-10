@@ -58,7 +58,7 @@ ALLOWED_CALLBACKS = {
     "check_sub",
     "open_filter", "open_favorites", "open_alerts", "open_stats", "open_subscribe",
     "open_ref", "open_today", "cancel", "reset_filters",
-    "open_hot", "open_drops", "open_map", "open_cheap", "open_notes",
+    "open_hot", "open_drops", "open_map", "open_cheap", "open_notes", "open_digest",
     "open_compare", "open_leaderboard", "open_menu", "open_daily",
     "open_advanced", "adv_apply", "adv_reset",
     "adv_district", "adv_price", "adv_rooms_min", "adv_rooms_max",

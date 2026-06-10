@@ -631,8 +631,8 @@ def _status_badge(user: dict, lang: str) -> str:
 
 async def _show_main_menu(message, user: dict, from_user=None):
     fu = from_user or message.from_user
-    name = fu.first_name or t(lang, "friend_default")
     lang = get_lang(fu.id)
+    name = fu.first_name or t(lang, "friend_default")
 
     extra = ""
     city = get_user_city_db(fu.id)
@@ -937,17 +937,17 @@ async def cb_prev(call: CallbackQuery, state: FSMContext):
     # Remove current from history to get previous
     if current_id in history:
         history.remove(current_id)
+    lang = get_lang(call.from_user.id)
     if not history:
-        await call.message.answer("⬅️ Это первая квартира — назад некуда.")
+        await call.message.answer(t(lang, "prev_none"))
         return
 
     prev_id = history[-1]
     apt = get_apartment_by_id(prev_id)
     if not apt:
-        await call.message.answer("😔 Квартира уже недоступна.")
+        await call.message.answer(t(lang, "prev_gone"))
         return
 
-    lang = get_lang(call.from_user.id)
     await state.update_data(history=history, last_apt_id=prev_id,
                             offset=max(0, data.get("offset", 1) - 1))
 
@@ -2242,7 +2242,7 @@ async def cb_lang(call: CallbackQuery):
 async def cmd_help(message: Message):
     lang = get_lang(message.from_user.id)
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="📋 Главное меню", callback_data="open_menu"),
+        InlineKeyboardButton(text=t(lang, "btn_menu"), callback_data="open_menu"),
     ]])
     await message.answer(t(lang, "help_text"), parse_mode="HTML", reply_markup=kb)
 
@@ -2251,26 +2251,25 @@ async def cmd_help(message: Message):
 
 @router.message(Command("digest"))
 async def cmd_digest(message: Message):
+    lang = get_lang(message.from_user.id)
     digest = get_daily_digest()
     if not digest.get("new_today"):
-        await message.answer("📭 Сегодня новых квартир пока нет. Парсер работает каждые 10 минут.")
+        await message.answer(t(lang, "digest_empty"))
         return
-    text = (
-        f"📰 <b>Дайджест за сегодня:</b>\n\n"
-        f"🏠 Новых квартир: <b>{digest['new_today']}</b>\n"
-    )
+    text = t(lang, "digest_title", n=digest["new_today"])
     if digest.get("avg_price"):
-        text += f"💰 Средняя цена: <b>{digest['avg_price']} zł</b>\n"
+        text += t(lang, "digest_avg", price=digest["avg_price"])
     if digest.get("cheapest"):
         c = digest["cheapest"]
-        text += (
-            f"\n🏆 <b>Самая дешёвая сегодня:</b>\n"
-            f"🏠 {c.get('title', '—')}\n"
-            f"💰 {c.get('price', 0)} zł/мес · 📍 {c.get('district', 'Warszawa')}\n"
-            f"🔗 {c.get('link', '')}"
+        text += t(
+            lang, "digest_cheapest",
+            title=c.get("title", "—"),
+            price=c.get("price", 0),
+            district=c.get("district", "Warszawa"),
+            link=c.get("link", ""),
         )
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="🏠 Смотреть все", callback_data="open_today")
+        InlineKeyboardButton(text=t(lang, "digest_btn_all"), callback_data="open_today")
     ]])
     await message.answer(text, parse_mode="HTML", reply_markup=kb)
 
@@ -2284,6 +2283,7 @@ async def cb_open_digest(call: CallbackQuery):
 @router.callback_query(F.data == "open_today")
 async def cb_open_today(call: CallbackQuery, state: FSMContext):
     await call.answer()
+    lang = get_lang(call.from_user.id)
     from datetime import date
     today = date.today().isoformat()
     from database.db import get_conn
@@ -2294,10 +2294,10 @@ async def cb_open_today(call: CallbackQuery, state: FSMContext):
     conn.close()
     await state.update_data(filters={"today": today}, offset=0)
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="🏠 Смотреть", callback_data="next")
+        InlineKeyboardButton(text=t(lang, "digest_btn_browse"), callback_data="next")
     ]])
     await call.message.answer(
-        f"🆕 Сегодня добавлено <b>{count}</b> квартир!",
+        t(lang, "digest_today_count", n=count),
         parse_mode="HTML",
         reply_markup=kb
     )
@@ -2310,26 +2310,30 @@ async def cb_rate(call: CallbackQuery):
     parts = call.data.split(":")
     rating = int(parts[1])
     apt_id = int(parts[2])
+    lang = get_lang(call.from_user.id)
     rate_apartment(call.from_user.id, apt_id, rating)
-    await call.answer("👍 Лайк!" if rating == 1 else "👎 Дизлайк")
+    await call.answer(t(lang, "rate_like") if rating == 1 else t(lang, "rate_dislike"))
 
 
 @router.callback_query(F.data.startswith("share:"))
 async def cb_share(call: CallbackQuery):
     apt_id = int(call.data.split(":")[1])
+    lang = get_lang(call.from_user.id)
     apt = get_apartment_by_id(apt_id)
     if not apt:
-        await call.answer("Объявление не найдено", show_alert=True)
+        await call.answer(t(lang, "share_not_found"), show_alert=True)
         return
     await call.answer()
     bot_me = await call.bot.get_me()
     icon = SOURCE_ICONS.get(apt.get("source", ""), "📡")
-    share_text = (
-        f"🏠 {apt.get('title', '—')}\n"
-        f"💰 {apt.get('price', 0)} zł/мес\n"
-        f"📍 {apt.get('district', 'Warszawa')}\n"
-        f"🔗 {apt.get('link', '')}\n\n"
-        f"{icon} Найдено через @{bot_me.username}"
+    share_text = t(
+        lang, "share_text",
+        title=apt.get("title", "—"),
+        price=apt.get("price", 0),
+        district=apt.get("district", "Warszawa"),
+        link=apt.get("link", ""),
+        icon=icon,
+        bot=bot_me.username,
     )
     share_url = (
         f"https://t.me/share/url"
@@ -2337,13 +2341,16 @@ async def cb_share(call: CallbackQuery):
         f"&text={urllib.parse.quote(share_text)}"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="📤 Поделиться в Telegram", url=share_url),
-        InlineKeyboardButton(text="🔗 Открыть", url=apt.get("link", "#")),
+        InlineKeyboardButton(text=t(lang, "share_btn_tg"), url=share_url),
+        InlineKeyboardButton(text=t(lang, "notify_btn_open"), url=apt.get("link", "#")),
     ]])
     await call.message.answer(
-        f"📤 <b>Поделиться:</b>\n\n"
-        f"🏠 {apt.get('title', '—')}\n"
-        f"💰 {apt.get('price', 0)} zł/мес · 📍 {apt.get('district', 'Warszawa')}",
+        t(
+            lang, "share_title",
+            title=apt.get("title", "—"),
+            price=apt.get("price", 0),
+            district=apt.get("district", "Warszawa"),
+        ),
         parse_mode="HTML",
         reply_markup=kb
     )
@@ -2352,17 +2359,19 @@ async def cb_share(call: CallbackQuery):
 @router.callback_query(F.data.startswith("hide:"))
 async def cb_hide(call: CallbackQuery, state: FSMContext):
     apt_id = int(call.data.split(":")[1])
+    lang = get_lang(call.from_user.id)
     hide_apartment(call.from_user.id, apt_id)
     mark_seen(call.from_user.id, apt_id)
-    await call.answer("🚫 Скрыто")
+    await call.answer(t(lang, "hide_ok"))
     await show_next_apartment(call.from_user.id, call.bot, state, call.message.chat.id)
 
 
 @router.callback_query(F.data.startswith("seen:"))
 async def cb_seen(call: CallbackQuery, state: FSMContext):
     apt_id = int(call.data.split(":")[1])
+    lang = get_lang(call.from_user.id)
     mark_seen(call.from_user.id, apt_id)
-    await call.answer("👁 Отмечено")
+    await call.answer(t(lang, "seen_ok"))
     await show_next_apartment(call.from_user.id, call.bot, state, call.message.chat.id)
 
 
@@ -2371,20 +2380,22 @@ async def cb_found(call: CallbackQuery):
     apt_id = int(call.data.split(":")[1])
     apt = get_apartment_by_id(apt_id)
     source = apt.get("source", "") if apt else ""
+    lang = get_lang(call.from_user.id)
     record_conversion(call.from_user.id, apt_id, source)
-    await call.answer("🎉 Поздравляем!", show_alert=True)
+    await call.answer(t(lang, "found_congrats"), show_alert=True)
 
     bot_me = await call.bot.get_me()
     ref_stats = get_ref_stats(call.from_user.id)
     ref_code = ref_stats.get("ref_code", "")
     ref_link = f"https://t.me/{bot_me.username}?start=ref_{ref_code}" if ref_code else f"https://t.me/{bot_me.username}"
-    share_text = "Нашёл квартиру в Варшаве через этого бота! Рекомендую 🏠"
+    city = get_user_city_db(call.from_user.id)
+    city_label = CITIES.get(city, {}).get("label", city)
+    share_text = t(lang, "found_share_text", city=city_label)
     share_url = f"https://t.me/share/url?url={urllib.parse.quote(ref_link)}&text={urllib.parse.quote(share_text)}"
 
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="📤 Поделиться ботом с другом", url=share_url),
+        InlineKeyboardButton(text=t(lang, "found_share_btn"), url=share_url),
     ]])
-    lang = get_lang(call.from_user.id)
     await call.message.answer(
         t(lang, "found_share_pitch"),
         parse_mode="HTML",
@@ -2406,15 +2417,16 @@ async def cb_found(call: CallbackQuery):
 async def cb_scam(call: CallbackQuery, state: FSMContext):
     apt_id = int(call.data.split(":")[1])
     await state.update_data(report_apt_id=apt_id)
+    lang = get_lang(call.from_user.id)
     await call.answer()
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚫 Мошенник/скам",    callback_data=f"report_reason:scam:{apt_id}")],
-        [InlineKeyboardButton(text="❌ Уже сдано",         callback_data=f"report_reason:rented:{apt_id}")],
-        [InlineKeyboardButton(text="💰 Цена не та",        callback_data=f"report_reason:price:{apt_id}")],
-        [InlineKeyboardButton(text="📷 Фото не совпадает", callback_data=f"report_reason:photo:{apt_id}")],
-        [InlineKeyboardButton(text="❌ Отмена",            callback_data="cancel")],
+        [InlineKeyboardButton(text=t(lang, "report_scam"),    callback_data=f"report_reason:scam:{apt_id}")],
+        [InlineKeyboardButton(text=t(lang, "report_rented"),   callback_data=f"report_reason:rented:{apt_id}")],
+        [InlineKeyboardButton(text=t(lang, "report_price"),    callback_data=f"report_reason:price:{apt_id}")],
+        [InlineKeyboardButton(text=t(lang, "report_photo"),    callback_data=f"report_reason:photo:{apt_id}")],
+        [InlineKeyboardButton(text=t(lang, "report_cancel"),   callback_data="cancel")],
     ])
-    await call.message.answer("🚨 <b>Причина жалобы:</b>", parse_mode="HTML", reply_markup=kb)
+    await call.message.answer(t(lang, "report_title"), parse_mode="HTML", reply_markup=kb)
 
 
 @router.callback_query(F.data.startswith("report_reason:"))
@@ -2422,17 +2434,18 @@ async def cb_report_reason(call: CallbackQuery):
     parts = call.data.split(":")
     reason = parts[1]
     apt_id = int(parts[2])
+    lang = get_lang(call.from_user.id)
     reason_labels = {
-        "scam": "Мошенник/скам",
-        "rented": "Уже сдано",
-        "price": "Цена не та",
-        "photo": "Фото не совпадает",
+        "scam": t(lang, "report_scam"),
+        "rented": t(lang, "report_rented"),
+        "price": t(lang, "report_price"),
+        "photo": t(lang, "report_photo"),
     }
     try:
         report_apartment(call.from_user.id, apt_id, reason_labels.get(reason, reason))
     except Exception:
         pass
-    await call.answer("✅ Жалоба отправлена. Спасибо!", show_alert=True)
+    await call.answer(t(lang, "report_ok"), show_alert=True)
     try:
         await call.message.delete()
     except Exception:
@@ -2442,21 +2455,22 @@ async def cb_report_reason(call: CallbackQuery):
 @router.callback_query(F.data.startswith("similar:"))
 async def cb_similar(call: CallbackQuery):
     apt_id = int(call.data.split(":")[1])
+    lang = get_lang(call.from_user.id)
     await call.answer()
     try:
         similar = get_similar_apartments(apt_id, limit=3)
     except Exception:
         similar = []
     if not similar:
-        await call.message.answer("😔 Похожих квартир не найдено.")
+        await call.message.answer(t(lang, "similar_empty"))
         return
-    await call.message.answer("🔍 <b>Похожие квартиры:</b>", parse_mode="HTML")
+    await call.message.answer(t(lang, "similar_title"), parse_mode="HTML")
     for apt in similar:
         kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="❤️ Сохранить", callback_data=f"fav_add:{apt['id']}"),
-            InlineKeyboardButton(text="🔗 Открыть", url=apt["link"]),
+            InlineKeyboardButton(text=t(lang, "btn_fav_add"), callback_data=f"fav_add:{apt['id']}"),
+            InlineKeyboardButton(text=t(lang, "notify_btn_open"), url=apt["link"]),
         ]])
-        await call.message.answer(apt_text(apt), reply_markup=kb, parse_mode="HTML")
+        await call.message.answer(apt_text(apt, lang), reply_markup=kb, parse_mode="HTML")
 
 
 @router.callback_query(F.data == "open_compare")
@@ -3252,18 +3266,15 @@ async def cb_open_notes(call: CallbackQuery):
 
 
 async def _show_notes(user_id: int, target):
+    lang = get_lang(user_id)
     notes = get_user_notes(user_id)
     if not notes:
-        await target.answer(
-            "📝 <b>Заметки пусты</b>\n\n"
-            "Чтобы добавить заметку к квартире — нажми кнопку 📝 под объявлением.",
-            parse_mode="HTML"
-        )
+        await target.answer(t(lang, "notes_empty"), parse_mode="HTML")
         return
-    await target.answer(f"📝 <b>Твои заметки ({len(notes)}):</b>", parse_mode="HTML")
+    await target.answer(t(lang, "notes_title", n=len(notes)), parse_mode="HTML")
     for note in notes[:10]:
         kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="🔗 Открыть квартиру", url=note.get("link", "#")),
+            InlineKeyboardButton(text=t(lang, "notes_btn_open"), url=note.get("link", "#")),
         ]])
         text = (
             f"🏠 <b>{note.get('title', '—')[:50]}</b>\n"
@@ -3277,11 +3288,10 @@ async def _show_notes(user_id: int, target):
 @router.callback_query(F.data.startswith("note:"))
 async def cb_note_start(call: CallbackQuery, state: FSMContext):
     apt_id = int(call.data.split(":")[1])
+    lang = get_lang(call.from_user.id)
     await state.update_data(note_apt_id=apt_id)
     await call.answer()
-    await call.message.answer(
-        "📝 Напиши заметку к этой квартире (например: «хороший район, позвонить в пн»):"
-    )
+    await call.message.answer(t(lang, "notes_prompt"))
     await state.set_state(NoteState.waiting_note)
 
 
@@ -3293,9 +3303,10 @@ async def note_received(message: Message, state: FSMContext):
         await state.clear()
         return
     note_text = message.text.strip()[:500]
+    lang = get_lang(message.from_user.id)
     add_user_note(message.from_user.id, apt_id, note_text)
     await state.clear()
-    await message.answer("✅ Заметка сохранена! Посмотреть все: /notes")
+    await message.answer(t(lang, "notes_saved"))
 
 
 # ── Advanced search ───────────────────────────────────────────

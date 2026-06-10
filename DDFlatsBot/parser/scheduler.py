@@ -303,11 +303,15 @@ async def _remind_inactive():
                 user = get_or_create_user(uid)
                 if user.get("vip") == -1:  # banned
                     continue
+                from database.db import get_user_lang, get_user_city_db
+                from bot.i18n import t
+                from config import CITIES
+                lang = get_user_lang(uid) or "ru"
+                city = get_user_city_db(uid) or "Warszawa"
+                city_label = CITIES.get(city, {}).get("label", city)
                 await _bot.send_message(
                     uid,
-                    f"👋 <b>Привет! Ты ещё ищешь квартиру?</b>\n\n"
-                    f"🏠 Сегодня добавлено <b>{new_count}</b> новых квартир в Варшаве.\n\n"
-                    f"Нажми /next чтобы посмотреть 👇",
+                    t(lang, "reminder_title") + t(lang, "reminder_body", n=new_count, city=city_label),
                     parse_mode="HTML"
                 )
                 await asyncio.sleep(0.05)
@@ -382,22 +386,9 @@ async def _daily_digest():
     from database.db import get_price_drops_today
     drops = get_price_drops_today(limit=2)
 
-    header = (
-        f"☀️ <b>Доброе утро! Дайджест за сегодня:</b>\n\n"
-        f"🏠 Новых квартир: <b>{digest['new_today']}</b>\n"
-    )
-    if digest.get("avg_price"):
-        header += f"💰 Средняя цена: <b>{digest['avg_price']} zł</b>\n"
-    if drops:
-        header += f"📉 Снижений цен: <b>{len(drops)}</b> → /drops\n"
-    if top_apts:
-        header += f"\n🏆 <b>Топ-{len(top_apts)} дешёвых за последние 24ч:</b>"
-
+    from database.db import get_user_lang
+    from bot.i18n import t
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    header_kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="🏠 Смотреть все", callback_data="next"),
-        InlineKeyboardButton(text="📉 Снижения",     callback_data="open_drops"),
-    ]])
 
     source_icons = {
         "OLX": "🟠", "Otodom": "🔵", "Gratka": "🟢",
@@ -407,20 +398,40 @@ async def _daily_digest():
     # Rate-limited batch send
     for i, uid in enumerate(user_ids):
         try:
+            lang = get_user_lang(uid) or "ru"
+            header = t(lang, "morning_title", n=digest["new_today"])
+            if digest.get("avg_price"):
+                header += t(lang, "digest_avg", price=digest["avg_price"])
+            if drops:
+                header += t(lang, "morning_drops", n=len(drops))
+            if top_apts:
+                header += t(lang, "morning_top", n=len(top_apts))
+            header_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text=t(lang, "morning_btn_all"), callback_data="next"),
+                InlineKeyboardButton(text=t(lang, "morning_btn_drops"), callback_data="open_drops"),
+            ]])
             await _safe_send(uid, header, parse_mode="HTML", reply_markup=header_kb)
             for apt in top_apts:
                 icon = source_icons.get(apt.get("source", ""), "📡")
-                rooms_str = f" · {apt['rooms']} комн." if apt.get("rooms") else ""
-                area_str  = f" · {apt['area']} м²" if apt.get("area") else ""
-                card = (
-                    f"🏠 <b>{apt['title'][:60]}</b>\n"
-                    f"💰 <b>{apt['price']} zł/мес</b>{rooms_str}{area_str}\n"
-                    f"📍 {apt.get('district', 'Warszawa')}  {icon} {apt.get('source','')}\n"
-                    f"🔗 <a href=\"{apt['link']}\">Открыть объявление</a>"
+                rooms_str = t(lang, "apt_rooms", n=apt["rooms"]) if apt.get("rooms") else ""
+                rooms_str = f" · {rooms_str}" if rooms_str else ""
+                area_str = t(lang, "apt_area", area=apt["area"]) if apt.get("area") else ""
+                area_str = f" · {area_str}" if area_str else ""
+                card = t(
+                    lang, "morning_card",
+                    title=apt["title"][:60],
+                    price=apt["price"],
+                    rooms=rooms_str,
+                    area=area_str,
+                    district=apt.get("district", "Warszawa"),
+                    icon=icon,
+                    source=apt.get("source", ""),
+                    link=apt["link"],
+                    open=t(lang, "notify_btn_open"),
                 )
                 card_kb = InlineKeyboardMarkup(inline_keyboard=[[
-                    InlineKeyboardButton(text="❤️ Сохранить", callback_data=f"fav_add:{apt['id']}"),
-                    InlineKeyboardButton(text="➡️ Следующая", callback_data="next"),
+                    InlineKeyboardButton(text=t(lang, "btn_fav_add"), callback_data=f"fav_add:{apt['id']}"),
+                    InlineKeyboardButton(text=t(lang, "btn_next"), callback_data="next"),
                 ]])
                 if apt.get("image"):
                     try:
