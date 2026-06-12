@@ -149,11 +149,12 @@ LANG_EXTRA = {
         "stats_streak_hot": "\n🔥 Стрик: <b>{n} дней подряд</b>! 🏆",
         "stats_streak": "\n🔥 Стрик: <b>{n} дней подряд</b>!",
         "stats_active": "\n📆 Активен {n} дн. подряд",
-        "stats_vip_progress": (
-            "\n\n🎯 <b>До бесплатного VIP:</b>\n"
-            "❤️ Сохрани ещё {favs} квартир → 3 дня VIP\n"
-            "👥 Пригласи ещё {refs} друзей → {days} дней VIP"
+        "stats_ref_progress": (
+            "\n\n👥 <b>Пригласи друзей:</b>\n"
+            "Ещё <b>{refs}</b> до отметки — /ref · /leaderboard"
         ),
+        "stats_ref_top": "\n\n🏆 Ты в топе рефералов — /leaderboard",
+        "leaderboard_btn": "🏆 Рейтинг",
         "hot_empty": "🔥 <b>Горячих квартир пока нет</b>\n\nСтавь 👍 — популярные появятся здесь!",
         "hot_title": "🔥 <b>Горячие квартиры (топ лайков за 24ч):</b>",
         "hot_score": "\n\n🔥 <b>{n} лайков</b>",
@@ -289,7 +290,7 @@ LANG_EXTRA = {
             "Твоя ссылка:\n<code>{link}</code>\n\n"
             "👤 Приглашено: <b>{count}</b> чел.\n"
             "🎁 Прогресс: {bar} {progress}/{required}\n"
-            "   До бонуса: ещё <b>{next_reward}</b> чел."
+            "   До отметки в рейтинге: ещё <b>{next_reward}</b> чел."
         ),
         "subscribe_intro": "🔔 <b>Подписка на район</b>\n\nАктивные: {subs}\n\nВыбери район:",
         "subscribe_more": "🔔 Подписки: {subs}\n\nВыбери ещё:",
@@ -574,11 +575,12 @@ LANG_EXTRA = {
         "stats_streak_hot": "\n🔥 Стрік: <b>{n} днів</b>! 🏆",
         "stats_streak": "\n🔥 Стрік: <b>{n} днів</b>!",
         "stats_active": "\n📆 Активний {n} дн.",
-        "stats_vip_progress": (
-            "\n\n🎯 <b>До безкоштовного VIP:</b>\n"
-            "❤️ Збережи ще {favs} → 3 дні VIP\n"
-            "👥 Запроси ще {refs} друзів → {days} днів VIP"
+        "stats_ref_progress": (
+            "\n\n👥 <b>Запроси друзів:</b>\n"
+            "Ще <b>{refs}</b> до відмітки — /ref · /leaderboard"
         ),
+        "stats_ref_top": "\n\n🏆 Ти в топі рефералів — /leaderboard",
+        "leaderboard_btn": "🏆 Рейтинг",
         "hot_empty": "🔥 <b>Гарячих квартир поки немає</b>\n\nСтав 👍 — з'являться тут!",
         "hot_title": "🔥 <b>Гарячі квартири (топ лайків за 24г):</b>",
         "hot_score": "\n\n🔥 <b>{n} лайків</b>",
@@ -671,7 +673,7 @@ LANG_EXTRA = {
             "Твоє посилання:\n<code>{link}</code>\n\n"
             "👤 Запрошено: <b>{count}</b> осіб\n"
             "🎁 Прогрес: {bar} {progress}/{required}\n"
-            "   До бонусу: ще <b>{next_reward}</b> осіб"
+            "   До відмітки в рейтингу: ще <b>{next_reward}</b> осіб"
         ),
         "subscribe_intro": "🔔 <b>Підписка на район</b>\n\nАктивні: {subs}\n\nОбери район:",
         "subscribe_more": "🔔 Підписки: {subs}\n\nОбери ще:",
@@ -956,11 +958,12 @@ LANG_EXTRA = {
         "stats_streak_hot": "\n🔥 Seria: <b>{n} dni</b>! 🏆",
         "stats_streak": "\n🔥 Seria: <b>{n} dni</b>!",
         "stats_active": "\n📆 Aktywny {n} dni",
-        "stats_vip_progress": (
-            "\n\n🎯 <b>Do darmowego VIP:</b>\n"
-            "❤️ Zapisz jeszcze {favs} → 3 dni VIP\n"
-            "👥 Zaproś {refs} znajomych → {days} dni VIP"
+        "stats_ref_progress": (
+            "\n\n👥 <b>Zaproś znajomych:</b>\n"
+            "Jeszcze <b>{refs}</b> do kolejnej odznaki — /ref · /leaderboard"
         ),
+        "stats_ref_top": "\n\n🏆 Jesteś w topie poleceń — /leaderboard",
+        "leaderboard_btn": "🏆 Ranking",
         "hot_empty": "🔥 <b>Brak gorących ofert</b>\n\nDawaj 👍 pod ogłoszeniami!",
         "hot_title": "🔥 <b>Gorące mieszkania (top lajków 24h):</b>",
         "hot_score": "\n\n🔥 <b>{n} lajków</b>",
@@ -1053,7 +1056,7 @@ LANG_EXTRA = {
             "Twój link:\n<code>{link}</code>\n\n"
             "👤 Zaproszono: <b>{count}</b> osób\n"
             "🎁 Postęp: {bar} {progress}/{required}\n"
-            "   Do bonusu: jeszcze <b>{next_reward}</b> osób"
+            "   Do odznaki w rankingu: jeszcze <b>{next_reward}</b> osób"
         ),
         "subscribe_intro": "🔔 <b>Subskrypcja dzielnicy</b>\n\nAktywne: {subs}\n\nWybierz dzielnicę:",
         "subscribe_more": "🔔 Subskrypcje: {subs}\n\nWybierz kolejną:",
@@ -1275,11 +1278,12 @@ LANG_EXTRA = {
         "stats_streak_hot": "\n🔥 Streak: <b>{n} days</b>! 🏆",
         "stats_streak": "\n🔥 Streak: <b>{n} days</b>!",
         "stats_active": "\n📆 Active {n} days",
-        "stats_vip_progress": (
-            "\n\n🎯 <b>Free VIP progress:</b>\n"
-            "❤️ Save {favs} more → 3 days VIP\n"
-            "👥 Invite {refs} friends → {days} days VIP"
+        "stats_ref_progress": (
+            "\n\n👥 <b>Invite friends:</b>\n"
+            "<b>{refs}</b> more to next milestone — /ref · /leaderboard"
         ),
+        "stats_ref_top": "\n\n🏆 You're a top referrer — /leaderboard",
+        "leaderboard_btn": "🏆 Leaderboard",
         "hot_empty": "🔥 <b>No hot listings yet</b>\n\nLike apartments — top ones appear here!",
         "hot_title": "🔥 <b>Hot listings (top likes 24h):</b>",
         "hot_score": "\n\n🔥 <b>{n} likes</b>",
@@ -1372,7 +1376,7 @@ LANG_EXTRA = {
             "Your link:\n<code>{link}</code>\n\n"
             "👤 Invited: <b>{count}</b> people\n"
             "🎁 Progress: {bar} {progress}/{required}\n"
-            "   To bonus: <b>{next_reward}</b> more"
+            "   To milestone: <b>{next_reward}</b> more"
         ),
         "subscribe_intro": "🔔 <b>District subscription</b>\n\nActive: {subs}\n\nPick a district:",
         "subscribe_more": "🔔 Subscriptions: {subs}\n\nPick another:",

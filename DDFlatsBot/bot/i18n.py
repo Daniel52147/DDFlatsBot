@@ -147,14 +147,12 @@ TEXTS = {
 
         # ── Daily rental ────────────────────────────────────────
         "daily_text": (
-            "🏖 <b>Аренда посуточно в Варшаве</b>\n\n"
-            "Выбери количество дней — открою лучшие предложения:\n\n"
-            "🏨 Booking.com — отели и апартаменты\n"
-            "🏠 Airbnb — квартиры от хозяев\n"
-            "🛏 Nocowanie.pl — польская платформа"
+            "🏖 <b>Посуточная аренда</b>\n\n"
+            "Выбери город и даты — найду предложения на OLX, Otodom, Flatio, Nocowanie:\n\n"
+            "🏨 Booking.com · 🏠 Airbnb · 🛏 Nocowanie.pl"
         ),
         "daily_links": (
-            "🔗 <b>Аренда на {days} дн. в Варшаве:</b>\n\n"
+            "🔗 <b>Аренда на {days} дн.:</b>\n\n"
             "🏨 <a href=\"{booking}\">Booking.com</a>\n"
             "🏠 <a href=\"{airbnb}\">Airbnb</a>\n"
             "🛏 <a href=\"{nocowanie}\">Nocowanie.pl</a>\n\n"
@@ -259,14 +257,12 @@ TEXTS = {
         "warn_check": "Завжди перевіряй квартиру особисто перед оплатою.",
         "lang_changed": "🇺🇦 Мову змінено на Українську",
         "daily_text": (
-            "🏖 <b>Оренда подобово у Варшаві</b>\n\n"
-            "Обери кількість днів — відкрию найкращі пропозиції:\n\n"
-            "🏨 Booking.com — готелі та апартаменти\n"
-            "🏠 Airbnb — квартири від господарів\n"
-            "🛏 Nocowanie.pl — польська платформа"
+            "🏖 <b>Оренда подобово</b>\n\n"
+            "Обери місто та дати — знайду на OLX, Otodom, Flatio, Nocowanie:\n\n"
+            "🏨 Booking.com · 🏠 Airbnb · 🛏 Nocowanie.pl"
         ),
         "daily_links": (
-            "🔗 <b>Оренда на {days} дн. у Варшаві:</b>\n\n"
+            "🔗 <b>Оренда на {days} дн.:</b>\n\n"
             "🏨 <a href=\"{booking}\">Booking.com</a>\n"
             "🏠 <a href=\"{airbnb}\">Airbnb</a>\n"
             "🛏 <a href=\"{nocowanie}\">Nocowanie.pl</a>\n\n"
@@ -369,14 +365,12 @@ TEXTS = {
         "warn_check": "Zawsze sprawdzaj mieszkanie osobiście przed płatnością.",
         "lang_changed": "🇵🇱 Język zmieniony na Polski",
         "daily_text": (
-            "🏖 <b>Wynajem krótkoterminowy w Warszawie</b>\n\n"
-            "Wybierz liczbę dni — otworzę najlepsze oferty:\n\n"
-            "🏨 Booking.com — hotele i apartamenty\n"
-            "🏠 Airbnb — mieszkania od właścicieli\n"
-            "🛏 Nocowanie.pl — polska platforma"
+            "🏖 <b>Wynajem krótkoterminowy</b>\n\n"
+            "Wybierz miasto i daty — szukam na OLX, Otodom, Flatio, Nocowanie:\n\n"
+            "🏨 Booking.com · 🏠 Airbnb · 🛏 Nocowanie.pl"
         ),
         "daily_links": (
-            "🔗 <b>Wynajem na {days} dni w Warszawie:</b>\n\n"
+            "🔗 <b>Wynajem na {days} dni:</b>\n\n"
             "🏨 <a href=\"{booking}\">Booking.com</a>\n"
             "🏠 <a href=\"{airbnb}\">Airbnb</a>\n"
             "🛏 <a href=\"{nocowanie}\">Nocowanie.pl</a>\n\n"

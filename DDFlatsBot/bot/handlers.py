@@ -1422,9 +1422,10 @@ async def _show_ref(user_id: int, target):
     bar = "🟩" * (ref_count % REFERRAL_REQUIRED) + "⬜" * next_reward
 
     lang = get_lang(user_id)
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=t(lang, "ref_share_btn"), switch_inline_query=ref_link)
-    ]])
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t(lang, "ref_share_btn"), switch_inline_query=ref_link)],
+        [InlineKeyboardButton(text=t(lang, "leaderboard_btn"), callback_data="open_leaderboard")],
+    ])
     await target.answer(
         t(
             lang, "ref_body",
@@ -1545,6 +1546,14 @@ async def _show_stats(user_id: int, target):
     elif streak > 0:
         streak_line = t(lang, "stats_active", n=streak)
 
+    refs_mod = ref_count % REFERRAL_REQUIRED
+    if ref_count > 0 and refs_mod == 0:
+        ref_progress = t(lang, "stats_ref_top")
+    elif ref_count == 0:
+        ref_progress = t(lang, "stats_ref_progress", refs=REFERRAL_REQUIRED)
+    else:
+        ref_progress = t(lang, "stats_ref_progress", refs=REFERRAL_REQUIRED - refs_mod)
+
     await target.answer(
         t(
             lang, "stats_body",
@@ -1556,7 +1565,7 @@ async def _show_stats(user_id: int, target):
             refs=ref_count,
             created=created,
             streak=streak_line,
-            next_vip="",
+            next_vip=ref_progress,
         ),
         parse_mode="HTML",
     )
@@ -3306,21 +3315,35 @@ async def cmd_userinfo(message: Message):
 
 # ── /leaderboard ──────────────────────────────────────────────
 
-@router.message(Command("leaderboard"))
-async def cmd_leaderboard(message: Message):
-    lang = get_lang(message.from_user.id)
+async def _show_leaderboard(user_id: int, target):
+    lang = get_lang(user_id)
     leaders = get_leaderboard()
     if not leaders:
-        await message.answer(t(lang, "leaderboard_empty"), parse_mode="HTML")
+        await target.answer(t(lang, "leaderboard_empty"), parse_mode="HTML")
         return
     medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
     lines = [t(lang, "leaderboard_title")]
     for i, leader in enumerate(leaders):
         medal = medals[i] if i < len(medals) else f"{i+1}."
-        marker = t(lang, "leaderboard_you") if leader["user_id"] == message.from_user.id else ""
-        lines.append(t(lang, "leaderboard_row", medal=medal, id=leader["user_id"], count=leader["ref_count"], marker=marker))
+        marker = t(lang, "leaderboard_you") if leader["user_id"] == user_id else ""
+        lines.append(t(
+            lang, "leaderboard_row",
+            medal=medal, id=leader["user_id"],
+            count=leader["ref_count"], marker=marker,
+        ))
     lines.append(t(lang, "leaderboard_footer"))
-    await message.answer("\n".join(lines), parse_mode="HTML")
+    await target.answer("\n".join(lines), parse_mode="HTML")
+
+
+@router.message(Command("leaderboard"))
+async def cmd_leaderboard(message: Message):
+    await _show_leaderboard(message.from_user.id, message)
+
+
+@router.callback_query(F.data == "open_leaderboard")
+async def cb_open_leaderboard(call: CallbackQuery):
+    await call.answer()
+    await _show_leaderboard(call.from_user.id, call.message)
 
 
 # ── /notes — personal notes on apartments ────────────────────

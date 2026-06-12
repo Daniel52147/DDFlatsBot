@@ -23,6 +23,15 @@ from config import CHANNEL_ID, DB_PATH, ADMIN_IDS, CITIES, MIN_LISTINGS_PER_CITY
 
 _bot = None
 _loop = None
+
+
+def _apt_location(apt: dict) -> str:
+    district = (apt.get("district") or "").strip()
+    city = apt.get("city") or ""
+    city_label = CITIES.get(city, {}).get("label", city) if city else ""
+    if district and city_label:
+        return f"{district}, {city_label}"
+    return district or city_label or "Polska"
 _parse_lock = threading.Lock()  # Prevent overlapping parse cycles
 
 PARSER_TIMEOUT = 120  # seconds per source
@@ -251,7 +260,7 @@ async def _post_channel():
             return
         from datetime import date
         today = date.today().strftime("%d.%m.%Y")
-        header = f"🏠 <b>Лучшие квартиры на {today}:</b>\n\n"
+        header = f"🏠 <b>Najlepsze oferty na {today}:</b>\n\n"
         try:
             await _bot.send_message(CHANNEL_ID, header, parse_mode="HTML")
         except Exception as e:
@@ -260,12 +269,13 @@ async def _post_channel():
         for apt in apts:
             source_icons = {"OLX": "🟠", "Otodom": "🔵", "Gratka": "🟢", "Morizon": "🟣", "Adresowo": "🟡", "Domiporta": "🔴", "Lento": "🟤"}
             icon = source_icons.get(apt.get("source", ""), "📡")
+            loc = _apt_location(apt)
             text = (
                 f"🏠 <b>{apt['title']}</b>\n"
-                f"💰 <b>{apt['price']} zł/мес</b>\n"
-                f"📍 {apt.get('district', 'Warszawa')}\n"
-                f"🔗 <a href=\"{apt['link']}\">Открыть объявление</a> {icon}\n\n"
-                f"🤖 @DDFlatsBot — 10 miast Polski · za darmo"
+                f"💰 <b>{apt['price']} zł/mies</b>\n"
+                f"📍 {loc}\n"
+                f"🔗 <a href=\"{apt['link']}\">Zobacz ogłoszenie</a> {icon}\n\n"
+                f"🤖 @DDFlatsBot — 10 miast · za darmo"
             )
             try:
                 if apt.get("image"):
@@ -423,7 +433,7 @@ async def _daily_digest():
                     price=apt["price"],
                     rooms=rooms_str,
                     area=area_str,
-                    district=apt.get("district", "Warszawa"),
+                    district=_apt_location(apt),
                     icon=icon,
                     source=apt.get("source", ""),
                     link=apt["link"],
@@ -518,7 +528,7 @@ async def _notify(apartments: list):
                     title=apt['title'],
                     price=apt['price'],
                     price_badge=price_badge,
-                    district=apt.get('district', 'Warszawa'),
+                    district=_apt_location(apt),
                 ),
                 parse_mode="HTML",
                 reply_markup=kb
@@ -541,7 +551,7 @@ async def _notify(apartments: list):
                 t(
                     lang,
                     "notify_new_in_district",
-                    district=apt.get('district', 'Warszawa'),
+                    district=_apt_location(apt),
                     title=apt['title'],
                     price=apt['price'],
                 ),
