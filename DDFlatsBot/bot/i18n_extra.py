@@ -51,8 +51,7 @@ LANG_EXTRA = {
         "city_pick_hint": "Выбери город — поиск в нём и в радиусе 100 км.\n⚠️ Фильтры сбросятся.",
         "decline_terms": "❌ Ты отказался от условий.\n\nЕсли передумаешь — /start",
         "friend_default": "друг",
-        "limit_vip_btn": "⭐ VIP — {price} zł/мес",
-        "limit_ref_btn": "👥 Получить бесплатно",
+        "limit_ref_btn": "👥 Пригласить друга",
         "limit_one_left": "\n\n⚠️ <b>Осталась 1 квартира</b> из бесплатных {limit}.",
         "filter_furnished": "🛋 меблированная",
         "filter_unfurnished": "без мебели",
@@ -115,7 +114,6 @@ LANG_EXTRA = {
         "ask_fail": "😔 Не смог распознать параметры.\n\nПопробуй: <code>/ask 2 комнаты до 3000</code>",
         "ask_ok": "🤖 <b>Понял! Ищу:</b>\n{summary}\n\n🏠 Найдено: <b>{total}</b> квартир",
         "unknown_cmd": "🤔 Не понял команду.\n\nНажми /menu или /help",
-        "vip_only": "💎 Только для VIP!",
         "free_unlimited_badge": "🆓 Бесплатно · безлимит просмотров",
         "settings_title": (
             "⚙️ <b>Настройки поиска</b>\n\n"
@@ -129,6 +127,7 @@ LANG_EXTRA = {
         "settings_hide_seen_on": "✅ Скрывать просмотренные: ВКЛ",
         "settings_hide_seen_off": "❌ Скрывать просмотренные: ВЫКЛ",
         "settings_change_city": "🏙 Сменить город",
+        "settings_change_lang": "🌐 Язык",
         "settings_back_menu": "◀️ В меню",
         "daily_radius_note": "\n📍 + города в радиусе {km} км ({n} всего)",
         "settings_saved": "✅ Сохранено",
@@ -178,30 +177,6 @@ LANG_EXTRA = {
         "map_row": "📍 <b>{district}</b>\n   {bar} avg <b>{avg} zł</b> · от {min_price} zł · {cnt} объявл.",
         "map_row_city": "📍 <b>{district}</b> ({city})\n   {bar} avg <b>{avg} zł</b> · от {min_price} zł · {cnt} объявл.",
         "map_pick_district": "🔍 Выбрать район",
-        "vip_benefits": (
-            "✅ Безлимитный просмотр квартир\n"
-            "✅ Умные алерты — мгновенно при совпадении\n"
-            "✅ Подписка на районы\n"
-            "✅ Уведомления о снижении цены\n"
-            "✅ Ежедневный дайджест"
-        ),
-        "vip_benefits_free": (
-            "✅ Умные алерты — мгновенно при совпадении\n"
-            "✅ Подписка на районы\n"
-            "✅ Уведомления о снижении цены\n"
-            "✅ Ежедневный дайджест\n"
-            "✅ Приоритет в рассылках"
-        ),
-        "vip_pitch": (
-            "⭐ <b>VIP — {price} zł/мес</b>\n\n"
-            "{benefits}\n\n"
-            "━━━━━━━━━━━━━━━━━━\n"
-            "🆓 <b>Как получить бесплатно:</b>\n\n"
-            "👥 Рефералы: {ref_bar} {ref_count}/{ref_required}\n"
-            "   → пригласи {ref_required} друзей = {ref_days} дней VIP\n\n"
-            "❤️ Избранное: {fav_bar} {fav_count}/10\n"
-            "   → сохрани 10 квартир = 3 дня VIP автоматически"
-        ),
         "fav_empty": "❤️ <b>Избранное пусто</b>\n\nДобавляй квартиры кнопкой ❤️ под объявлением.",
         "fav_header": "❤️ <b>Избранное — стр. {page}/{total_pages} ({total} квартир):</b>",
         "fav_nav": "{page}/{total_pages}  ({total} квартир)",
@@ -277,9 +252,8 @@ LANG_EXTRA = {
         "adv_reset_ok": "✅ Все фильтры сброшены!",
         "alert_list": (
             "🔔 <b>Твои алерты ({n}/{limit}):</b>\n\n"
-            "Напишу сразу, когда появится подходящая квартира.{hint}"
+            "Напишу сразу, когда появится подходящая квартира."
         ),
-        "alert_vip_hint": "\n\n💎 VIP — до {limit} алертов и подписка на районы.",
         "alert_btn_create": "➕ Создать алерт",
         "alert_item": "🗑 #{id}: {district} до {price_max} zł{city}",
         "alert_any_district": "любой район",
@@ -420,8 +394,7 @@ LANG_EXTRA = {
         "city_pick_hint": "Обери місто — пошук у ньому та в радіусі 100 км.\n⚠️ Фільтри скинуться.",
         "decline_terms": "❌ Ти відмовився від умов.\n\nЯкщо передумаєш — /start",
         "friend_default": "друже",
-        "limit_vip_btn": "⭐ VIP — {price} zł/міс",
-        "limit_ref_btn": "👥 Отримати безкоштовно",
+        "limit_ref_btn": "👥 Запросити друга",
         "limit_one_left": "\n\n⚠️ <b>Залишилась 1 квартира</b> з {limit} безкоштовних.",
         "filter_furnished": "🛋 з меблями",
         "filter_unfurnished": "без меблів",
@@ -478,7 +451,6 @@ LANG_EXTRA = {
         "ask_fail": "😔 Не вдалось розпізнати.\n\n<code>/ask 2 кімнати до 3000</code>",
         "ask_ok": "🤖 <b>Шукаю:</b>\n{summary}\n\n🏠 Знайдено: <b>{total}</b>",
         "unknown_cmd": "🤔 Не зрозумів команду.\n\n/menu або /help",
-        "vip_only": "💎 Лише для VIP!",
         "menu_style_capital": "🏛 Столичний режим",
         "menu_style_coastal": "🌊 Прибережний режим",
         "menu_style_industrial": "🏭 Промисловий режим",
@@ -555,6 +527,7 @@ LANG_EXTRA = {
         "settings_hide_seen_on": "✅ Ховати переглянуті: УВІМК",
         "settings_hide_seen_off": "❌ Ховати переглянуті: ВИМК",
         "settings_change_city": "🏙 Змінити місто",
+        "settings_change_lang": "🌐 Мова",
         "settings_back_menu": "◀️ До меню",
         "daily_radius_note": "\n📍 + міста в радіусі {km} км ({n} всього)",
         "settings_saved": "✅ Збережено",
@@ -595,12 +568,6 @@ LANG_EXTRA = {
         "map_row": "📍 <b>{district}</b>\n   {bar} avg <b>{avg} zł</b> · від {min_price} zł · {cnt}",
         "map_row_city": "📍 <b>{district}</b> ({city})\n   {bar} avg <b>{avg} zł</b> · від {min_price} zł · {cnt}",
         "map_pick_district": "🔍 Обрати район",
-        "vip_benefits": "✅ Безліміт · алерти · підписки · дайджест",
-        "vip_benefits_free": "✅ Алерти · підписки · зниження цін · дайджест · пріоритет",
-        "vip_pitch": (
-            "⭐ <b>VIP — {price} zł/міс</b>\n\n{benefits}\n\n"
-            "🆓 <b>Безкоштовно:</b>\n👥 {ref_bar} {ref_count}/{ref_required}\n❤️ {fav_bar} {fav_count}/10"
-        ),
         "fav_empty": "❤️ <b>Обране порожнє</b>\n\nДодавай кнопкою ❤️ під оголошенням.",
         "fav_header": "❤️ <b>Обране — стр. {page}/{total_pages} ({total}):</b>",
         "fav_nav": "{page}/{total_pages}  ({total})",
@@ -661,8 +628,7 @@ LANG_EXTRA = {
         "adv_off": "вимк",
         "adv_applied": "✅ <b>Фільтри застосовано!</b>\n\n{summary}\n\n🏠 Знайдено: <b>{total}</b>{hint}",
         "adv_reset_ok": "✅ Фільтри скинуто!",
-        "alert_list": "🔔 <b>Алерти ({n}/{limit}):</b>\n\nНапишу одразу, коли з'явиться квартира.{hint}",
-        "alert_vip_hint": "\n\n💎 VIP — до {limit} алертів.",
+        "alert_list": "🔔 <b>Алерти ({n}/{limit}):</b>\n\nНапишу одразу, коли з'явиться квартира.",
         "alert_btn_create": "➕ Створити алерт",
         "alert_item": "🗑 #{id}: {district} до {price_max} zł{city}",
         "alert_any_district": "будь-який район",
@@ -803,8 +769,7 @@ LANG_EXTRA = {
         "city_pick_hint": "Wybierz miasto — szukaj w nim i w promieniu 100 km.\n⚠️ Filtry zostaną zresetowane.",
         "decline_terms": "❌ Odrzuciłeś warunki.\n\nZmiana zdania — /start",
         "friend_default": "przyjacielu",
-        "limit_vip_btn": "⭐ VIP — {price} zł/mies.",
-        "limit_ref_btn": "👥 Zdobądź za darmo",
+        "limit_ref_btn": "👥 Zaproś znajomego",
         "limit_one_left": "\n\n⚠️ <b>Zostało 1 mieszkanie</b> z {limit} darmowych.",
         "filter_furnished": "🛋 umeblowane",
         "filter_unfurnished": "bez mebli",
@@ -861,7 +826,6 @@ LANG_EXTRA = {
         "ask_fail": "😔 Nie rozpoznano.\n\n<code>/ask 2 pokoje do 3000</code>",
         "ask_ok": "🤖 <b>Szukam:</b>\n{summary}\n\n🏠 Znaleziono: <b>{total}</b>",
         "unknown_cmd": "🤔 Nie rozumiem.\n\n/menu lub /help",
-        "vip_only": "💎 Tylko VIP!",
         "menu_style_capital": "🏛 Tryb stolicy",
         "menu_style_coastal": "🌊 Tryb nadmorski",
         "menu_style_industrial": "🏭 Tryb przemysłowy",
@@ -938,6 +902,7 @@ LANG_EXTRA = {
         "settings_hide_seen_on": "✅ Ukrywaj oglądane: WŁ",
         "settings_hide_seen_off": "❌ Ukrywaj oglądane: WYŁ",
         "settings_change_city": "🏙 Zmień miasto",
+        "settings_change_lang": "🌐 Język",
         "settings_back_menu": "◀️ Menu",
         "daily_radius_note": "\n📍 + miasta w promieniu {km} km ({n} łącznie)",
         "settings_saved": "✅ Zapisano",
@@ -978,12 +943,6 @@ LANG_EXTRA = {
         "map_row": "📍 <b>{district}</b>\n   {bar} avg <b>{avg} zł</b> · od {min_price} zł · {cnt}",
         "map_row_city": "📍 <b>{district}</b> ({city})\n   {bar} avg <b>{avg} zł</b> · od {min_price} zł · {cnt}",
         "map_pick_district": "🔍 Wybierz dzielnicę",
-        "vip_benefits": "✅ Bez limitu · alerty · subskrypcje · digest",
-        "vip_benefits_free": "✅ Alerty · subskrypcje · obniżki · digest · priorytet",
-        "vip_pitch": (
-            "⭐ <b>VIP — {price} zł/mies.</b>\n\n{benefits}\n\n"
-            "🆓 <b>Za darmo:</b>\n👥 {ref_bar} {ref_count}/{ref_required}\n❤️ {fav_bar} {fav_count}/10"
-        ),
         "fav_empty": "❤️ <b>Ulubione puste</b>\n\nDodawaj przyciskiem ❤️ pod ogłoszeniem.",
         "fav_header": "❤️ <b>Ulubione — str. {page}/{total_pages} ({total}):</b>",
         "fav_nav": "{page}/{total_pages}  ({total})",
@@ -1044,8 +1003,7 @@ LANG_EXTRA = {
         "adv_off": "wył",
         "adv_applied": "✅ <b>Filtry zastosowane!</b>\n\n{summary}\n\n🏠 Znaleziono: <b>{total}</b>{hint}",
         "adv_reset_ok": "✅ Filtry zresetowane!",
-        "alert_list": "🔔 <b>Alerty ({n}/{limit}):</b>\n\nPowiadomię gdy pojawi się oferta.{hint}",
-        "alert_vip_hint": "\n\n💎 VIP — do {limit} alertów.",
+        "alert_list": "🔔 <b>Alerty ({n}/{limit}):</b>\n\nPowiadomię gdy pojawi się oferta.",
         "alert_btn_create": "➕ Nowy alert",
         "alert_item": "🗑 #{id}: {district} do {price_max} zł{city}",
         "alert_any_district": "dowolna dzielnica",
@@ -1186,8 +1144,7 @@ LANG_EXTRA = {
         "city_pick_hint": "Pick a city — search there and within 100 km.\n⚠️ Filters will reset.",
         "decline_terms": "❌ You declined the terms.\n\nChanged your mind? /start",
         "friend_default": "friend",
-        "limit_vip_btn": "⭐ VIP — {price} PLN/mo",
-        "limit_ref_btn": "👥 Get free access",
+        "limit_ref_btn": "👥 Invite friend",
         "limit_one_left": "\n\n⚠️ <b>1 free view left</b> of {limit}.",
         "filter_furnished": "🛋 furnished",
         "filter_unfurnished": "unfurnished",
@@ -1244,7 +1201,6 @@ LANG_EXTRA = {
         "ask_fail": "😔 Could not parse query.\n\n<code>/ask 2 rooms up to 3000</code>",
         "ask_ok": "🤖 <b>Searching:</b>\n{summary}\n\n🏠 Found: <b>{total}</b>",
         "unknown_cmd": "🤔 Unknown command.\n\nTry /menu or /help",
-        "vip_only": "💎 VIP only!",
         "free_unlimited_badge": "🆓 Free · unlimited views",
         "settings_title": (
             "⚙️ <b>Search settings</b>\n\n"
@@ -1258,6 +1214,7 @@ LANG_EXTRA = {
         "settings_hide_seen_on": "✅ Hide seen: ON",
         "settings_hide_seen_off": "❌ Hide seen: OFF",
         "settings_change_city": "🏙 Change city",
+        "settings_change_lang": "🌐 Language",
         "settings_back_menu": "◀️ Menu",
         "daily_radius_note": "\n📍 + cities within {km} km ({n} total)",
         "settings_saved": "✅ Saved",
@@ -1298,12 +1255,6 @@ LANG_EXTRA = {
         "map_row": "📍 <b>{district}</b>\n   {bar} avg <b>{avg} PLN</b> · from {min_price} · {cnt} ads",
         "map_row_city": "📍 <b>{district}</b> ({city})\n   {bar} avg <b>{avg} PLN</b> · from {min_price} · {cnt} ads",
         "map_pick_district": "🔍 Pick district",
-        "vip_benefits": "✅ Unlimited views · alerts · subscriptions · digest",
-        "vip_benefits_free": "✅ Smart alerts · district subs · price drops · digest · priority",
-        "vip_pitch": (
-            "⭐ <b>VIP — {price} PLN/mo</b>\n\n{benefits}\n\n"
-            "🆓 <b>Get free:</b>\n👥 {ref_bar} {ref_count}/{ref_required}\n❤️ {fav_bar} {fav_count}/10"
-        ),
         "fav_empty": "❤️ <b>Favorites empty</b>\n\nTap ❤️ under a listing to save it.",
         "fav_header": "❤️ <b>Favorites — p. {page}/{total_pages} ({total}):</b>",
         "fav_nav": "{page}/{total_pages}  ({total})",
@@ -1364,8 +1315,7 @@ LANG_EXTRA = {
         "adv_off": "off",
         "adv_applied": "✅ <b>Advanced filters applied!</b>\n\n{summary}\n\n🏠 Found: <b>{total}</b>{hint}",
         "adv_reset_ok": "✅ All filters reset!",
-        "alert_list": "🔔 <b>Alerts ({n}/{limit}):</b>\n\nI'll notify you when a match appears.{hint}",
-        "alert_vip_hint": "\n\n💎 VIP — up to {limit} alerts.",
+        "alert_list": "🔔 <b>Alerts ({n}/{limit}):</b>\n\nI'll notify you when a match appears.",
         "alert_btn_create": "➕ Create alert",
         "alert_item": "🗑 #{id}: {district} up to {price_max} PLN{city}",
         "alert_any_district": "any district",

@@ -270,6 +270,20 @@ def resolve_search_cities(city: str, radius_km: int | float | None = None) -> li
     return get_cities_in_radius(city, float(radius_km))
 
 
+def format_apt_location(apt: dict, fallback: str = "") -> str:
+    """Human-readable district + city for cards and notifications."""
+    district = (apt.get("district") or "").strip()
+    city = apt.get("city") or ""
+    city_label = CITIES.get(city, {}).get("label", city) if city else ""
+    if district and city_label:
+        return f"{district}, {city_label}"
+    if district:
+        return district
+    if city_label:
+        return city_label
+    return fallback or "—"
+
+
 # Domiporta fallback paths: voivodeship/city
 DOMIPORTA_PATHS = {
     "Warszawa": "mazowieckie/warszawa",

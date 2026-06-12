@@ -33,7 +33,7 @@ from config import (
     CITY_DISTRICTS, resolve_search_cities, get_cities_in_radius,
     MIN_LISTINGS_PLATFORM_HINT,
     CITY_MENU_STYLE, BOOKING_LOCATIONS, AIRBNB_LOCATIONS, flatio_daily_url,
-    DISTRICT_ALL, is_all_district,
+    DISTRICT_ALL, is_all_district, format_apt_location,
 )
 from config import REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS
 from bot.i18n import t
@@ -1310,7 +1310,7 @@ async def _show_alerts(user_id: int, target, state: FSMContext):
         )])
     kb = InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
     await target.answer(
-        t(lang, "alert_list", n=len(alerts), limit=limit, hint=""),
+        t(lang, "alert_list", n=len(alerts), limit=limit),
         parse_mode="HTML",
         reply_markup=kb,
     )
@@ -1418,8 +1418,10 @@ async def _show_ref(user_id: int, target):
     ref_count = stats.get("ref_count", 0)
     bot_me = await target.bot.get_me()
     ref_link = f"https://t.me/{bot_me.username}?start=ref_{ref_code}"
-    next_reward = REFERRAL_REQUIRED - (ref_count % REFERRAL_REQUIRED)
-    bar = "🟩" * (ref_count % REFERRAL_REQUIRED) + "⬜" * next_reward
+    progress = ref_count % REFERRAL_REQUIRED
+    filled = REFERRAL_REQUIRED if (ref_count > 0 and progress == 0) else progress
+    next_reward = REFERRAL_REQUIRED - filled
+    bar = "🟩" * filled + "⬜" * (REFERRAL_REQUIRED - filled)
 
     lang = get_lang(user_id)
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -1432,7 +1434,7 @@ async def _show_ref(user_id: int, target):
             link=ref_link,
             count=ref_count,
             bar=bar,
-            progress=ref_count % REFERRAL_REQUIRED,
+            progress=filled,
             required=REFERRAL_REQUIRED,
             next_reward=next_reward,
         ),
@@ -1516,6 +1518,7 @@ async def _show_settings(user_id: int, target, state: FSMContext, edit: bool = F
         [InlineKeyboardButton(text=toggle_radius, callback_data="toggle_search_radius")],
         [InlineKeyboardButton(text=toggle_hide, callback_data="toggle_hide_seen")],
         [InlineKeyboardButton(text=t(lang, "settings_change_city"), callback_data="open_city_pick")],
+        [InlineKeyboardButton(text=t(lang, "settings_change_lang"), callback_data="open_lang")],
         [InlineKeyboardButton(text=t(lang, "settings_back_menu"), callback_data="open_menu")],
     ])
     if edit:
@@ -1647,7 +1650,7 @@ async def _show_drops(target, user_id: int | None = None):
             t(
                 lang, "drops_card",
                 diff=diff, pct=pct, title=apt.get("title", "—"),
-                old=old, current=current, district=apt.get("district", city),
+                old=old, current=current, district=format_apt_location(apt, city),
             ),
             reply_markup=kb,
             parse_mode="HTML",
@@ -2280,6 +2283,16 @@ async def cb_subscribe(call: CallbackQuery, state: FSMContext):
 
 @router.message(Command("lang"))
 async def cmd_lang(message: Message):
+    await _show_lang_picker(message.from_user.id, message)
+
+
+@router.callback_query(F.data == "open_lang")
+async def cb_open_lang(call: CallbackQuery):
+    await call.answer()
+    await _show_lang_picker(call.from_user.id, call.message)
+
+
+async def _show_lang_picker(user_id: int, target):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="🇷🇺 Русский",    callback_data="lang:ru"),
@@ -2290,8 +2303,8 @@ async def cmd_lang(message: Message):
             InlineKeyboardButton(text="🇬🇧 English",    callback_data="lang:en"),
         ],
     ])
-    lang = get_lang(message.from_user.id)
-    await message.answer(t(lang, "lang_pick"), parse_mode="HTML", reply_markup=kb)
+    lang = get_lang(user_id)
+    await target.answer(t(lang, "lang_pick"), parse_mode="HTML", reply_markup=kb)
 
 
 @router.callback_query(F.data.startswith("lang:"))
@@ -2334,7 +2347,7 @@ async def cmd_digest(message: Message):
             lang, "digest_cheapest",
             title=c.get("title", "—"),
             price=c.get("price", 0),
-            district=c.get("district", "Warszawa"),
+            district=format_apt_location(c),
             link=c.get("link", ""),
         )
     kb = InlineKeyboardMarkup(inline_keyboard=[[
@@ -2395,11 +2408,12 @@ async def cb_share(call: CallbackQuery):
     await call.answer()
     bot_me = await call.bot.get_me()
     icon = SOURCE_ICONS.get(apt.get("source", ""), "📡")
+    loc = format_apt_location(apt)
     share_text = t(
         lang, "share_text",
         title=apt.get("title", "—"),
         price=apt.get("price", 0),
-        district=apt.get("district", "Warszawa"),
+        district=loc,
         link=apt.get("link", ""),
         icon=icon,
         bot=bot_me.username,
@@ -2418,7 +2432,7 @@ async def cb_share(call: CallbackQuery):
             lang, "share_title",
             title=apt.get("title", "—"),
             price=apt.get("price", 0),
-            district=apt.get("district", "Warszawa"),
+            district=loc,
         ),
         parse_mode="HTML",
         reply_markup=kb

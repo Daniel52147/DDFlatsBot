@@ -137,8 +137,6 @@ TEXTS = {
 
         # ── Bonuses ─────────────────────────────────────────────
         "ref_bonus":  "🎁 Спасибо за приглашение друга!",
-        "vip_fav10":  "\n\n🎁 <b>+3 дня VIP</b> за 10 сохранённых квартир!",
-        "vip_loyal":  "\n\n🎁 <b>+2 дня VIP</b> за активность!",
         "remaining":  "\n\n📦 Ещё <b>{n}</b> квартир по фильтрам",
         "warn_check": "Всегда проверяй квартиру лично перед оплатой.",
 
@@ -251,8 +249,6 @@ TEXTS = {
         "vip_badge":  "💎 <b>VIP</b> до {until}",
         "free_badge": "🆓 {bar} {used}/{total} переглядів",
         "ref_bonus":  "🎁 Дякуємо за запрошення друга!",
-        "vip_fav10":  "\n\n🎁 <b>+3 дні VIP</b> за 10 збережених квартир!",
-        "vip_loyal":  "\n\n🎁 <b>+2 дні VIP</b> за активність!",
         "remaining":  "\n\n📦 Ще <b>{n}</b> квартир за фільтрами",
         "warn_check": "Завжди перевіряй квартиру особисто перед оплатою.",
         "lang_changed": "🇺🇦 Мову змінено на Українську",
@@ -359,8 +355,6 @@ TEXTS = {
         "vip_badge":  "💎 <b>VIP</b> do {until}",
         "free_badge": "🆓 {bar} {used}/{total} przeglądań",
         "ref_bonus":  "🎁 Dzięki za zaproszenie znajomego!",
-        "vip_fav10":  "\n\n🎁 <b>+3 dni VIP</b> za 10 zapisanych mieszkań!",
-        "vip_loyal":  "\n\n🎁 <b>+2 dni VIP</b> za aktywność!",
         "remaining":  "\n\n📦 Jeszcze <b>{n}</b> mieszkań wg filtrów",
         "warn_check": "Zawsze sprawdzaj mieszkanie osobiście przed płatnością.",
         "lang_changed": "🇵🇱 Język zmieniony na Polski",
@@ -480,8 +474,6 @@ TEXTS = {
         "vip_badge": "💎 <b>VIP</b> until {until}",
         "free_badge": "🆓 {bar} {used}/{total} views",
         "ref_bonus": "🎁 Thanks for inviting a friend!",
-        "vip_fav10": "\n\n🎁 <b>+3 days VIP</b> for 10 saved apartments!",
-        "vip_loyal": "\n\n🎁 <b>+2 days VIP</b> for activity!",
         "remaining": "\n\n📦 <b>{n}</b> more listings match your filters",
         "warn_check": "Always verify the apartment in person before payment.",
         "lang_changed": "🇬🇧 Language set to English",

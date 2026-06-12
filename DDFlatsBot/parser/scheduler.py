@@ -19,19 +19,10 @@ from database.db import (
     get_cheapest_apartments, get_conn, get_morning_push_apts, count_apartments,
 )
 from validation.integration import ValidationPipeline
-from config import CHANNEL_ID, DB_PATH, ADMIN_IDS, CITIES, MIN_LISTINGS_PER_CITY
+from config import CHANNEL_ID, DB_PATH, ADMIN_IDS, CITIES, MIN_LISTINGS_PER_CITY, format_apt_location
 
 _bot = None
 _loop = None
-
-
-def _apt_location(apt: dict) -> str:
-    district = (apt.get("district") or "").strip()
-    city = apt.get("city") or ""
-    city_label = CITIES.get(city, {}).get("label", city) if city else ""
-    if district and city_label:
-        return f"{district}, {city_label}"
-    return district or city_label or "Polska"
 _parse_lock = threading.Lock()  # Prevent overlapping parse cycles
 
 PARSER_TIMEOUT = 120  # seconds per source
@@ -269,7 +260,7 @@ async def _post_channel():
         for apt in apts:
             source_icons = {"OLX": "🟠", "Otodom": "🔵", "Gratka": "🟢", "Morizon": "🟣", "Adresowo": "🟡", "Domiporta": "🔴", "Lento": "🟤"}
             icon = source_icons.get(apt.get("source", ""), "📡")
-            loc = _apt_location(apt)
+            loc = format_apt_location(apt)
             text = (
                 f"🏠 <b>{apt['title']}</b>\n"
                 f"💰 <b>{apt['price']} zł/mies</b>\n"
@@ -433,7 +424,7 @@ async def _daily_digest():
                     price=apt["price"],
                     rooms=rooms_str,
                     area=area_str,
-                    district=_apt_location(apt),
+                    district=format_apt_location(apt),
                     icon=icon,
                     source=apt.get("source", ""),
                     link=apt["link"],
@@ -528,7 +519,7 @@ async def _notify(apartments: list):
                     title=apt['title'],
                     price=apt['price'],
                     price_badge=price_badge,
-                    district=_apt_location(apt),
+                    district=format_apt_location(apt),
                 ),
                 parse_mode="HTML",
                 reply_markup=kb
@@ -551,7 +542,7 @@ async def _notify(apartments: list):
                 t(
                     lang,
                     "notify_new_in_district",
-                    district=_apt_location(apt),
+                    district=format_apt_location(apt),
                     title=apt['title'],
                     price=apt['price'],
                 ),
