@@ -11,6 +11,7 @@ from typing import Any, Callable, Awaitable
 import httpx
 
 import config
+from simulator.ssl_util import http_verify, ssl_context
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,13 @@ class PriceFeed:
     def on_tick(self, cb: Callable[[float, float], Awaitable[None]]):
         self._callbacks.append(cb)
 
+    def _client(self, timeout: float = 15) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            timeout=timeout,
+            follow_redirects=True,
+            verify=http_verify(),
+        )
+
     async def _notify(self, price: float, ts: float):
         for cb in self._callbacks:
             try:
@@ -48,7 +56,7 @@ class PriceFeed:
         return price
 
     async def fetch_price(self) -> float:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+        async with self._client(timeout=15) as client:
             errors: list[str] = []
             for name, fetcher in (
                 ("binance", self._fetch_binance),
@@ -112,7 +120,7 @@ class PriceFeed:
         raise RuntimeError("kraken pair not found")
 
     async def fetch_klines(self, interval: str = "1m", limit: int = 100) -> list[dict[str, Any]]:
-        async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+        async with self._client(timeout=20) as client:
             errors: list[str] = []
             for name, fetcher in (
                 ("binance", self._klines_binance),
@@ -298,7 +306,7 @@ class PriceFeed:
         for base in (BINANCE_WS, "wss://stream.binance.us:9443/ws"):
             url = f"{base}/{config.SYMBOL.lower()}@trade"
             try:
-                async with websockets.connect(url, ping_interval=20) as ws:
+                async with websockets.connect(url, ping_interval=20, ssl=ssl_context()) as ws:
                     logger.info("WS connected: %s", url)
                     async for raw in ws:
                         msg = json.loads(raw)
@@ -313,7 +321,7 @@ class PriceFeed:
 
     async def _ws_kraken(self):
         import websockets
-        async with websockets.connect(KRAKEN_WS, ping_interval=20) as ws:
+        async with websockets.connect(KRAKEN_WS, ping_interval=20, ssl=ssl_context()) as ws:
             await ws.send(json.dumps({
                 "event": "subscribe",
                 "pair": ["XBT/USDT"],
@@ -332,7 +340,7 @@ class PriceFeed:
     async def _ws_bybit(self):
         import websockets
         url = "wss://stream.bybit.com/v5/public/spot"
-        async with websockets.connect(url, ping_interval=20) as ws:
+        async with websockets.connect(url, ping_interval=20, ssl=ssl_context()) as ws:
             await ws.send(json.dumps({
                 "op": "subscribe",
                 "args": [f"publicTrade.{config.SYMBOL}"],

@@ -32,3 +32,6 @@ MAX_CANDLES = 500
 # Learning
 LEARNING_CHECK_HOURS = 24
 MIN_TRADES_FOR_TUNING = 5
+
+# Fallback BTC price when all APIs unreachable (SSL/network)
+DEMO_FALLBACK_PRICE = 63_000.0

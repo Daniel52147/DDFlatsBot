@@ -141,9 +141,16 @@ async def lifespan(app: FastAPI):
     history = await feed.fetch_klines(interval=config.CANDLE_INTERVAL, limit=100)
   except Exception as e:
     logger.error("Klines unavailable at startup: %s", e)
-    price = await feed.fetch_price()
+    try:
+      price = await feed.fetch_price()
+    except Exception as e2:
+      logger.error("Price unavailable, demo fallback: %s", e2)
+      price = config.DEMO_FALLBACK_PRICE
+      feed.price = price
+      feed.last_update = time.time()
+      feed.source = "demo-fallback"
     history = feed._synthetic_candles(price, 100)
-    feed.source = "synthetic"
+    feed.source = feed.source or "synthetic"
   candles.load_history(history)
   if history:
     feed.price = history[-1]["close"]
