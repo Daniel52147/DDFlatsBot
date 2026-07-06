@@ -122,7 +122,13 @@ async def run_feed_loop():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
   await logger_db.init()
-  history = await feed.fetch_klines(interval=config.CANDLE_INTERVAL, limit=100)
+  try:
+    history = await feed.fetch_klines(interval=config.CANDLE_INTERVAL, limit=100)
+  except Exception as e:
+    logger.error("Klines unavailable at startup: %s", e)
+    price = await feed.fetch_price()
+    history = feed._synthetic_candles(price, 100)
+    feed.source = "synthetic"
   candles.load_history(history)
   if history:
     feed.price = history[-1]["close"]
