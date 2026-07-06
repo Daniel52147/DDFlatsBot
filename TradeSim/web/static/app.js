@@ -81,7 +81,7 @@ function renderTabs() {
   if (!nav) return;
   nav.innerHTML = marketMeta.map(m => {
     const d = marketsData[m.symbol];
-    const price = d?.price > 0 ? fmtMoney(d.price, m.label === "BTC" ? 0 : 2) : "…";
+    const price = d?.price != null && !isNaN(d.price) ? fmtMoney(d.price, m.label === "BTC" ? 0 : 2) : "…";
     const active = m.symbol === activeSymbol ? " active" : "";
     return `<button type="button" class="tab${active}" data-symbol="${m.symbol}">${m.label}<span>${price}</span></button>`;
   }).join("");
@@ -203,9 +203,26 @@ function renderBrain(brain) {
   });
 }
 
+const PRICE_RANGE = {
+  BTC: [1000, 500000],
+  ETH: [100, 50000],
+  SOL: [1, 2000],
+  BNB: [10, 5000],
+};
+
+function priceOk(label, price) {
+  if (price == null || isNaN(price)) return false;
+  const r = PRICE_RANGE[label];
+  if (!r) return price > 0;
+  return price >= r[0] && price <= r[1];
+}
+
 function mergeMarket(sym, patch) {
-  const prev = marketsData[sym] || { symbol: sym, label: labelFor(sym) };
-  marketsData[sym] = { ...prev, ...patch, symbol: sym, label: prev.label || labelFor(sym) };
+  const label = labelFor(sym);
+  if (patch?.symbol && patch.symbol !== sym) return; // не подмешивать чужой рынок
+  if (patch?.price != null && !priceOk(label, patch.price)) return; // ETH не может стоить $62000
+  const prev = marketsData[sym] || { symbol: sym, label };
+  marketsData[sym] = { ...prev, ...patch, symbol: sym, label: prev.label || label };
 }
 
 function applyWsInit(msg) {
@@ -368,44 +385,24 @@ async function refreshStatus() {
 async function loadBrain() {
   try {
     const res = await fetch("/api/brain");
+    if (!res.ok) return;
     const data = await res.json();
     if (data.cycle) renderBrain(data.cycle);
   } catch (_) {}
 }
 
-async function checkServer() {
-  try {
-    const res = await fetch("/api/ping");
-    if (res.status === 404) return null; // старый сервер без ping — ок
-    const data = await res.json();
-    if (data.markets && data.markets.length < 4) {
-      showError("Перезапусти сервер: Ctrl+C → python main.py");
-    }
-    return data;
-  } catch (_) {
-    return null;
-  }
-}
-
 async function loadInitial() {
-  const embedded = loadEmbeddedData();
-  if (!embedded) await checkServer();
-  await refreshStatus();
-
-  try {
-    const chatRes = await fetch("/api/assistant");
-    const chatData = await chatRes.json();
-    if (chatData.briefing) {
-      renderChat([{ role: "assistant", content: chatData.briefing }]);
-    }
-    if (chatData.brain) renderBrain(chatData.brain);
-  } catch (_) {}
-
+  let ok = loadEmbeddedData();
+  if (!ok) ok = await fetchBootstrap();
+  if (!ok) await refreshStatus();
   await loadBrain();
-  await renderAllTrades();
-
-  if (!marketsData[activeSymbol]?.price && !embedded) {
-    showError("Данные грузятся... Ctrl+C → python main.py → Ctrl+F5");
+  if (!marketsData[activeSymbol]?.price) {
+    showError("Обнови код: git pull → Ctrl+C → python main.py → Ctrl+Shift+R");
+  }
+  // DCA $100 = старая версия, должно быть $25
+  const dca = marketsData[activeSymbol]?.strategy?.params?.dca_amount;
+  if (dca && dca >= 100) {
+    showError("Старая версия бота (DCA $100). Сделай git pull и перезапусти python main.py");
   }
 }
 
@@ -450,7 +447,7 @@ async function main() {
     await loadInitial();
     connectWs();
     setInterval(refreshStatus, 5000);
-    setInterval(loadBrain, 60000);
+    setInterval(loadBrain, 15000);
   } catch (e) {
     showError(e.message);
   }

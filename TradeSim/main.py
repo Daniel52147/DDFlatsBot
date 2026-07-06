@@ -181,10 +181,21 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "web" / "static")), na
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
+    all_trades = []
+    for sym, s in sessions.items():
+        for t in s.engine.trades:
+            all_trades.append({
+                "symbol": sym, "label": s.label,
+                "side": t.side, "price": t.price,
+                "reason": t.reason, "ts": t.ts,
+            })
+    all_trades.sort(key=lambda x: x["ts"], reverse=True)
     payload = {
+        "version": 3,
         "markets": {sym: s.status_payload() for sym, s in sessions.items()},
         "total": total_portfolio(),
         "brain": _brain_public(state["brain_cycle"]) if state.get("brain_cycle") else None,
+        "trades": all_trades[:30],
         "chat": state["chat_history"][-1]["content"] if state.get("chat_history") else "",
     }
     return templates.TemplateResponse(
