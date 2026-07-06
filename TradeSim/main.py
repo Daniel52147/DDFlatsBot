@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from starlette.requests import Request
 
 import config
-from assistant.helper import TradingAssistant
+from assistant.coordinator import CentralBrain
 from learning.logger import LearningLogger
 from simulator.market_session import MarketSession
 
@@ -32,12 +32,13 @@ sessions: dict[str, MarketSession] = {
     m["symbol"]: MarketSession(m) for m in config.MARKETS
 }
 logger_db = LearningLogger()
-assistant = TradingAssistant()
+brain = CentralBrain()
 
 state: dict[str, Any] = {
     "connected_clients": set(),
     "running": False,
     "chat_history": [],
+    "brain_cycle": None,
 }
 
 
@@ -98,6 +99,49 @@ async def run_session_loop(session: MarketSession):
         ws_task.cancel()
 
 
+async def brain_loop():
+    """Central brain thinks every 2 minutes — agents report, brain decides."""
+    await asyncio.sleep(15)  # wait for market data
+    while state["running"]:
+        try:
+            ctx = all_contexts()
+            total = total_portfolio()
+            cycle = await brain.think(ctx, total)
+            state["brain_cycle"] = cycle
+            brain.apply_decision(sessions, cycle["decision"])
+            await logger_db.log_assistant("brain", cycle["summary"])
+            await broadcast({"type": "brain_update", "cycle": _brain_public(cycle)})
+        except Exception as e:
+            logger.warning("brain loop error: %s", e)
+        await asyncio.sleep(120)
+
+
+def _brain_public(cycle: dict) -> dict:
+    """Trim cycle for frontend."""
+    return {
+        "verdict": cycle.get("verdict"),
+        "decision": cycle.get("decision"),
+        "summary": cycle.get("summary"),
+        "mentor": {
+            "emoji": cycle["mentor"]["emoji"],
+            "name": cycle["mentor"]["name"],
+            "summary": cycle["mentor"]["summary"],
+        },
+        "news": {
+            "emoji": cycle["news"]["emoji"],
+            "name": cycle["news"]["name"],
+            "summary": cycle["news"]["summary"],
+            "sentiment": cycle["news"].get("sentiment"),
+        },
+        "schemer": {
+            "emoji": cycle["schemer"]["emoji"],
+            "name": cycle["schemer"]["name"],
+            "summary": cycle["schemer"]["summary"],
+        },
+        "ts": cycle.get("ts"),
+    }
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await logger_db.init()
@@ -106,9 +150,18 @@ async def lifespan(app: FastAPI):
 
     state["running"] = True
     tasks = [asyncio.create_task(run_session_loop(s)) for s in sessions.values()]
+    tasks.append(asyncio.create_task(brain_loop()))
 
-    greeting = assistant.chat("привет", all_contexts(), total_portfolio())
-    state["chat_history"] = [{"role": "assistant", "content": greeting}]
+    # First brain think
+    cycle = await brain.think(all_contexts(), total_portfolio())
+    state["brain_cycle"] = cycle
+    brain.apply_decision(sessions, cycle["decision"])
+
+    greeting = brain.chat("привет", all_contexts(), total_portfolio())
+    state["chat_history"] = [
+        {"role": "assistant", "content": greeting},
+        {"role": "assistant", "content": cycle["summary"]},
+    ]
     await logger_db.log_assistant("assistant", greeting)
 
     yield
@@ -150,19 +203,32 @@ async def api_status(symbol: str | None = None):
     }
 
 
+@app.get("/api/brain")
+async def api_brain():
+    cycle = state.get("brain_cycle")
+    if not cycle:
+        return {"status": "thinking"}
+    return {"status": "ok", "cycle": _brain_public(cycle)}
+
+
 @app.get("/api/assistant")
 async def api_assistant():
-    briefing = assistant.chat("как идут дела", all_contexts(), total_portfolio())
+    briefing = brain.chat("как идут дела", all_contexts(), total_portfolio())
     messages = await logger_db.recent_assistant_messages(20)
-    return {"briefing": briefing, "messages": messages, "chat": state["chat_history"][-10:]}
+    return {
+        "briefing": briefing,
+        "messages": messages,
+        "chat": state["chat_history"][-10:],
+        "brain": _brain_public(state["brain_cycle"]) if state.get("brain_cycle") else None,
+    }
 
 
 @app.post("/api/assistant/chat")
 async def api_chat(body: ChatRequest):
     msg = (body.message or "").strip()
     if not msg:
-        return {"reply": "Напиши вопрос — например: «как дела?» или «что с ETH?»"}
-    reply = assistant.chat(msg, all_contexts(), total_portfolio())
+        return {"reply": "Напиши: «как дела?», «новости», «что думает мозг?», «схемы»"}
+    reply = brain.chat(msg, all_contexts(), total_portfolio())
     state["chat_history"].append({"role": "user", "content": msg})
     state["chat_history"].append({"role": "assistant", "content": reply})
     state["chat_history"] = state["chat_history"][-40:]
@@ -198,6 +264,7 @@ async def websocket_endpoint(ws: WebSocket):
             "markets": {sym: s.status_payload() for sym, s in sessions.items()},
             "total": total_portfolio(),
             "assistant": state["chat_history"][-1]["content"] if state["chat_history"] else "",
+            "brain": _brain_public(state["brain_cycle"]) if state.get("brain_cycle") else None,
         })
         while True:
             await ws.receive_text()

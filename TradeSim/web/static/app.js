@@ -142,6 +142,22 @@ function applyMarketUpdate(symbol, data) {
   renderTabs();
 }
 
+function renderBrain(brain) {
+  if (!brain) return;
+  const v = document.getElementById("brain-verdict");
+  if (v) v.textContent = brain.verdict || "—";
+  const setAgent = (id, data) => {
+    const el = document.getElementById(id);
+    if (!el || !data) return;
+    el.classList.add("active");
+    const sm = el.querySelector("small");
+    if (sm) sm.textContent = (data.summary || "").slice(0, 60) + "...";
+  };
+  setAgent("agent-mentor", brain.mentor);
+  setAgent("agent-news", brain.news);
+  setAgent("agent-schemer", brain.schemer);
+}
+
 function connectWs() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const ws = new WebSocket(`${proto}//${location.host}/ws`);
@@ -152,7 +168,14 @@ function connectWs() {
       updateTotal(msg.total);
       switchMarket(activeSymbol);
       if (msg.assistant) renderChat([{ role: "assistant", content: msg.assistant }]);
+      if (msg.brain) renderBrain(msg.brain);
       setLiveStatus(true);
+    }
+    if (msg.type === "brain_update") {
+      renderBrain(msg.cycle);
+      if (msg.cycle?.summary) {
+        renderChat([{ role: "assistant", content: msg.cycle.summary }]);
+      }
     }
     if (msg.type === "tick" && msg.symbol) {
       const prev = marketsData[msg.symbol] || {};
@@ -196,6 +219,7 @@ async function loadInitial() {
   const chatRes = await fetch("/api/assistant");
   const chatData = await chatRes.json();
   renderChat(chatData.chat || [{ role: "assistant", content: chatData.briefing }]);
+  if (chatData.brain) renderBrain(chatData.brain);
 }
 
 document.getElementById("btn-toggle").onclick = async () => {

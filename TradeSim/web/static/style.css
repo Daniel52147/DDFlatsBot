@@ -221,6 +221,25 @@ footer {
 
 .chat-form input:focus { outline: none; border-color: var(--accent); }
 
+.brain-card { border-color: var(--purple); }
+.brain-verdict { font-size: 0.85rem; color: var(--text); margin-bottom: 0.75rem; line-height: 1.4; }
+
+.agents-grid { display: grid; grid-template-columns: 1fr; gap: 0.5rem; }
+.agent {
+  display: grid;
+  grid-template-columns: 2rem 1fr;
+  grid-template-rows: auto auto;
+  gap: 0 0.5rem;
+  padding: 0.5rem;
+  background: rgba(0,0,0,0.2);
+  border-radius: 8px;
+  font-size: 0.8rem;
+}
+.agent span { grid-row: 1 / 3; font-size: 1.4rem; align-self: center; }
+.agent b { color: var(--text); }
+.agent small { color: var(--muted); grid-column: 2; }
+.agent.active { border-left: 3px solid var(--green); }
+
 .assistant-text { display: none; }
 
 .chart-legend { font-size: 0.75rem; }
