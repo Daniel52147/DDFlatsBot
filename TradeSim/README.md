@@ -21,6 +21,24 @@ python main.py
 
 Open http://localhost:8765
 
+### Windows SSL error (`CERTIFICATE_VERIFY_FAILED`)
+
+If APIs fail on Windows Python 3.13:
+
+```powershell
+python -m pip install certifi
+python main.py
+```
+
+Or enable local workaround (paper trading only):
+
+```powershell
+$env:TRADESIM_INSECURE_SSL="1"
+python main.py
+```
+
+The app also auto-retries without SSL verify after the first SSL failure.
+
 ## Monetization path (later)
 
 - Subscription for alerts + paper accounts

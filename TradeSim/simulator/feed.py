@@ -11,7 +11,13 @@ from typing import Any, Callable, Awaitable
 import httpx
 
 import config
-from simulator.ssl_util import http_verify, ssl_context
+from simulator.ssl_util import (
+    enable_insecure_ssl,
+    http_verify,
+    is_ssl_verify_error,
+    ssl_context,
+    use_insecure_ssl,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +62,16 @@ class PriceFeed:
         return price
 
     async def fetch_price(self) -> float:
+        try:
+            return await self._fetch_price_once()
+        except RuntimeError as e:
+            if not use_insecure_ssl() and is_ssl_verify_error(str(e)):
+                enable_insecure_ssl()
+                logger.info("Retrying price fetch without SSL verify...")
+                return await self._fetch_price_once()
+            raise
+
+    async def _fetch_price_once(self) -> float:
         async with self._client(timeout=15) as client:
             errors: list[str] = []
             for name, fetcher in (
@@ -120,6 +136,16 @@ class PriceFeed:
         raise RuntimeError("kraken pair not found")
 
     async def fetch_klines(self, interval: str = "1m", limit: int = 100) -> list[dict[str, Any]]:
+        try:
+            return await self._fetch_klines_once(interval, limit)
+        except RuntimeError as e:
+            if not use_insecure_ssl() and is_ssl_verify_error(str(e)):
+                enable_insecure_ssl()
+                logger.info("Retrying klines fetch without SSL verify...")
+                return await self._fetch_klines_once(interval, limit)
+            raise
+
+    async def _fetch_klines_once(self, interval: str, limit: int) -> list[dict[str, Any]]:
         async with self._client(timeout=20) as client:
             errors: list[str] = []
             for name, fetcher in (
