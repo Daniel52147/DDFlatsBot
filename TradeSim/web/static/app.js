@@ -1,17 +1,17 @@
 let chart, candleSeries, smaSeries;
-let smaData = [];
-let botEnabled = true;
 let lastCandles = [];
+let marketsData = {};
+let activeSymbol = "BTCUSDT";
+let marketMeta = [];
 
-function fmtMoney(n) {
+function fmtMoney(n, decimals = 2) {
   if (n == null || isNaN(n)) return "—";
-  return "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
 
 function fmtPct(n) {
   if (n == null || isNaN(n)) return "—";
-  const sign = n >= 0 ? "+" : "";
-  return sign + Number(n).toFixed(2) + "%";
+  return (n >= 0 ? "+" : "") + Number(n).toFixed(2) + "%";
 }
 
 function initChart() {
@@ -23,164 +23,226 @@ function initChart() {
     rightPriceScale: { borderColor: "#30363d" },
   });
   candleSeries = chart.addCandlestickSeries({
-    upColor: "#3fb950",
-    downColor: "#f85149",
-    borderVisible: false,
-    wickUpColor: "#3fb950",
-    wickDownColor: "#f85149",
+    upColor: "#3fb950", downColor: "#f85149", borderVisible: false,
+    wickUpColor: "#3fb950", wickDownColor: "#f85149",
   });
-  smaSeries = chart.addLineSeries({ color: "#a371f7", lineWidth: 2, title: "SMA" });
+  smaSeries = chart.addLineSeries({ color: "#a371f7", lineWidth: 2 });
   window.addEventListener("resize", () => chart.applyOptions({ width: el.clientWidth }));
 }
 
 function updateSMA(candles, period = 20) {
-  smaData = [];
+  const smaData = [];
   for (let i = period - 1; i < candles.length; i++) {
     const slice = candles.slice(i - period + 1, i + 1);
-    const avg = slice.reduce((s, c) => s + c.close, 0) / period;
-    smaData.push({ time: candles[i].time, value: avg });
+    smaData.push({ time: candles[i].time, value: slice.reduce((s, c) => s + c.close, 0) / period });
   }
   smaSeries.setData(smaData);
 }
 
-function updateLiveCandle(candle) {
-  if (!candle) return;
-  candleSeries.update(candle);
-  // keep local copy for SMA
-  if (lastCandles.length && lastCandles[lastCandles.length - 1].time === candle.time) {
-    lastCandles[lastCandles.length - 1] = candle;
-  } else {
-    lastCandles.push(candle);
-  }
-  updateSMA(lastCandles);
-}
-
 function setLiveStatus(ok) {
   const el = document.getElementById("live-status");
-  if (!el) return;
   el.textContent = ok ? "● LIVE" : "○ пауза";
   el.className = "value live-dot" + (ok ? "" : " stale");
 }
 
-function updatePortfolio(p) {
-  document.getElementById("live-price").textContent = fmtMoney(p.price);
-  document.getElementById("portfolio-value").textContent = fmtMoney(p.portfolio_value);
-  const pnlEl = document.getElementById("pnl");
-  pnlEl.textContent = fmtPct(p.pnl_pct) + " (vs hold " + fmtPct(p.vs_hold_pct) + ")";
-  pnlEl.className = "value " + (p.pnl_pct >= 0 ? "positive" : "negative");
+function renderTabs() {
+  const nav = document.getElementById("market-tabs");
+  nav.innerHTML = marketMeta.map(m => {
+    const d = marketsData[m.symbol];
+    const price = d ? fmtMoney(d.price, m.label === "BTC" ? 0 : 2) : "—";
+    const active = m.symbol === activeSymbol ? " active" : "";
+    return `<button class="tab${active}" data-symbol="${m.symbol}">${m.label} <span>${price}</span></button>`;
+  }).join("");
+  nav.querySelectorAll(".tab").forEach(btn => {
+    btn.onclick = () => switchMarket(btn.dataset.symbol);
+  });
 }
 
-function renderBotStatus(strategy) {
-  const el = document.getElementById("bot-status");
-  const p = strategy.params || {};
-  el.innerHTML = `
-    <p>Статус: <strong>${strategy.enabled ? "активен" : "пауза"}</strong></p>
-    <p>DCA: <strong>$${p.dca_amount}</strong> каждые <strong>${p.dca_interval_hours}ч</strong></p>
-    <p>DIP: +$${p.dip_extra_amount} если ниже SMA на <strong>${p.dip_threshold_pct}%</strong></p>
-    <p>SMA-${p.sma_period}: <strong>${strategy.sma ? fmtMoney(strategy.sma) : "—"}</strong></p>
-    <p>След. DCA: ~<strong>${strategy.next_dca_in_hours}ч</strong></p>
+function switchMarket(symbol) {
+  activeSymbol = symbol;
+  const d = marketsData[symbol];
+  if (!d) return;
+  lastCandles = d.candles || [];
+  candleSeries.setData(lastCandles);
+  updateSMA(lastCandles);
+  document.getElementById("chart-title").textContent = `${d.label}/USDT — свечи`;
+  renderBotStatus(d);
+  renderTrades(d.trades);
+  renderTabs();
+}
+
+function updateLiveCandle(candle) {
+  if (!candle || activeSymbol && marketsData[activeSymbol]) {
+    const d = marketsData[activeSymbol];
+    if (d && candle) {
+      if (lastCandles.length && lastCandles[lastCandles.length - 1].time === candle.time) {
+        lastCandles[lastCandles.length - 1] = candle;
+      } else {
+        lastCandles.push(candle);
+      }
+      candleSeries.update(candle);
+      updateSMA(lastCandles);
+    }
+  }
+}
+
+function updateTotal(total) {
+  if (!total) return;
+  document.getElementById("total-value").textContent = fmtMoney(total.total_value);
+  const el = document.getElementById("total-pnl");
+  el.textContent = fmtPct(total.pnl_pct);
+  el.className = "value " + (total.pnl_pct >= 0 ? "positive" : "negative");
+}
+
+function renderBotStatus(d) {
+  const st = d.strategy || {};
+  const p = st.params || {};
+  document.getElementById("bot-status").innerHTML = `
+    <p>Рынок: <strong>${d.label}</strong> · ${st.enabled ? "активен" : "пауза"}</p>
+    <p>Цена: <strong>${fmtMoney(d.price, 4)}</strong></p>
+    <p>Портфель: <strong>${fmtMoney(d.portfolio?.portfolio_value)}</strong> (${fmtPct(d.portfolio?.pnl_pct)})</p>
+    <p>DCA: $${p.dca_amount} / ${p.dca_interval_hours}ч · DIP: ${p.dip_threshold_pct}%</p>
+    <p>SMA-${p.sma_period}: <strong>${st.sma ? fmtMoney(st.sma) : "—"}</strong></p>
   `;
-  botEnabled = strategy.enabled;
-  document.getElementById("btn-toggle").textContent = strategy.enabled ? "Пауза" : "Старт";
+  document.getElementById("btn-toggle").textContent = st.enabled ? "Пауза" : "Старт";
 }
 
 function renderTrades(trades) {
   const ul = document.getElementById("trades-list");
-  if (!trades || !trades.length) {
-    ul.innerHTML = "<li>Пока нет сделок — бот учится...</li>";
+  if (!trades?.length) {
+    ul.innerHTML = "<li>Пока нет сделок на этом рынке</li>";
     return;
   }
   ul.innerHTML = trades.slice().reverse().map(t => {
     const d = new Date(t.ts * 1000).toLocaleString("ru-RU");
-    return `<li class="${t.side}">${d} · ${t.side.toUpperCase()} @ ${fmtMoney(t.price)} · ${t.reason}</li>`;
+    return `<li class="${t.side}">${d} · ${t.side.toUpperCase()} @ ${fmtMoney(t.price, 4)} · ${t.reason}</li>`;
   }).join("");
+}
+
+function renderChat(messages) {
+  const box = document.getElementById("chat-messages");
+  box.innerHTML = (messages || []).map(m => {
+    const cls = m.role === "user" ? "chat-user" : "chat-bot";
+    return `<div class="chat-bubble ${cls}">${escapeHtml(m.content).replace(/\n/g, "<br>")}</div>`;
+  }).join("");
+  box.scrollTop = box.scrollHeight;
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+function applyMarketUpdate(symbol, data) {
+  marketsData[symbol] = { ...marketsData[symbol], ...data };
+  if (symbol === activeSymbol) {
+    if (data.candle) updateLiveCandle(data.candle);
+    if (data.portfolio) renderBotStatus(marketsData[symbol]);
+    if (data.strategy) renderBotStatus(marketsData[symbol]);
+  }
+  renderTabs();
 }
 
 function connectWs() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const ws = new WebSocket(`${proto}//${location.host}/ws`);
-
   ws.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
     if (msg.type === "init") {
-      lastCandles = msg.candles || [];
-      candleSeries.setData(lastCandles);
-      updateSMA(lastCandles);
-      updatePortfolio({ ...msg.portfolio, price: msg.price });
-      renderBotStatus(msg.strategy);
-      document.getElementById("assistant-text").textContent = msg.assistant || "";
+      marketsData = msg.markets || {};
+      updateTotal(msg.total);
+      switchMarket(activeSymbol);
+      if (msg.assistant) renderChat([{ role: "assistant", content: msg.assistant }]);
       setLiveStatus(true);
     }
-    if (msg.type === "tick") {
-      updatePortfolio({ ...msg.portfolio, price: msg.price });
-      if (msg.candle) updateLiveCandle(msg.candle);
+    if (msg.type === "tick" && msg.symbol) {
+      const prev = marketsData[msg.symbol] || {};
+      marketsData[msg.symbol] = {
+        ...prev,
+        symbol: msg.symbol,
+        label: prev.label || msg.symbol.replace("USDT", ""),
+        price: msg.price,
+        portfolio: msg.portfolio,
+        strategy: msg.strategy,
+        candle: msg.candle,
+      };
+      if (msg.symbol === activeSymbol && msg.candle) updateLiveCandle(msg.candle);
+      if (msg.symbol === activeSymbol && msg.portfolio) renderBotStatus(marketsData[msg.symbol]);
+      renderTabs();
       setLiveStatus(true);
     }
-    if (msg.type === "candle") {
-      lastCandles.push(msg.candle);
-      candleSeries.update(msg.candle);
-      updateSMA(lastCandles);
-    }
-    if (msg.type === "trade") {
-      fetch("/api/status").then(r => r.json()).then(d => renderTrades(d.trades));
-    }
-    if (msg.type === "strategy_update") {
-      document.getElementById("assistant-text").textContent =
-        "🧠 " + msg.reason + "\n\n" + document.getElementById("assistant-text").textContent;
+    if (msg.type === "trade" && msg.symbol === activeSymbol) {
+      fetch(`/api/status?symbol=${activeSymbol}`).then(r => r.json()).then(d => {
+        marketsData[activeSymbol] = d;
+        renderTrades(d.trades);
+      });
     }
   };
-
   ws.onclose = () => setTimeout(connectWs, 3000);
-  setInterval(() => { if (ws.readyState === 1) ws.send("ping"); }, 25000);
 }
 
 async function loadInitial() {
   const res = await fetch("/api/status");
   const data = await res.json();
-  lastCandles = data.candles || [];
-  candleSeries.setData(lastCandles);
-  updateSMA(lastCandles);
-  updatePortfolio({ ...data.portfolio, price: data.price });
-  renderBotStatus(data.strategy);
-  renderTrades(data.trades);
-  document.getElementById("assistant-text").textContent = data.assistant_briefing || "";
-  setLiveStatus(true);
-}
-
-function startStatusPoller() {
-  setInterval(async () => {
-    try {
-      const data = await (await fetch("/api/status")).json();
-      updatePortfolio({ ...data.portfolio, price: data.price });
-      const candles = data.candles || [];
-      if (candles.length) {
-        const last = candles[candles.length - 1];
-        updateLiveCandle(last);
-      }
-      setLiveStatus(true);
-    } catch (_) {
-      setLiveStatus(false);
-    }
-  }, 5000);
+  marketsData = data.markets || {};
+  marketMeta = Object.values(marketsData).map(m => ({ symbol: m.symbol, label: m.label }));
+  if (!marketMeta.length) {
+    const mr = await fetch("/api/markets");
+    const md = await mr.json();
+    marketMeta = md.markets.map(m => ({ symbol: m.symbol, label: m.label }));
+  }
+  updateTotal(data.total);
+  activeSymbol = marketMeta[0]?.symbol || "BTCUSDT";
+  switchMarket(activeSymbol);
+  const chatRes = await fetch("/api/assistant");
+  const chatData = await chatRes.json();
+  renderChat(chatData.chat || [{ role: "assistant", content: chatData.briefing }]);
 }
 
 document.getElementById("btn-toggle").onclick = async () => {
-  await fetch("/api/bot/toggle", { method: "POST" });
-  const d = await (await fetch("/api/status")).json();
-  renderBotStatus(d.strategy);
+  await fetch(`/api/bot/toggle?symbol=${activeSymbol}`, { method: "POST" });
+  const d = await (await fetch(`/api/status?symbol=${activeSymbol}`)).json();
+  marketsData[activeSymbol] = d;
+  renderBotStatus(d);
 };
 
-document.getElementById("btn-refresh-assistant").onclick = async () => {
-  const d = await (await fetch("/api/assistant")).json();
-  document.getElementById("assistant-text").textContent = d.briefing;
+document.getElementById("chat-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const input = document.getElementById("chat-input");
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  const prev = await (await fetch("/api/assistant")).json();
+  const interim = [...(prev.chat || []), { role: "user", content: text }];
+  renderChat(interim);
+  const res = await fetch("/api/assistant/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message: text }),
+  });
+  const data = await res.json();
+  renderChat(data.chat);
 };
 
 document.getElementById("btn-reset").onclick = async () => {
-  if (!confirm("Сбросить виртуальный счёт на $10,000?")) return;
+  if (!confirm("Сбросить все 4 счёта по $2 500?")) return;
   await fetch("/api/reset", { method: "POST" });
   location.reload();
 };
 
+setInterval(async () => {
+  try {
+    const data = await (await fetch("/api/status")).json();
+    marketsData = data.markets || marketsData;
+    updateTotal(data.total);
+    const d = marketsData[activeSymbol];
+    if (d?.candles?.length) {
+      const last = d.candles[d.candles.length - 1];
+      updateLiveCandle(last);
+    }
+    renderTabs();
+    setLiveStatus(true);
+  } catch (_) { setLiveStatus(false); }
+}, 5000);
+
 initChart();
 loadInitial().then(connectWs);
-startStatusPoller();

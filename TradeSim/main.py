@@ -1,7 +1,5 @@
 """
-TradeSim — paper trading simulator with real-time BTC/USDT data.
-
-Virtual money, real market. Bot learns in one niche: DCA + dip buying.
+TradeSim — multi-market paper trading with live crypto data.
 """
 
 from __future__ import annotations
@@ -17,266 +15,198 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 from starlette.requests import Request
 
 import config
 from assistant.helper import TradingAssistant
 from learning.logger import LearningLogger
-from learning.optimizer import StrategyOptimizer
-from simulator.candles import CandleBuilder
-from simulator.engine import SimulatorEngine
-from simulator.feed import PriceFeed
-from simulator.strategy import StrategyBot
+from simulator.market_session import MarketSession
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("tradesim")
 
 BASE_DIR = Path(__file__).resolve().parent
 
-# Global runtime state
-engine = SimulatorEngine()
-feed = PriceFeed()
-candles = CandleBuilder(interval=config.CANDLE_INTERVAL, max_candles=config.MAX_CANDLES)
-bot = StrategyBot(engine)
+sessions: dict[str, MarketSession] = {
+    m["symbol"]: MarketSession(m) for m in config.MARKETS
+}
 logger_db = LearningLogger()
-optimizer = StrategyOptimizer(bot.get_params())
 assistant = TradingAssistant()
 
 state: dict[str, Any] = {
-  "connected_clients": set(),
-  "last_assistant_briefing": "",
-  "last_tune_ts": 0.0,
-  "last_snapshot_ts": 0.0,
-  "running": False,
+    "connected_clients": set(),
+    "running": False,
+    "chat_history": [],
 }
 
 
+class ChatRequest(BaseModel):
+    message: str
+
+
 async def broadcast(data: dict):
-  dead = set()
-  for ws in state["connected_clients"]:
+    dead = set()
+    for ws in state["connected_clients"]:
+        try:
+            await ws.send_json(data)
+        except Exception:
+            dead.add(ws)
+    state["connected_clients"] -= dead
+
+
+def all_contexts() -> list[dict[str, Any]]:
+    return [s.context_for_assistant() for s in sessions.values()]
+
+
+def total_portfolio() -> dict[str, Any]:
+    total = sum(s.engine.snapshot(s.feed.price)["portfolio_value"] for s in sessions.values())
+    start = config.INITIAL_BALANCE
+    pnl = total - start
+    return {
+        "total_value": round(total, 2),
+        "pnl": round(pnl, 2),
+        "pnl_pct": round(pnl / start * 100, 2) if start else 0,
+        "start_balance": start,
+    }
+
+
+async def run_session_loop(session: MarketSession):
+    async def on_tick(price: float, ts: float):
+        for msg in await session.on_tick(price, ts):
+            await broadcast(msg)
+
+    session.feed.on_tick(on_tick)
     try:
-      await ws.send_json(data)
-    except Exception:
-      dead.add(ws)
-  state["connected_clients"] -= dead
+        await session.feed.fetch_price()
+        session.candles.add_tick(session.feed.price, session.feed.last_update)
+    except Exception as e:
+        logger.warning("[%s] initial price: %s", session.symbol, e)
 
-
-async def on_tick(price: float, ts: float):
-  closed = candles.add_tick(price, ts)
-  sma_period = int(bot.params.get("sma_period", 20))
-  sma = candles.sma(sma_period)
-
-  trade = bot.maybe_trade(price, sma)
-  if trade:
-    await logger_db.log_trade(trade, bot.get_params())
-    msg = assistant.explain_trade(trade.reason, price, engine.snapshot(price))
-    await logger_db.log_assistant("system", msg)
-    await broadcast({"type": "trade", "trade": {
-      "side": trade.side,
-      "price": trade.price,
-      "amount_quote": trade.amount_quote,
-      "reason": trade.reason,
-      "ts": trade.ts,
-    }})
-
-  if closed:
-    await broadcast({"type": "candle", "candle": closed.to_dict()})
-
-  snap = engine.snapshot(price)
-  current = candles.current_candle()
-  await broadcast({
-    "type": "tick",
-    "price": price,
-    "portfolio": snap,
-    "sma": sma,
-    "candle": current,
-    "source": feed.source,
-  })
-
-  # Periodic snapshot + learning check (~every 5 min)
-  now = time.time()
-  if now - state["last_snapshot_ts"] >= 300:
-    state["last_snapshot_ts"] = now
-    await logger_db.log_snapshot(snap, bot.get_params())
-
-  if optimizer.should_tune(snap["trade_count"], snap.get("vs_hold_pct")):
-    if now - state["last_tune_ts"] > config.LEARNING_CHECK_HOURS * 3600:
-      new_params, reason = optimizer.tune(snap["vs_hold_pct"], snap["trade_count"])
-      bot.update_params(new_params)
-      state["last_tune_ts"] = now
-      await logger_db.log_strategy_change(new_params, reason, snap["pnl_pct"])
-      await logger_db.log_assistant("tutor", f"🧠 {reason}")
-      await broadcast({"type": "strategy_update", "params": new_params, "reason": reason})
-
-
-async def run_feed_loop():
-  feed.on_tick(on_tick)
-  await feed.fetch_price()
-  candles.add_tick(feed.price, feed.last_update)
-  ws_task = asyncio.create_task(feed.run_websocket())
-  poll_task = asyncio.create_task(_price_poller())
-  while state["running"]:
-    await asyncio.sleep(30)
-  feed.stop()
-  ws_task.cancel()
-  poll_task.cancel()
-
-
-async def _price_poller():
-  """Reliable REST backup — keeps chart moving if WebSocket is blocked."""
-  while state["running"]:
-    await asyncio.sleep(3)
-    if time.time() - feed.last_update > 2:
-      try:
-        p = await feed.fetch_price()
-        await on_tick(p, feed.last_update)
-      except Exception as e:
-        logger.warning("REST poll failed: %s", e)
+    ws_task = asyncio.create_task(session.feed.run_websocket())
+    try:
+        while state["running"]:
+            await asyncio.sleep(3)
+            if time.time() - session.feed.last_update > 2:
+                try:
+                    p = await session.feed.fetch_price()
+                    await on_tick(p, session.feed.last_update)
+                except Exception as e:
+                    logger.warning("[%s] poll failed: %s", session.symbol, e)
+    finally:
+        session.feed.stop()
+        ws_task.cancel()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-  await logger_db.init()
-  try:
-    history = await feed.fetch_klines(interval=config.CANDLE_INTERVAL, limit=100)
-  except Exception as e:
-    logger.error("Klines unavailable at startup: %s", e)
-    try:
-      price = await feed.fetch_price()
-    except Exception as e2:
-      logger.error("Price unavailable, demo fallback: %s", e2)
-      price = config.DEMO_FALLBACK_PRICE
-      feed.price = price
-      feed.last_update = time.time()
-      feed.source = "demo-fallback"
-    history = feed._synthetic_candles(price, 100)
-    feed.source = feed.source or "synthetic"
-  candles.load_history(history)
-  if history:
-    feed.price = history[-1]["close"]
-    feed.last_update = time.time()
+    await logger_db.init()
+    for session in sessions.values():
+        await session.startup()
 
-  state["running"] = True
-  task = asyncio.create_task(run_feed_loop())
+    state["running"] = True
+    tasks = [asyncio.create_task(run_session_loop(s)) for s in sessions.values()]
 
-  briefing = assistant.full_briefing(
-    candles.last_n(20),
-    feed.price,
-    candles.sma(int(bot.params["sma_period"])),
-    engine.snapshot(feed.price),
-    bot.status(feed.price, candles.sma(int(bot.params["sma_period"]))),
-    len(engine.trades),
-  )
-  state["last_assistant_briefing"] = briefing
-  await logger_db.log_assistant("assistant", briefing)
+    greeting = assistant.chat("привет", all_contexts(), total_portfolio())
+    state["chat_history"] = [{"role": "assistant", "content": greeting}]
+    await logger_db.log_assistant("assistant", greeting)
 
-  yield
+    yield
 
-  state["running"] = False
-  feed.stop()
-  task.cancel()
-  try:
-    await task
-  except asyncio.CancelledError:
-    pass
+    state["running"] = False
+    for s in sessions.values():
+        s.feed.stop()
+    for t in tasks:
+        t.cancel()
 
 
-app = FastAPI(title="TradeSim", description="Paper trading BTC/USDT", lifespan=lifespan)
+app = FastAPI(title="TradeSim", description="Multi-market paper trading", lifespan=lifespan)
 templates = Jinja2Templates(directory=str(BASE_DIR / "web" / "templates"))
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "web" / "static")), name="static")
 
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-  return templates.TemplateResponse(request, "index.html")
+    return templates.TemplateResponse(request, "index.html")
+
+
+@app.get("/api/markets")
+async def api_markets():
+    return {
+        "markets": [m for m in config.MARKETS],
+        "total": total_portfolio(),
+        "mode": "paper",
+    }
 
 
 @app.get("/api/status")
-async def api_status():
-  price = feed.price
-  sma = candles.sma(int(bot.params["sma_period"]))
-  snap = engine.snapshot(price)
-  return {
-    "symbol": config.SYMBOL,
-    "price": price,
-    "portfolio": snap,
-    "strategy": bot.status(price, sma),
-    "candles": candles.all_candles()[-100:],
-    "trades": [
-      {
-        "side": t.side,
-        "price": t.price,
-        "amount_quote": t.amount_quote,
-        "reason": t.reason,
-        "ts": t.ts,
-      }
-      for t in engine.trades[-20:]
-    ],
-    "assistant_briefing": state["last_assistant_briefing"],
-    "learning": await logger_db.performance_summary(),
-    "mode": "paper",
-  }
+async def api_status(symbol: str | None = None):
+    if symbol and symbol in sessions:
+        return sessions[symbol].status_payload()
+    return {
+        "markets": {sym: s.status_payload() for sym, s in sessions.items()},
+        "total": total_portfolio(),
+        "assistant_briefing": state["chat_history"][-1]["content"] if state["chat_history"] else "",
+    }
 
 
 @app.get("/api/assistant")
 async def api_assistant():
-  price = feed.price
-  sma = candles.sma(int(bot.params["sma_period"]))
-  briefing = assistant.full_briefing(
-    candles.last_n(20),
-    price,
-    sma,
-    engine.snapshot(price),
-    bot.status(price, sma),
-    len(engine.trades),
-  )
-  state["last_assistant_briefing"] = briefing
-  await logger_db.log_assistant("assistant", briefing)
-  messages = await logger_db.recent_assistant_messages(15)
-  return {"briefing": briefing, "messages": messages}
+    briefing = assistant.chat("как идут дела", all_contexts(), total_portfolio())
+    messages = await logger_db.recent_assistant_messages(20)
+    return {"briefing": briefing, "messages": messages, "chat": state["chat_history"][-10:]}
+
+
+@app.post("/api/assistant/chat")
+async def api_chat(body: ChatRequest):
+    msg = (body.message or "").strip()
+    if not msg:
+        return {"reply": "Напиши вопрос — например: «как дела?» или «что с ETH?»"}
+    reply = assistant.chat(msg, all_contexts(), total_portfolio())
+    state["chat_history"].append({"role": "user", "content": msg})
+    state["chat_history"].append({"role": "assistant", "content": reply})
+    state["chat_history"] = state["chat_history"][-40:]
+    await logger_db.log_assistant("user", msg)
+    await logger_db.log_assistant("assistant", reply)
+    return {"reply": reply, "chat": state["chat_history"][-10:]}
 
 
 @app.post("/api/bot/toggle")
-async def toggle_bot():
-  bot.enabled = not bot.enabled
-  return {"enabled": bot.enabled}
+async def toggle_bot(symbol: str = config.MARKETS[0]["symbol"]):
+    if symbol not in sessions:
+        return {"error": "unknown symbol"}
+    s = sessions[symbol]
+    s.bot.enabled = not s.bot.enabled
+    return {"symbol": symbol, "enabled": s.bot.enabled}
 
 
 @app.post("/api/reset")
 async def reset_portfolio():
-  engine.reset()
-  bot.last_dca_ts = 0.0
-  return engine.snapshot(feed.price)
-
-
-@app.get("/api/candles")
-async def api_candles(interval: str = "1m", limit: int = 100):
-  data = await feed.fetch_klines(interval=interval, limit=min(limit, 500))
-  return {"candles": data}
+    for s in sessions.values():
+        s.engine.reset(config.BALANCE_PER_MARKET)
+        s.bot.last_dca_ts = 0.0
+    return {"total": total_portfolio()}
 
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
-  await ws.accept()
-  state["connected_clients"].add(ws)
-  try:
-    price = feed.price
-    await ws.send_json({
-      "type": "init",
-      "price": price,
-      "portfolio": engine.snapshot(price),
-      "candles": candles.all_candles()[-100:],
-      "strategy": bot.status(price, candles.sma(int(bot.params["sma_period"]))),
-      "assistant": state["last_assistant_briefing"],
-    })
-    while True:
-      await ws.receive_text()
-  except WebSocketDisconnect:
-    pass
-  finally:
-    state["connected_clients"].discard(ws)
+    await ws.accept()
+    state["connected_clients"].add(ws)
+    try:
+        await ws.send_json({
+            "type": "init",
+            "markets": {sym: s.status_payload() for sym, s in sessions.items()},
+            "total": total_portfolio(),
+            "assistant": state["chat_history"][-1]["content"] if state["chat_history"] else "",
+        })
+        while True:
+            await ws.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        state["connected_clients"].discard(ws)
 
 
 if __name__ == "__main__":
-  import uvicorn
-  uvicorn.run("main:app", host="0.0.0.0", port=8765, reload=False)
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8765, reload=False)

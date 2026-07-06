@@ -6,32 +6,35 @@ DATA_DIR.mkdir(exist_ok=True)
 
 DB_PATH = DATA_DIR / "tradesim.db"
 
-# Market: BTC/USDT on Binance (real-time public data, no API key needed)
-SYMBOL = "BTCUSDT"
+# Four markets — each bot learns in its own niche
+MARKETS = [
+    {"symbol": "BTCUSDT", "label": "BTC", "name": "Bitcoin", "demo_price": 63_000.0},
+    {"symbol": "ETHUSDT", "label": "ETH", "name": "Ethereum", "demo_price": 3_400.0},
+    {"symbol": "SOLUSDT", "label": "SOL", "name": "Solana", "demo_price": 145.0},
+    {"symbol": "BNBUSDT", "label": "BNB", "name": "BNB", "demo_price": 600.0},
+]
+
+SYMBOL = MARKETS[0]["symbol"]  # backward compat
 QUOTE = "USDT"
-BASE = "BTC"
 
-# Paper trading defaults
+# Paper trading — $2 500 per market = $10 000 total
 INITIAL_BALANCE = 10_000.0
-FEE_RATE = 0.001          # 0.1% per trade
-SLIPPAGE_RATE = 0.0005    # 0.05% worse fill
+BALANCE_PER_MARKET = INITIAL_BALANCE / len(MARKETS)
+FEE_RATE = 0.001
+SLIPPAGE_RATE = 0.0005
 
-# Strategy parameters (bot learns by tuning these in one niche)
 STRATEGY = {
-    "dca_amount": 100.0,           # USDT per scheduled buy
+    "dca_amount": 25.0,
     "dca_interval_hours": 24,
-    "dip_threshold_pct": 3.0,      # extra buy if price below SMA by this %
-    "dip_extra_amount": 150.0,
-    "sma_period": 20,              # candles for moving average
+    "dip_threshold_pct": 3.0,
+    "dip_extra_amount": 40.0,
+    "sma_period": 20,
 }
 
-# Candle aggregation
-CANDLE_INTERVAL = "1m"   # 1m, 5m, 15m, 1h
+CANDLE_INTERVAL = "1m"
 MAX_CANDLES = 500
 
-# Learning
 LEARNING_CHECK_HOURS = 24
 MIN_TRADES_FOR_TUNING = 5
 
-# Fallback BTC price when all APIs unreachable (SSL/network)
 DEMO_FALLBACK_PRICE = 63_000.0

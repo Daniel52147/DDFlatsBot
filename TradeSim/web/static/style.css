@@ -152,6 +152,77 @@ footer {
 .live-dot { color: var(--green); font-size: 0.9rem; }
 .live-dot.stale { color: var(--muted); }
 
+.market-tabs {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.tab {
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.tab span { display: block; font-size: 0.75rem; color: var(--text); font-weight: 600; }
+.tab.active { border-color: var(--accent); color: var(--accent); background: rgba(88,166,255,0.1); }
+
+.mini-grid { display: none; }
+
+.chat-messages {
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.chat-bubble {
+  padding: 0.6rem 0.8rem;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  max-width: 95%;
+}
+
+.chat-user {
+  align-self: flex-end;
+  background: rgba(88, 166, 255, 0.2);
+  color: var(--text);
+}
+
+.chat-bot {
+  align-self: flex-start;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--muted);
+}
+
+.chat-form {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.chat-form input {
+  flex: 1;
+  background: rgba(0,0,0,0.3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.chat-form input:focus { outline: none; border-color: var(--accent); }
+
+.assistant-text { display: none; }
+
 .chart-legend { font-size: 0.75rem; }
 .legend.sma::before {
   content: "";

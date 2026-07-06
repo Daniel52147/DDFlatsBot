@@ -1,115 +1,161 @@
-"""Rule-based trading assistant: candles, patterns, bot explanations."""
+"""Rule-based trading assistant with chat in Russian."""
 
 from __future__ import annotations
 
-import time
+import re
 from typing import Any
 
 from simulator.candles import Candle
 
 
 class TradingAssistant:
-  """Explains market context and bot decisions in plain Russian."""
+    def analyze_candles(self, candles: list[Candle], price: float, sma: float | None) -> dict[str, Any]:
+        if len(candles) < 3:
+            return {"summary": "Мало данных для анализа.", "signals": []}
 
-  def analyze_candles(self, candles: list[Candle], price: float, sma: float | None) -> dict[str, Any]:
-    if len(candles) < 3:
-      return {"summary": "Мало данных для анализа свечей.", "signals": []}
+        last = candles[-1]
+        signals = []
+        recent = [c.close for c in candles[-5:]]
+        if len(recent) >= 3:
+            if recent[-1] > recent[0]:
+                signals.append({"text": "краткосрочный тренд вверх 📈"})
+            elif recent[-1] < recent[0]:
+                signals.append({"text": "краткосрочный тренд вниз 📉"})
 
-    last = candles[-1]
-    prev = candles[-2]
-    signals = []
+        if sma:
+            diff = (price - sma) / sma * 100
+            if diff < -3:
+                signals.append({"text": f"цена ниже SMA на {abs(diff):.1f}% — зона DIP"})
+            elif diff > 3:
+                signals.append({"text": f"цена выше SMA на {diff:.1f}%"})
 
-    # Trend: last 5 closes
-    recent = [c.close for c in candles[-5:]]
-    if len(recent) >= 3:
-      if recent[-1] > recent[0]:
-        signals.append({"type": "trend", "text": "Краткосрочный тренд вверх 📈"})
-      elif recent[-1] < recent[0]:
-        signals.append({"type": "trend", "text": "Краткосрочный тренд вниз 📉"})
+        summary = signals[0]["text"] if signals else "рынок спокойный"
+        return {"summary": summary, "signals": signals}
 
-    # Candle body
-    body = abs(last.close - last.open)
-    full_range = last.high - last.low or 0.0001
-    body_ratio = body / full_range
-    if body_ratio < 0.2:
-      signals.append({"type": "pattern", "text": "Доджи-подобная свеча — рынок неопределён"})
-    elif last.close > last.open and body_ratio > 0.6:
-      signals.append({"type": "pattern", "text": "Сильная бычья свеча"})
-    elif last.close < last.open and body_ratio > 0.6:
-      signals.append({"type": "pattern", "text": "Сильная медвежья свеча"})
+    def _fmt_market_line(self, ctx: dict) -> str:
+        p = ctx["portfolio"]
+        return (
+            f"• {ctx['label']}: ${ctx['price']:,.2f} | "
+            f"портфель ${p['portfolio_value']:,.2f} ({p['pnl_pct']:+.2f}%) | "
+            f"сделок: {ctx['trade_count']}"
+        )
 
-    # SMA context
-    if sma:
-      diff = (price - sma) / sma * 100
-      if diff < -3:
-        signals.append({"type": "sma", "text": f"Цена ниже SMA на {abs(diff):.1f}% — зона для DIP-покупок"})
-      elif diff > 3:
-        signals.append({"type": "sma", "text": f"Цена выше SMA на {diff:.1f}% — перегрев, DCA осторожнее"})
+    def chat(
+        self,
+        user_msg: str,
+        contexts: list[dict[str, Any]],
+        total: dict[str, Any],
+    ) -> str:
+        msg = user_msg.lower().strip()
+        by_label = {c["label"].lower(): c for c in contexts}
+        by_name = {c["name"].lower(): c for c in contexts}
 
-    # Streak
-    greens = sum(1 for c in candles[-4:] if c.close >= c.open)
-    if greens >= 3:
-      signals.append({"type": "streak", "text": f"{greens} зелёных свечи подряд — импульс вверх"})
-    reds = sum(1 for c in candles[-4:] if c.close < c.open)
-    if reds >= 3:
-      signals.append({"type": "streak", "text": f"{reds} красных свечи подряд — давление продавцов"})
+        # Greeting
+        if any(w in msg for w in ("привет", "здравств", "hello", "hi")):
+            return (
+                "Привет! Я помощник TradeSim. Слежу за 4 рынками: BTC, ETH, SOL, BNB.\n"
+                "Спроси: «как дела?», «что с ETH?», «сколько заработал?», «как идёт обучение?»"
+            )
 
-    summary = signals[0]["text"] if signals else "Рынок спокойный, явных сигналов нет."
-    return {"summary": summary, "signals": signals, "price": price, "sma": sma}
+        # Overall status
+        if any(w in msg for w in ("как дела", "как идут", "статус", "обстановка", "сводка")):
+            lines = [
+                f"📊 Общий портфель: ${total['total_value']:,.2f} ({total['pnl_pct']:+.2f}%)",
+                "",
+            ]
+            for ctx in contexts:
+                analysis = self.analyze_candles(ctx["candles"], ctx["price"], ctx["sma"])
+                lines.append(self._fmt_market_line(ctx))
+                lines.append(f"  └ {analysis['summary']}")
+            lines.append("")
+            lines.append(self._learning_summary(contexts, total))
+            return "\n".join(lines)
 
-  def explain_trade(self, reason: str, price: float, portfolio: dict) -> str:
-    return (
-      f"Сделка: {reason}. Цена ~${price:,.2f}. "
-      f"Портфель: ${portfolio.get('portfolio_value', 0):,.2f} "
-      f"({portfolio.get('pnl_pct', 0):+.2f}% от старта)."
-    )
+        # PnL / earnings
+        if any(w in msg for w in ("заработ", "прибыл", "убыт", "pnl", "доход", "сколько")):
+            best = max(contexts, key=lambda c: c["portfolio"]["pnl_pct"])
+            worst = min(contexts, key=lambda c: c["portfolio"]["pnl_pct"])
+            return (
+                f"💰 Всего: ${total['total_value']:,.2f} из ${total['start_balance']:,.2f} "
+                f"({total['pnl_pct']:+.2f}%)\n\n"
+                f"Лучший: {best['label']} ({best['portfolio']['pnl_pct']:+.2f}%)\n"
+                f"Слабее: {worst['label']} ({worst['portfolio']['pnl_pct']:+.2f}%)\n\n"
+                "Помни: это paper trading — деньги виртуальные, котировки настоящие."
+            )
 
-  def learning_tip(self, trade_count: int, vs_hold: float | None, params: dict) -> str:
-    if trade_count < 3:
-      return (
-        "🎓 Режим обучения: бот копит данные. Сейчас идёт paper trading — "
-        "деньги виртуальные, котировки настоящие. Нужно минимум 5 сделок для первой автонастройки."
-      )
-    if vs_hold is not None and vs_hold < 0:
-      return (
-        f"🎓 Бот пока отстаёт от «купил и держал» на {abs(vs_hold):.2f}%. "
-        f"Система может снизить порог DIP (сейчас {params.get('dip_threshold_pct')}%) "
-        "чтобы покупать на более глубоких просадках."
-      )
-    if vs_hold is not None and vs_hold >= 0:
-      return (
-        f"🎓 Бот опережает «купил и держал» на {vs_hold:+.2f}% — стратегия в норме. "
-        "Продолжаем paper trading перед реальными деньгами."
-      )
-    return "🎓 Собираем статистику для обучения в нише BTC/USDT DCA+DIP."
+        # Learning
+        if any(w in msg for w in ("учит", "обучен", "учёб", "учеб", "развива")):
+            return self._learning_summary(contexts, total)
 
-  def greet(self) -> str:
-    return (
-      "Привет! Я помощник TradeSim. Слежу за свечами BTC/USDT, объясняю решения бота "
-      "и подсказываю, как идёт обучение на виртуальном счёте."
-    )
+        # Specific coin
+        for key, ctx in {**by_label, **by_name}.items():
+            if key in msg or ctx["symbol"].lower() in msg.replace("/", ""):
+                analysis = self.analyze_candles(ctx["candles"], ctx["price"], ctx["sma"])
+                st = ctx["strategy"]
+                p = ctx["portfolio"]
+                lines = [
+                    f"📈 {ctx['name']} ({ctx['label']}/USDT)",
+                    f"Цена: ${ctx['price']:,.4f}",
+                    f"Портфель: ${p['portfolio_value']:,.2f} ({p['pnl_pct']:+.2f}%)",
+                    f"vs «купил и держал»: {p.get('vs_hold_pct', 0):+.2f}%",
+                    f"📊 {analysis['summary']}",
+                    f"🤖 Бот: {'активен' if st.get('enabled') else 'на паузе'}",
+                    f"DCA: ${st['params']['dca_amount']} / {st['params']['dca_interval_hours']}ч",
+                    f"Сделок: {ctx['trade_count']}",
+                ]
+                if st.get("next_dca_in_hours") is not None:
+                    lines.append(f"След. DCA: ~{st['next_dca_in_hours']} ч.")
+                return "\n".join(lines)
 
-  def full_briefing(
-    self,
-    candles: list[Candle],
-    price: float,
-    sma: float | None,
-    portfolio: dict,
-    strategy_status: dict,
-    trade_count: int,
-  ) -> str:
-    analysis = self.analyze_candles(candles, price, sma)
-    tip = self.learning_tip(trade_count, portfolio.get("vs_hold_pct"), strategy_status.get("params", {}))
-    lines = [
-      self.greet(),
-      "",
-      f"💰 BTC: ${price:,.2f} | Портфель: ${portfolio.get('portfolio_value', 0):,.2f} ({portfolio.get('pnl_pct', 0):+.2f}%)",
-      f"📊 {analysis['summary']}",
-    ]
-    for s in analysis["signals"][1:3]:
-      lines.append(f"   • {s['text']}")
-    lines.append("")
-    lines.append(tip)
-    if strategy_status.get("next_dca_in_hours") is not None:
-      lines.append(f"⏱ Следующая плановая DCA через ~{strategy_status['next_dca_in_hours']} ч.")
-    return "\n".join(lines)
+        # Trades
+        if any(w in msg for w in ("сделк", "торг", "покуп", "купил")):
+            total_trades = sum(c["trade_count"] for c in contexts)
+            lines = [f"📋 Всего сделок по 4 рынкам: {total_trades}", ""]
+            for ctx in contexts:
+                if ctx["trade_count"]:
+                    lines.append(f"{ctx['label']}: {ctx['trade_count']} сделок")
+            if total_trades == 0:
+                lines.append("Пока боты копят данные — скоро начнут DCA-покупки.")
+            return "\n".join(lines)
+
+        # Advice
+        if any(w in msg for w in ("совет", "что дума", "рекоменд", "покупать", "продавать")):
+            return (
+                "Я не даю финансовых советов «покупай/продавай». Но по paper-счёту:\n"
+                + "\n".join(self._fmt_market_line(c) for c in contexts)
+                + "\n\nПродолжай paper trading 1–3 месяца, прежде чем думать о реальных деньгах."
+            )
+
+        # Default
+        return (
+            "Не совсем понял вопрос. Попробуй:\n"
+            "• «как идут дела?» — сводка по всем рынкам\n"
+            "• «что с ETH?» — детали по монете\n"
+            "• «сколько заработал?» — общий P&L\n"
+            "• «как идёт обучение?» — прогресс ботов"
+        )
+
+    def _learning_summary(self, contexts: list[dict], total: dict) -> str:
+        total_trades = sum(c["trade_count"] for c in contexts)
+        if total_trades < 5:
+            return (
+                f"🎓 Режим обучения: {total_trades} сделок из 5 нужных для автонастройки. "
+                "Боты учатся отдельно в каждой нише (BTC, ETH, SOL, BNB)."
+            )
+        beating = [c["label"] for c in contexts if c["portfolio"].get("vs_hold_pct", 0) >= 0]
+        return (
+            f"🎓 Обучение: {total_trades} сделок. "
+            f"Опережают «купил и держал»: {', '.join(beating) or 'пока никто'}. "
+            f"Общий результат: {total['pnl_pct']:+.2f}%."
+        )
+
+    def explain_trade(self, reason: str, price: float, portfolio: dict, label: str = "") -> str:
+        prefix = f"[{label}] " if label else ""
+        return (
+            f"{prefix}Сделка: {reason}. Цена ~${price:,.4f}. "
+            f"Портфель: ${portfolio.get('portfolio_value', 0):,.2f} "
+            f"({portfolio.get('pnl_pct', 0):+.2f}%)."
+        )
+
+    def full_briefing(self, *args, **kwargs) -> str:
+        return self.chat("как идут дела", args[0] if args else [], kwargs.get("total", {}))

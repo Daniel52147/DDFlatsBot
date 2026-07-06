@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TradeSim — Paper Trading BTC/USDT</title>
+  <title>TradeSim — 4 рынка</title>
   <link rel="stylesheet" href="/static/style.css" />
   <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 </head>
@@ -13,21 +13,17 @@
       <span class="logo">📊</span>
       <div>
         <h1>TradeSim</h1>
-        <p class="tagline">Настоящий рынок · Виртуальные деньги · Обучение в нише BTC/USDT</p>
+        <p class="tagline">4 крипторынка · Виртуальные деньги · Живые котировки</p>
       </div>
     </div>
     <div class="header-stats">
       <div class="stat">
-        <span class="label">BTC/USDT</span>
-        <span class="value" id="live-price">—</span>
-      </div>
-      <div class="stat">
-        <span class="label">Портфель</span>
-        <span class="value" id="portfolio-value">—</span>
+        <span class="label">Всего</span>
+        <span class="value" id="total-value">—</span>
       </div>
       <div class="stat">
         <span class="label">P&L</span>
-        <span class="value" id="pnl">—</span>
+        <span class="value" id="total-pnl">—</span>
       </div>
       <div class="stat badge paper">PAPER</div>
       <div class="stat">
@@ -37,15 +33,16 @@
     </div>
   </header>
 
+  <nav class="market-tabs" id="market-tabs"></nav>
+
   <main class="grid">
     <section class="card chart-card">
       <div class="card-header">
-        <h2>Свечи (реальное время)</h2>
-        <div class="chart-legend">
-          <span class="legend sma">SMA-20</span>
-        </div>
+        <h2 id="chart-title">Свечи</h2>
+        <div class="chart-legend"><span class="legend sma">SMA-20</span></div>
       </div>
       <div id="chart"></div>
+      <div class="mini-grid" id="mini-charts"></div>
     </section>
 
     <aside class="sidebar">
@@ -60,33 +57,24 @@
       <section class="card assistant-card">
         <div class="card-header">
           <h2>💬 Помощник</h2>
-          <button id="btn-refresh-assistant" class="btn small ghost">Обновить</button>
         </div>
-        <pre id="assistant-text" class="assistant-text">Загрузка...</pre>
+        <div id="chat-messages" class="chat-messages"></div>
+        <form id="chat-form" class="chat-form">
+          <input id="chat-input" type="text" placeholder="Спроси: как дела? что с ETH?" autocomplete="off" />
+          <button type="submit" class="btn small">→</button>
+        </form>
       </section>
 
       <section class="card">
-        <div class="card-header">
-          <h2>📋 Сделки</h2>
-        </div>
+        <div class="card-header"><h2>📋 Сделки</h2></div>
         <ul id="trades-list" class="trades-list"></ul>
-      </section>
-
-      <section class="card monetize-card">
-        <h2>🚀 Дальше — монетизация</h2>
-        <ul class="feature-list">
-          <li>Подписка на paper + алерты</li>
-          <li>Премиум стратегии</li>
-          <li>API для других ботов</li>
-          <li>Telegram-интеграция</li>
-        </ul>
       </section>
     </aside>
   </main>
 
   <footer>
-    <span>Данные: Binance (публичный API)</span>
-    <button id="btn-reset" class="btn ghost small">Сбросить счёт</button>
+    <span>Данные: Binance · BTC · ETH · SOL · BNB</span>
+    <button id="btn-reset" class="btn ghost small">Сбросить всё</button>
   </footer>
 
   <script src="/static/app.js"></script>

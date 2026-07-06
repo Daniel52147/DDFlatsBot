@@ -31,7 +31,8 @@ BYBIT_REST = "https://api.bybit.com/v5/market"
 
 
 class PriceFeed:
-    def __init__(self):
+    def __init__(self, symbol: str | None = None):
+        self.symbol = symbol or config.SYMBOL
         self.price: float = 0.0
         self.last_update: float = 0.0
         self.source: str = "unknown"
@@ -91,12 +92,12 @@ class PriceFeed:
         raise RuntimeError("All price sources failed: " + "; ".join(errors))
 
     async def _fetch_binance(self, client: httpx.AsyncClient) -> float:
-        r = await client.get(f"{BINANCE_REST}/ticker/price", params={"symbol": config.SYMBOL})
+        r = await client.get(f"{BINANCE_REST}/ticker/price", params={"symbol": self.symbol})
         r.raise_for_status()
         return float(r.json()["price"])
 
     async def _fetch_binance_us(self, client: httpx.AsyncClient) -> float:
-        r = await client.get(f"{BINANCE_US_REST}/ticker/price", params={"symbol": config.SYMBOL})
+        r = await client.get(f"{BINANCE_US_REST}/ticker/price", params={"symbol": self.symbol})
         r.raise_for_status()
         return float(r.json()["price"])
 
@@ -112,7 +113,7 @@ class PriceFeed:
     async def _fetch_bybit(self, client: httpx.AsyncClient) -> float:
         r = await client.get(
             f"{BYBIT_REST}/tickers",
-            params={"category": "spot", "symbol": config.SYMBOL},
+            params={"category": "spot", "symbol": self.symbol},
         )
         r.raise_for_status()
         data = r.json()
@@ -200,7 +201,7 @@ class PriceFeed:
     async def _klines_binance(self, client: httpx.AsyncClient, interval: str, limit: int):
         r = await client.get(
             f"{BINANCE_REST}/klines",
-            params={"symbol": config.SYMBOL, "interval": interval, "limit": limit},
+            params={"symbol": self.symbol, "interval": interval, "limit": limit},
         )
         r.raise_for_status()
         return self._parse_binance_klines(r.json())
@@ -208,7 +209,7 @@ class PriceFeed:
     async def _klines_binance_us(self, client: httpx.AsyncClient, interval: str, limit: int):
         r = await client.get(
             f"{BINANCE_US_REST}/klines",
-            params={"symbol": config.SYMBOL, "interval": interval, "limit": limit},
+            params={"symbol": self.symbol, "interval": interval, "limit": limit},
         )
         r.raise_for_status()
         return self._parse_binance_klines(r.json())
@@ -256,7 +257,7 @@ class PriceFeed:
             f"{BYBIT_REST}/kline",
             params={
                 "category": "spot",
-                "symbol": config.SYMBOL,
+                "symbol": self.symbol,
                 "interval": bybit_interval,
                 "limit": min(limit, 1000),
             },
@@ -329,7 +330,7 @@ class PriceFeed:
         import websockets
         errors = []
         for base in (BINANCE_WS, "wss://stream.binance.us:9443/ws"):
-            url = f"{base}/{config.SYMBOL.lower()}@trade"
+            url = f"{base}/{self.symbol.lower()}@trade"
             try:
                 async with websockets.connect(url, ping_interval=20, ssl=ssl_context()) as ws:
                     logger.info("WS connected: %s", url)
@@ -368,7 +369,7 @@ class PriceFeed:
         async with websockets.connect(url, ping_interval=20, ssl=ssl_context()) as ws:
             await ws.send(json.dumps({
                 "op": "subscribe",
-                "args": [f"publicTrade.{config.SYMBOL}"],
+                "args": [f"publicTrade.{self.symbol}"],
             }))
             logger.info("Bybit WS connected")
             async for raw in ws:
