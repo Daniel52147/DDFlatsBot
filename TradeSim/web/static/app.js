@@ -12,7 +12,7 @@ let chatHistory = [];
 
 function showError(msg) {
   const el = document.getElementById("js-error");
-  if (el) { el.style.display = "block"; el.textContent = "Ошибка: " + msg; }
+  if (el) { el.style.display = "block"; el.textContent = "⚠ " + msg; }
 }
 
 function fmtMoney(n, decimals = 2) {
@@ -25,21 +25,27 @@ function fmtPct(n) {
   return (n >= 0 ? "+" : "") + Number(n).toFixed(2) + "%";
 }
 
+function labelFor(sym) {
+  const m = marketMeta.find(x => x.symbol === sym);
+  return m ? m.label : sym.replace("USDT", "");
+}
+
 function initChart() {
   const fallback = document.getElementById("chart-fallback");
   if (typeof LightweightCharts === "undefined") {
-    if (fallback) fallback.textContent = "График не загрузился. Нажми Ctrl+F5 или проверь интернет.";
+    if (fallback) fallback.textContent = "График не загрузился — Ctrl+F5";
     return false;
   }
   const el = document.getElementById("chart");
   if (!el) return false;
   if (fallback) fallback.style.display = "none";
+  const w = el.clientWidth || document.getElementById("chart-wrap")?.clientWidth || 600;
   chart = LightweightCharts.createChart(el, {
     layout: { background: { color: "#161b22" }, textColor: "#8b949e" },
     grid: { vertLines: { color: "#21262d" }, horzLines: { color: "#21262d" } },
     timeScale: { timeVisible: true, secondsVisible: false },
     rightPriceScale: { borderColor: "#30363d" },
-    width: el.clientWidth || 600,
+    width: w,
     height: 400,
   });
   candleSeries = chart.addCandlestickSeries({
@@ -48,7 +54,7 @@ function initChart() {
   });
   smaSeries = chart.addLineSeries({ color: "#a371f7", lineWidth: 2 });
   window.addEventListener("resize", () => {
-    if (chart && el) chart.applyOptions({ width: el.clientWidth });
+    if (chart && el) chart.applyOptions({ width: el.clientWidth || w });
   });
   return true;
 }
@@ -74,8 +80,8 @@ function renderTabs() {
   const nav = document.getElementById("market-tabs");
   if (!nav) return;
   nav.innerHTML = marketMeta.map(m => {
-    const d = marketsData[m.symbol] || {};
-    const price = d.price ? fmtMoney(d.price, m.label === "BTC" ? 0 : 2) : "—";
+    const d = marketsData[m.symbol];
+    const price = d?.price > 0 ? fmtMoney(d.price, m.label === "BTC" ? 0 : 2) : "…";
     const active = m.symbol === activeSymbol ? " active" : "";
     return `<button type="button" class="tab${active}" data-symbol="${m.symbol}">${m.label}<span>${price}</span></button>`;
   }).join("");
@@ -87,16 +93,20 @@ function renderTabs() {
 function switchMarket(symbol) {
   activeSymbol = symbol;
   const d = marketsData[symbol];
-  if (!d) return;
+  if (!d) {
+    document.getElementById("bot-status").innerHTML = "<p>Загрузка данных с сервера...</p>";
+    return;
+  }
   lastCandles = d.candles || [];
-  if (candleSeries && lastCandles.length) {
-    candleSeries.setData(lastCandles);
-    updateSMA(lastCandles);
+  if (candleSeries) {
+    if (lastCandles.length) {
+      candleSeries.setData(lastCandles);
+      updateSMA(lastCandles);
+    }
   }
   const title = document.getElementById("chart-title");
-  if (title) title.textContent = `${d.label || symbol}/USDT — свечи`;
+  if (title) title.textContent = `${d.label || labelFor(symbol)}/USDT — свечи`;
   renderBotStatus(d);
-  renderAllTrades();
   renderTabs();
 }
 
@@ -109,6 +119,7 @@ function updateLiveCandle(candle) {
   }
   candleSeries.update(candle);
   updateSMA(lastCandles);
+  if (marketsData[activeSymbol]) marketsData[activeSymbol].candles = lastCandles;
 }
 
 function updateTotal(total) {
@@ -128,39 +139,40 @@ function renderBotStatus(d) {
   const st = d.strategy || {};
   const p = st.params || {};
   el.innerHTML = `
-    <p>Рынок: <strong>${d.label || "?"}</strong> · ${st.enabled !== false ? "✅ активен" : "⏸ пауза"}</p>
+    <p>Рынок: <strong>${d.label || labelFor(d.symbol)}</strong> · ${st.enabled !== false ? "✅ активен" : "⏸ пауза"}</p>
     <p>Цена: <strong>${fmtMoney(d.price, d.label === "BTC" ? 2 : 4)}</strong></p>
     <p>Портфель: <strong>${fmtMoney(d.portfolio?.portfolio_value)}</strong> (${fmtPct(d.portfolio?.pnl_pct)})</p>
-    <p>DCA: $${p.dca_amount || "?"} / ${p.dca_interval_hours || "?"}ч</p>
+    <p>DCA: $${p.dca_amount ?? 25} / ${p.dca_interval_hours ?? 24}ч</p>
     <p>SMA-20: <strong>${st.sma ? fmtMoney(st.sma) : "—"}</strong></p>
   `;
   const btn = document.getElementById("btn-toggle");
   if (btn) btn.textContent = st.enabled !== false ? "Пауза" : "Старт";
 }
 
-function renderAllTrades() {
+async function renderAllTrades() {
   const ul = document.getElementById("trades-list");
   if (!ul) return;
-  const all = [];
-  for (const sym of Object.keys(marketsData)) {
-    const d = marketsData[sym];
-    (d.trades || []).forEach(t => all.push({ ...t, label: d.label || sym }));
+  try {
+    const res = await fetch("/api/trades");
+    const data = await res.json();
+    const all = data.trades || [];
+    if (!all.length) {
+      ul.innerHTML = "<li>Сделок пока нет — появятся после DCA-покупки</li>";
+      return;
+    }
+    ul.innerHTML = all.slice(0, 20).map(t => {
+      const d = new Date(t.ts * 1000).toLocaleString("ru-RU");
+      return `<li class="${t.side}"><b>${t.label}</b> ${d} · ${t.side.toUpperCase()} @ ${fmtMoney(t.price, 4)} · ${t.reason}</li>`;
+    }).join("");
+  } catch (_) {
+    ul.innerHTML = "<li>Не удалось загрузить сделки</li>";
   }
-  all.sort((a, b) => b.ts - a.ts);
-  if (!all.length) {
-    ul.innerHTML = "<li>Пока нет сделок — бот купит при старте или на просадке</li>";
-    return;
-  }
-  ul.innerHTML = all.slice(0, 20).map(t => {
-    const d = new Date(t.ts * 1000).toLocaleString("ru-RU");
-    return `<li class="${t.side}"><b>${t.label}</b> ${d} · ${t.side.toUpperCase()} @ ${fmtMoney(t.price, 4)} · ${t.reason}</li>`;
-  }).join("");
 }
 
 function renderChat(messages) {
-  if (messages) chatHistory = messages;
+  if (messages?.length) chatHistory = messages;
   const box = document.getElementById("chat-messages");
-  if (!box) return;
+  if (!box || !chatHistory.length) return;
   box.innerHTML = chatHistory.map(m => {
     const cls = m.role === "user" ? "chat-user" : "chat-bot";
     return `<div class="chat-bubble ${cls}">${escapeHtml(m.content).replace(/\n/g, "<br>")}</div>`;
@@ -175,28 +187,32 @@ function escapeHtml(s) {
 function renderBrain(brain) {
   if (!brain) return;
   const v = document.getElementById("brain-verdict");
-  if (v) v.textContent = brain.verdict || "Мозг думает...";
-  const setAgent = (id, data) => {
+  if (v) v.textContent = brain.verdict || "Мозг анализирует рынки...";
+  [["agent-mentor", brain.mentor], ["agent-news", brain.news], ["agent-schemer", brain.schemer]].forEach(([id, data]) => {
     const el = document.getElementById(id);
     if (!el || !data) return;
     el.classList.add("active");
     const sm = el.querySelector("small");
-    if (sm && data.summary) sm.textContent = data.summary.slice(0, 70) + (data.summary.length > 70 ? "…" : "");
-  };
-  setAgent("agent-mentor", brain.mentor);
-  setAgent("agent-news", brain.news);
-  setAgent("agent-schemer", brain.schemer);
+    if (sm && data.summary) sm.textContent = data.summary.slice(0, 75) + (data.summary.length > 75 ? "…" : "");
+  });
+}
+
+function mergeMarket(sym, patch) {
+  const prev = marketsData[sym] || { symbol: sym, label: labelFor(sym) };
+  marketsData[sym] = { ...prev, ...patch, symbol: sym, label: prev.label || labelFor(sym) };
 }
 
 function applyWsInit(msg) {
-  marketsData = msg.markets || {};
+  if (msg.markets) {
+    for (const [sym, payload] of Object.entries(msg.markets)) {
+      mergeMarket(sym, payload);
+    }
+  }
   updateTotal(msg.total);
   renderTabs();
   switchMarket(activeSymbol);
   if (msg.brain) renderBrain(msg.brain);
-  if (msg.assistant) {
-    renderChat([{ role: "assistant", content: msg.assistant }]);
-  }
+  if (msg.assistant) renderChat([{ role: "assistant", content: msg.assistant }]);
   renderAllTrades();
   setLiveStatus(true);
 }
@@ -216,62 +232,106 @@ function connectWs() {
         }
       }
       if (msg.type === "tick" && msg.symbol) {
-        const prev = marketsData[msg.symbol] || { label: msg.symbol.replace("USDT", "") };
-        marketsData[msg.symbol] = {
-          ...prev, symbol: msg.symbol, price: msg.price,
-          portfolio: msg.portfolio, strategy: msg.strategy,
-          candles: prev.candles || [],
-        };
-        if (msg.symbol === activeSymbol && msg.candle) updateLiveCandle(msg.candle);
-        if (msg.symbol === activeSymbol) renderBotStatus(marketsData[msg.symbol]);
+        mergeMarket(msg.symbol, {
+          price: msg.price,
+          portfolio: msg.portfolio,
+          strategy: msg.strategy,
+        });
+        if (msg.symbol === activeSymbol) {
+          if (msg.candle) updateLiveCandle(msg.candle);
+          renderBotStatus(marketsData[msg.symbol]);
+        }
         renderTabs();
+        updateTotal(computeTotal());
         setLiveStatus(true);
       }
-      if (msg.type === "trade") refreshStatus();
+      if (msg.type === "trade") {
+        renderAllTrades();
+        refreshStatus();
+      }
     } catch (e) { console.error(e); }
   };
   ws.onclose = () => setTimeout(connectWs, 3000);
 }
 
+function computeTotal() {
+  let sum = 0;
+  for (const sym of Object.keys(marketsData)) {
+    sum += marketsData[sym]?.portfolio?.portfolio_value || 0;
+  }
+  if (sum <= 0) return null;
+  const start = 10000;
+  return { total_value: sum, pnl_pct: ((sum - start) / start) * 100, start_balance: start };
+}
+
 async function refreshStatus() {
-  const data = await (await fetch("/api/status")).json();
-  marketsData = data.markets || marketsData;
-  updateTotal(data.total);
-  switchMarket(activeSymbol);
-  renderAllTrades();
+  try {
+    const data = await (await fetch("/api/status")).json();
+    if (data.markets) {
+      for (const [sym, payload] of Object.entries(data.markets)) {
+        mergeMarket(sym, payload);
+      }
+    }
+    updateTotal(data.total || computeTotal());
+    renderTabs();
+    switchMarket(activeSymbol);
+    await renderAllTrades();
+    setLiveStatus(true);
+  } catch (e) {
+    setLiveStatus(false);
+  }
+}
+
+async function loadBrain() {
+  try {
+    const res = await fetch("/api/brain");
+    const data = await res.json();
+    if (data.cycle) renderBrain(data.cycle);
+  } catch (_) {}
+}
+
+async function checkServer() {
+  try {
+    const res = await fetch("/api/ping");
+    const data = await res.json();
+    if (!data.markets || data.markets.length < 4) {
+      showError("Старый сервер! Останови (Ctrl+C) и снова: python main.py");
+    }
+    return data;
+  } catch (_) {
+    showError("Сервер не отвечает — запусти python main.py");
+    return null;
+  }
 }
 
 async function loadInitial() {
-  const res = await fetch("/api/status");
-  const data = await res.json();
-  marketsData = data.markets || {};
-  if (Object.keys(marketsData).length) {
-    marketMeta = Object.values(marketsData).map(m => ({ symbol: m.symbol, label: m.label }));
-  }
-  updateTotal(data.total);
-  activeSymbol = marketMeta[0]?.symbol || "BTCUSDT";
-  renderTabs();
-  switchMarket(activeSymbol);
-  renderAllTrades();
+  await checkServer();
+  await refreshStatus();
 
   try {
     const chatRes = await fetch("/api/assistant");
     const chatData = await chatRes.json();
-    if (chatData.chat?.length) renderChat(chatData.chat);
-    else if (chatData.briefing) renderChat([{ role: "assistant", content: chatData.briefing }]);
+    if (chatData.briefing) {
+      renderChat([{ role: "assistant", content: chatData.briefing }]);
+    }
     if (chatData.brain) renderBrain(chatData.brain);
   } catch (_) {}
+
+  await loadBrain();
+  await renderAllTrades();
+
+  if (!marketsData[activeSymbol]?.price) {
+    showError("Данные грузятся... если через 30 сек пусто — Ctrl+C и python main.py заново");
+  }
 }
 
 function bindUi() {
-  const toggle = document.getElementById("btn-toggle");
-  if (toggle) toggle.onclick = async () => {
+  document.getElementById("btn-toggle").onclick = async () => {
     await fetch(`/api/bot/toggle?symbol=${activeSymbol}`, { method: "POST" });
     await refreshStatus();
   };
 
-  const form = document.getElementById("chat-form");
-  if (form) form.onsubmit = async (e) => {
+  document.getElementById("chat-form").onsubmit = async (e) => {
     e.preventDefault();
     const input = document.getElementById("chat-input");
     const text = input?.value?.trim();
@@ -292,8 +352,7 @@ function bindUi() {
     }
   };
 
-  const reset = document.getElementById("btn-reset");
-  if (reset) reset.onclick = async () => {
+  document.getElementById("btn-reset").onclick = async () => {
     if (!confirm("Сбросить все 4 счёта?")) return;
     await fetch("/api/reset", { method: "POST" });
     location.reload();
@@ -303,13 +362,13 @@ function bindUi() {
 async function main() {
   try {
     bindUi();
-    if (!initChart()) showError("библиотека графика не загрузилась");
+    if (!initChart()) showError("График: проверь интернет, нажми Ctrl+F5");
     await loadInitial();
     connectWs();
-    setInterval(refreshStatus, 8000);
+    setInterval(refreshStatus, 5000);
+    setInterval(loadBrain, 60000);
   } catch (e) {
     showError(e.message);
-    console.error(e);
   }
 }
 
