@@ -136,34 +136,33 @@ class PriceFeed:
         raise RuntimeError("kraken pair not found")
 
     async def fetch_klines(self, interval: str = "1m", limit: int = 100) -> list[dict[str, Any]]:
-        try:
-            return await self._fetch_klines_once(interval, limit)
-        except RuntimeError as e:
-            if not use_insecure_ssl() and is_ssl_verify_error(str(e)):
+        errors: list[str] = []
+        for attempt in range(2):
+            async with self._client(timeout=20) as client:
+                for name, fetcher in (
+                    ("binance", self._klines_binance),
+                    ("binance.us", self._klines_binance_us),
+                    ("bybit", self._klines_bybit),
+                    ("kraken", self._klines_kraken),
+                    ("coingecko", self._klines_coingecko),
+                ):
+                    try:
+                        candles = await fetcher(client, interval, limit)
+                        if candles:
+                            self.source = name
+                            logger.info("Loaded %s candles from %s", len(candles), name)
+                            return candles
+                    except Exception as e:
+                        errors.append(f"{name}: {e}")
+                        logger.warning("kline source %s failed: %s", name, e)
+
+            err_text = "; ".join(errors)
+            if attempt == 0 and not use_insecure_ssl() and is_ssl_verify_error(err_text):
                 enable_insecure_ssl()
                 logger.info("Retrying klines fetch without SSL verify...")
-                return await self._fetch_klines_once(interval, limit)
-            raise
-
-    async def _fetch_klines_once(self, interval: str, limit: int) -> list[dict[str, Any]]:
-        async with self._client(timeout=20) as client:
-            errors: list[str] = []
-            for name, fetcher in (
-                ("binance", self._klines_binance),
-                ("binance.us", self._klines_binance_us),
-                ("bybit", self._klines_bybit),
-                ("kraken", self._klines_kraken),
-                ("coingecko", self._klines_coingecko),
-            ):
-                try:
-                    candles = await fetcher(client, interval, limit)
-                    if candles:
-                        self.source = name
-                        logger.info("Loaded %s candles from %s", len(candles), name)
-                        return candles
-                except Exception as e:
-                    errors.append(f"{name}: {e}")
-                    logger.warning("kline source %s failed: %s", name, e)
+                errors.clear()
+                continue
+            break
 
         try:
             price = await self.fetch_price()
