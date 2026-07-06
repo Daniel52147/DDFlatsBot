@@ -149,6 +149,9 @@ footer {
 .positive { color: var(--green) !important; }
 .negative { color: var(--red) !important; }
 
+.live-dot { color: var(--green); font-size: 0.9rem; }
+.live-dot.stale { color: var(--muted); }
+
 .chart-legend { font-size: 0.75rem; }
 .legend.sma::before {
   content: "";

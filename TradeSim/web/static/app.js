@@ -1,6 +1,7 @@
 let chart, candleSeries, smaSeries;
 let smaData = [];
 let botEnabled = true;
+let lastCandles = [];
 
 function fmtMoney(n) {
   if (n == null || isNaN(n)) return "—";
@@ -40,6 +41,25 @@ function updateSMA(candles, period = 20) {
     smaData.push({ time: candles[i].time, value: avg });
   }
   smaSeries.setData(smaData);
+}
+
+function updateLiveCandle(candle) {
+  if (!candle) return;
+  candleSeries.update(candle);
+  // keep local copy for SMA
+  if (lastCandles.length && lastCandles[lastCandles.length - 1].time === candle.time) {
+    lastCandles[lastCandles.length - 1] = candle;
+  } else {
+    lastCandles.push(candle);
+  }
+  updateSMA(lastCandles);
+}
+
+function setLiveStatus(ok) {
+  const el = document.getElementById("live-status");
+  if (!el) return;
+  el.textContent = ok ? "● LIVE" : "○ пауза";
+  el.className = "value live-dot" + (ok ? "" : " stale");
 }
 
 function updatePortfolio(p) {
@@ -83,22 +103,23 @@ function connectWs() {
   ws.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
     if (msg.type === "init") {
-      candleSeries.setData(msg.candles || []);
-      updateSMA(msg.candles || []);
+      lastCandles = msg.candles || [];
+      candleSeries.setData(lastCandles);
+      updateSMA(lastCandles);
       updatePortfolio({ ...msg.portfolio, price: msg.price });
       renderBotStatus(msg.strategy);
       document.getElementById("assistant-text").textContent = msg.assistant || "";
+      setLiveStatus(true);
     }
     if (msg.type === "tick") {
       updatePortfolio({ ...msg.portfolio, price: msg.price });
+      if (msg.candle) updateLiveCandle(msg.candle);
+      setLiveStatus(true);
     }
     if (msg.type === "candle") {
+      lastCandles.push(msg.candle);
       candleSeries.update(msg.candle);
-      fetch("/api/status").then(r => r.json()).then(d => {
-        updateSMA(d.candles);
-        renderTrades(d.trades);
-        renderBotStatus(d.strategy);
-      });
+      updateSMA(lastCandles);
     }
     if (msg.type === "trade") {
       fetch("/api/status").then(r => r.json()).then(d => renderTrades(d.trades));
@@ -116,12 +137,31 @@ function connectWs() {
 async function loadInitial() {
   const res = await fetch("/api/status");
   const data = await res.json();
-  candleSeries.setData(data.candles || []);
-  updateSMA(data.candles || []);
+  lastCandles = data.candles || [];
+  candleSeries.setData(lastCandles);
+  updateSMA(lastCandles);
   updatePortfolio({ ...data.portfolio, price: data.price });
   renderBotStatus(data.strategy);
   renderTrades(data.trades);
   document.getElementById("assistant-text").textContent = data.assistant_briefing || "";
+  setLiveStatus(true);
+}
+
+function startStatusPoller() {
+  setInterval(async () => {
+    try {
+      const data = await (await fetch("/api/status")).json();
+      updatePortfolio({ ...data.portfolio, price: data.price });
+      const candles = data.candles || [];
+      if (candles.length) {
+        const last = candles[candles.length - 1];
+        updateLiveCandle(last);
+      }
+      setLiveStatus(true);
+    } catch (_) {
+      setLiveStatus(false);
+    }
+  }, 5000);
 }
 
 document.getElementById("btn-toggle").onclick = async () => {
@@ -143,3 +183,4 @@ document.getElementById("btn-reset").onclick = async () => {
 
 initChart();
 loadInitial().then(connectWs);
+startStatusPoller();

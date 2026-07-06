@@ -83,7 +83,15 @@ async def on_tick(price: float, ts: float):
     await broadcast({"type": "candle", "candle": closed.to_dict()})
 
   snap = engine.snapshot(price)
-  await broadcast({"type": "tick", "price": price, "portfolio": snap, "sma": sma})
+  current = candles.current_candle()
+  await broadcast({
+    "type": "tick",
+    "price": price,
+    "portfolio": snap,
+    "sma": sma,
+    "candle": current,
+    "source": feed.source,
+  })
 
   # Periodic snapshot + learning check (~every 5 min)
   now = time.time()
@@ -106,17 +114,24 @@ async def run_feed_loop():
   await feed.fetch_price()
   candles.add_tick(feed.price, feed.last_update)
   ws_task = asyncio.create_task(feed.run_websocket())
-  # Fallback REST poll if WS quiet
+  poll_task = asyncio.create_task(_price_poller())
   while state["running"]:
     await asyncio.sleep(30)
-    if time.time() - feed.last_update > 60:
+  feed.stop()
+  ws_task.cancel()
+  poll_task.cancel()
+
+
+async def _price_poller():
+  """Reliable REST backup — keeps chart moving if WebSocket is blocked."""
+  while state["running"]:
+    await asyncio.sleep(3)
+    if time.time() - feed.last_update > 2:
       try:
         p = await feed.fetch_price()
         await on_tick(p, feed.last_update)
       except Exception as e:
-        logger.warning("REST fallback failed: %s", e)
-  feed.stop()
-  ws_task.cancel()
+        logger.warning("REST poll failed: %s", e)
 
 
 @asynccontextmanager

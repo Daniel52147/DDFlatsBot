@@ -82,7 +82,7 @@ class CandleBuilder:
       for c in candles
     ]
     if self.candles:
-      last = self.candles[-1]
+      last = self.candles.pop()  # last bucket is "open", keep in _current only
       self._current = Candle(
         time=last.time,
         open=last.open,
@@ -91,6 +91,9 @@ class CandleBuilder:
         close=last.close,
         volume=last.volume,
       )
+
+  def current_candle(self) -> dict[str, Any] | None:
+    return self._current.to_dict() if self._current else None
 
   def all_candles(self) -> list[dict]:
     out = [c.to_dict() for c in self.candles]
