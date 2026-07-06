@@ -282,27 +282,65 @@ function computeTotalFromMarkets(markets) {
   return { total_value: sum, pnl_pct: ((sum - start) / start) * 100, start_balance: start };
 }
 
+function applyBootstrap(data) {
+  if (!data) return false;
+  const parsed = parseStatus(data);
+  if (parsed?.markets) {
+    for (const [sym, payload] of Object.entries(parsed.markets)) {
+      mergeMarket(sym, payload);
+    }
+  }
+  updateTotal(parsed?.total || computeTotal());
+  renderTabs();
+  switchMarket(activeSymbol);
+  if (parsed?.brain) renderBrain(parsed.brain);
+  if (data.chat) renderChat([{ role: "assistant", content: data.chat }]);
+  if (data.trades?.length) renderTradesList(data.trades);
+  else renderAllTrades();
+  setLiveStatus(true);
+  return Object.keys(marketsData).length > 0;
+}
+
+function renderTradesList(all) {
+  const ul = document.getElementById("trades-list");
+  if (!ul) return;
+  if (!all?.length) {
+    ul.innerHTML = "<li>Сделок пока нет</li>";
+    return;
+  }
+  ul.innerHTML = all.slice(0, 20).map(t => {
+    const d = new Date(t.ts * 1000).toLocaleString("ru-RU");
+    return `<li class="${t.side}"><b>${t.label}</b> ${d} · ${t.side.toUpperCase()} @ ${fmtMoney(t.price, 4)} · ${t.reason}</li>`;
+  }).join("");
+}
+
 function loadEmbeddedData() {
   const el = document.getElementById("initial-data");
   if (!el?.textContent) return false;
   try {
-    const data = parseStatus(JSON.parse(el.textContent));
-    if (!data?.markets || !Object.keys(data.markets).length) return false;
-    for (const [sym, payload] of Object.entries(data.markets)) {
-      mergeMarket(sym, payload);
-    }
-    updateTotal(data.total);
-    renderTabs();
-    switchMarket(activeSymbol);
-    if (data.brain) renderBrain(data.brain);
-    if (data.chat) renderChat([{ role: "assistant", content: data.chat }]);
-    renderAllTrades();
-    setLiveStatus(true);
-    return true;
+    return applyBootstrap(JSON.parse(el.textContent));
   } catch (e) {
-    console.error("embedded data", e);
+    console.error("embedded", e);
     return false;
   }
+}
+
+async function fetchBootstrap() {
+  try {
+    const res = await fetch("/api/bootstrap");
+    if (res.ok) return applyBootstrap(await res.json());
+  } catch (_) {}
+  // Запасной вариант: загрузить каждый рынок отдельно
+  for (const m of marketMeta) {
+    try {
+      const d = await (await fetch(`/api/status?symbol=${m.symbol}`)).json();
+      if (d?.symbol || d?.price) mergeMarket(m.symbol, d);
+    } catch (_) {}
+  }
+  renderTabs();
+  switchMarket(activeSymbol);
+  await renderAllTrades();
+  return Object.keys(marketsData).length > 0;
 }
 
 function computeTotal() {
