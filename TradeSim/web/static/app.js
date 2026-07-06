@@ -152,21 +152,27 @@ function renderBotStatus(d) {
 async function renderAllTrades() {
   const ul = document.getElementById("trades-list");
   if (!ul) return;
+  let all = [];
   try {
     const res = await fetch("/api/trades");
     const data = await res.json();
-    const all = data.trades || [];
-    if (!all.length) {
-      ul.innerHTML = "<li>Сделок пока нет — появятся после DCA-покупки</li>";
-      return;
+    all = data.trades || [];
+  } catch (_) {}
+  if (!all.length) {
+    for (const sym of Object.keys(marketsData)) {
+      const d = marketsData[sym];
+      (d?.trades || []).forEach(t => all.push({ ...t, label: d.label || labelFor(sym) }));
     }
-    ul.innerHTML = all.slice(0, 20).map(t => {
-      const d = new Date(t.ts * 1000).toLocaleString("ru-RU");
-      return `<li class="${t.side}"><b>${t.label}</b> ${d} · ${t.side.toUpperCase()} @ ${fmtMoney(t.price, 4)} · ${t.reason}</li>`;
-    }).join("");
-  } catch (_) {
-    ul.innerHTML = "<li>Не удалось загрузить сделки</li>";
+    all.sort((a, b) => b.ts - a.ts);
   }
+  if (!all.length) {
+    ul.innerHTML = "<li>Сделок пока нет — бот купит при старте или на просадке</li>";
+    return;
+  }
+  ul.innerHTML = all.slice(0, 20).map(t => {
+    const d = new Date(t.ts * 1000).toLocaleString("ru-RU");
+    return `<li class="${t.side}"><b>${t.label}</b> ${d} · ${t.side.toUpperCase()} @ ${fmtMoney(t.price, 4)} · ${t.reason}</li>`;
+  }).join("");
 }
 
 function renderChat(messages) {
@@ -254,25 +260,64 @@ function connectWs() {
   ws.onclose = () => setTimeout(connectWs, 3000);
 }
 
-function computeTotal() {
+function parseStatus(data) {
+  if (!data) return null;
+  // Старый API: один рынок { symbol, price, ... }
+  if (!data.markets && data.symbol) {
+    data.markets = { [data.symbol]: { ...data, label: data.symbol.replace("USDT", "") } };
+  }
+  if (!data.total && data.markets) {
+    data.total = computeTotalFromMarkets(data.markets);
+  }
+  return data;
+}
+
+function computeTotalFromMarkets(markets) {
   let sum = 0;
-  for (const sym of Object.keys(marketsData)) {
-    sum += marketsData[sym]?.portfolio?.portfolio_value || 0;
+  for (const sym of Object.keys(markets)) {
+    sum += markets[sym]?.portfolio?.portfolio_value || 0;
   }
   if (sum <= 0) return null;
   const start = 10000;
   return { total_value: sum, pnl_pct: ((sum - start) / start) * 100, start_balance: start };
 }
 
+function loadEmbeddedData() {
+  const el = document.getElementById("initial-data");
+  if (!el?.textContent) return false;
+  try {
+    const data = parseStatus(JSON.parse(el.textContent));
+    if (!data?.markets || !Object.keys(data.markets).length) return false;
+    for (const [sym, payload] of Object.entries(data.markets)) {
+      mergeMarket(sym, payload);
+    }
+    updateTotal(data.total);
+    renderTabs();
+    switchMarket(activeSymbol);
+    if (data.brain) renderBrain(data.brain);
+    if (data.chat) renderChat([{ role: "assistant", content: data.chat }]);
+    renderAllTrades();
+    setLiveStatus(true);
+    return true;
+  } catch (e) {
+    console.error("embedded data", e);
+    return false;
+  }
+}
+
+function computeTotal() {
+  return computeTotalFromMarkets(marketsData);
+}
+
 async function refreshStatus() {
   try {
-    const data = await (await fetch("/api/status")).json();
-    if (data.markets) {
+    const data = parseStatus(await (await fetch("/api/status")).json());
+    if (data?.markets) {
       for (const [sym, payload] of Object.entries(data.markets)) {
         mergeMarket(sym, payload);
       }
     }
-    updateTotal(data.total || computeTotal());
+    updateTotal(data?.total || computeTotal());
     renderTabs();
     switchMarket(activeSymbol);
     await renderAllTrades();
@@ -293,19 +338,20 @@ async function loadBrain() {
 async function checkServer() {
   try {
     const res = await fetch("/api/ping");
+    if (res.status === 404) return null; // старый сервер без ping — ок
     const data = await res.json();
-    if (!data.markets || data.markets.length < 4) {
-      showError("Старый сервер! Останови (Ctrl+C) и снова: python main.py");
+    if (data.markets && data.markets.length < 4) {
+      showError("Перезапусти сервер: Ctrl+C → python main.py");
     }
     return data;
   } catch (_) {
-    showError("Сервер не отвечает — запусти python main.py");
     return null;
   }
 }
 
 async function loadInitial() {
-  await checkServer();
+  const embedded = loadEmbeddedData();
+  if (!embedded) await checkServer();
   await refreshStatus();
 
   try {
@@ -320,8 +366,8 @@ async function loadInitial() {
   await loadBrain();
   await renderAllTrades();
 
-  if (!marketsData[activeSymbol]?.price) {
-    showError("Данные грузятся... если через 30 сек пусто — Ctrl+C и python main.py заново");
+  if (!marketsData[activeSymbol]?.price && !embedded) {
+    showError("Данные грузятся... Ctrl+C → python main.py → Ctrl+F5");
   }
 }
 

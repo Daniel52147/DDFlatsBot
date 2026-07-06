@@ -94,6 +94,7 @@
   </footer>
 
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=5"></script>
+  <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
+  <script src="/static/app.js?v=6"></script>
 </body>
 </html>

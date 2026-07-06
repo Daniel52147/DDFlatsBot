@@ -5,6 +5,7 @@ TradeSim — multi-market paper trading with live crypto data.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -180,7 +181,17 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "web" / "static")), na
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse(request, "index.html")
+    payload = {
+        "markets": {sym: s.status_payload() for sym, s in sessions.items()},
+        "total": total_portfolio(),
+        "brain": _brain_public(state["brain_cycle"]) if state.get("brain_cycle") else None,
+        "chat": state["chat_history"][-1]["content"] if state.get("chat_history") else "",
+    }
+    return templates.TemplateResponse(
+        request,
+        "index.html",
+        {"initial_json": json.dumps(payload, ensure_ascii=False)},
+    )
 
 
 @app.get("/api/markets")
