@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TradeSim — Paper Trading BTC/USDT</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="logo">📊</span>
+      <div>
+        <h1>TradeSim</h1>
+        <p class="tagline">Настоящий рынок · Виртуальные деньги · Обучение в нише BTC/USDT</p>
+      </div>
+    </div>
+    <div class="header-stats">
+      <div class="stat">
+        <span class="label">BTC/USDT</span>
+        <span class="value" id="live-price">—</span>
+      </div>
+      <div class="stat">
+        <span class="label">Портфель</span>
+        <span class="value" id="portfolio-value">—</span>
+      </div>
+      <div class="stat">
+        <span class="label">P&L</span>
+        <span class="value" id="pnl">—</span>
+      </div>
+      <div class="stat badge paper">PAPER</div>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="card chart-card">
+      <div class="card-header">
+        <h2>Свечи (реальное время)</h2>
+        <div class="chart-legend">
+          <span class="legend sma">SMA-20</span>
+        </div>
+      </div>
+      <div id="chart"></div>
+    </section>
+
+    <aside class="sidebar">
+      <section class="card">
+        <div class="card-header">
+          <h2>🤖 Бот DCA + DIP</h2>
+          <button id="btn-toggle" class="btn small">Пауза</button>
+        </div>
+        <div id="bot-status" class="bot-status"></div>
+      </section>
+
+      <section class="card assistant-card">
+        <div class="card-header">
+          <h2>💬 Помощник</h2>
+          <button id="btn-refresh-assistant" class="btn small ghost">Обновить</button>
+        </div>
+        <pre id="assistant-text" class="assistant-text">Загрузка...</pre>
+      </section>
+
+      <section class="card">
+        <div class="card-header">
+          <h2>📋 Сделки</h2>
+        </div>
+        <ul id="trades-list" class="trades-list"></ul>
+      </section>
+
+      <section class="card monetize-card">
+        <h2>🚀 Дальше — монетизация</h2>
+        <ul class="feature-list">
+          <li>Подписка на paper + алерты</li>
+          <li>Премиум стратегии</li>
+          <li>API для других ботов</li>
+          <li>Telegram-интеграция</li>
+        </ul>
+      </section>
+    </aside>
+  </main>
+
+  <footer>
+    <span>Данные: Binance (публичный API)</span>
+    <button id="btn-reset" class="btn ghost small">Сбросить счёт</button>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
