@@ -237,6 +237,24 @@ async def api_chat(body: ChatRequest):
     return {"reply": reply, "chat": state["chat_history"][-10:]}
 
 
+@app.get("/api/trades")
+async def api_all_trades():
+    all_trades = []
+    for sym, s in sessions.items():
+        for t in s.engine.trades:
+            all_trades.append({
+                "symbol": sym,
+                "label": s.label,
+                "side": t.side,
+                "price": t.price,
+                "amount_quote": t.amount_quote,
+                "reason": t.reason,
+                "ts": t.ts,
+            })
+    all_trades.sort(key=lambda x: x["ts"], reverse=True)
+    return {"trades": all_trades[:30]}
+
+
 @app.post("/api/bot/toggle")
 async def toggle_bot(symbol: str = config.MARKETS[0]["symbol"]):
     if symbol not in sessions:

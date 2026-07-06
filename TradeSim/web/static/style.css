@@ -77,7 +77,15 @@ header {
 
 .card h2 { font-size: 1rem; font-weight: 600; }
 
+#chart-wrap { position: relative; min-height: 420px; }
 #chart { height: 420px; width: 100%; }
+.chart-loading { color: var(--muted); padding: 2rem; text-align: center; }
+
+.js-error {
+  position: fixed; bottom: 1rem; left: 1rem; right: 1rem;
+  background: #3d1214; border: 1px solid var(--red); color: #ffb4b0;
+  padding: 0.75rem; border-radius: 8px; z-index: 999;
+}
 
 .sidebar { display: flex; flex-direction: column; gap: 1rem; }
 

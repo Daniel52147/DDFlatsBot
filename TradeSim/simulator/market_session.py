@@ -48,6 +48,14 @@ class MarketSession:
             self.feed.price = history[-1]["close"]
             self.feed.last_update = time.time()
 
+        # Первая покупка сразу при старте — чтобы было видно, что бот живой
+        price = self.feed.price
+        if price > 0:
+            sma = self.candles.sma(int(self.bot.params["sma_period"]))
+            trade = self.bot.maybe_trade(price, sma)
+            if trade:
+                logger.info("[%s] стартовая сделка: %s", self.symbol, trade.reason)
+
     async def on_tick(self, price: float, ts: float) -> list[dict[str, Any]]:
         """Process tick; return list of WS messages to broadcast."""
         msgs: list[dict[str, Any]] = []
