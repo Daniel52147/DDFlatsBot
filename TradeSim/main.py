@@ -192,6 +192,15 @@ async def api_markets():
     }
 
 
+@app.get("/api/ping")
+async def api_ping():
+    return {
+        "version": 3,
+        "markets": list(sessions.keys()),
+        "brain": state.get("brain_cycle") is not None,
+    }
+
+
 @app.get("/api/status")
 async def api_status(symbol: str | None = None):
     if symbol and symbol in sessions:
