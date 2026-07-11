@@ -117,6 +117,17 @@ async def brain_loop():
         await asyncio.sleep(120)
 
 
+def _market_meta() -> list[dict[str, Any]]:
+    return [
+        {
+            "symbol": m["symbol"],
+            "label": m["label"],
+            "volatile": m.get("volatile", False),
+        }
+        for m in config.MARKETS
+    ]
+
+
 def _brain_public(cycle: dict) -> dict:
     """Trim cycle for frontend."""
     return {
@@ -138,6 +149,16 @@ def _brain_public(cycle: dict) -> dict:
             "emoji": cycle["schemer"]["emoji"],
             "name": cycle["schemer"]["name"],
             "summary": cycle["schemer"]["summary"],
+        },
+        "volatility": {
+            "emoji": cycle["volatility"]["emoji"],
+            "name": cycle["volatility"]["name"],
+            "summary": cycle["volatility"]["summary"],
+        },
+        "risk": {
+            "emoji": cycle["risk"]["emoji"],
+            "name": cycle["risk"]["name"],
+            "summary": cycle["risk"]["summary"],
         },
         "ts": cycle.get("ts"),
     }
@@ -191,7 +212,8 @@ async def index(request: Request):
             })
     all_trades.sort(key=lambda x: x["ts"], reverse=True)
     payload = {
-        "version": 3,
+        "version": 4,
+        "market_meta": _market_meta(),
         "markets": {sym: s.status_payload() for sym, s in sessions.items()},
         "total": total_portfolio(),
         "brain": _brain_public(state["brain_cycle"]) if state.get("brain_cycle") else None,
@@ -209,6 +231,7 @@ async def index(request: Request):
 async def api_markets():
     return {
         "markets": [m for m in config.MARKETS],
+        "market_meta": _market_meta(),
         "total": total_portfolio(),
         "mode": "paper",
     }
@@ -228,7 +251,8 @@ async def api_bootstrap():
             })
     all_trades.sort(key=lambda x: x["ts"], reverse=True)
     return {
-        "version": 3,
+        "version": 4,
+        "market_meta": _market_meta(),
         "markets": {sym: s.status_payload() for sym, s in sessions.items()},
         "total": total_portfolio(),
         "brain": _brain_public(state["brain_cycle"]) if state.get("brain_cycle") else None,
@@ -240,8 +264,9 @@ async def api_bootstrap():
 @app.get("/api/ping")
 async def api_ping():
     return {
-        "version": 3,
+        "version": 4,
         "markets": list(sessions.keys()),
+        "market_meta": _market_meta(),
         "brain": state.get("brain_cycle") is not None,
     }
 

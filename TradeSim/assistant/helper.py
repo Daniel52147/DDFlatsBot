@@ -2,43 +2,94 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from simulator.candles import Candle
 
 
+COIN_SYNONYMS = {
+    "btc": "BTC", "биток": "BTC", "биткоин": "BTC", "bitcoin": "BTC",
+    "eth": "ETH", "эфир": "ETH", "ethereum": "ETH", "эфириум": "ETH",
+    "sol": "SOL", "солана": "SOL", "solana": "SOL",
+    "bnb": "BNB", "бинанс": "BNB",
+    "doge": "DOGE", "доги": "DOGE", "догик": "DOGE", "dogecoin": "DOGE",
+    "pepe": "PEPE", "пепе": "PEPE", "мем": "PEPE",
+}
+
+
 class TradingAssistant:
+    def _labels(self, contexts: list[dict]) -> str:
+        return ", ".join(c["label"] for c in contexts)
+
+    def _volatile_labels(self, contexts: list[dict]) -> str:
+        v = [c["label"] for c in contexts if c.get("volatile")]
+        return ", ".join(v) if v else "нет"
+
+    def _fmt_price(self, price: float, label: str) -> str:
+        if label == "PEPE":
+            return f"${price:.8f}"
+        if label in ("DOGE",):
+            return f"${price:.6f}"
+        if label == "BTC":
+            return f"${price:,.0f}"
+        return f"${price:,.4f}"
+
     def analyze_candles(self, candles: list[Candle], price: float, sma: float | None) -> dict[str, Any]:
         if len(candles) < 3:
             return {"summary": "Мало данных для анализа.", "signals": []}
 
-        last = candles[-1]
         signals = []
         recent = [c.close for c in candles[-5:]]
         if len(recent) >= 3:
-            if recent[-1] > recent[0]:
-                signals.append({"text": "краткосрочный тренд вверх 📈"})
-            elif recent[-1] < recent[0]:
-                signals.append({"text": "краткосрочный тренд вниз 📉"})
+            chg = (recent[-1] - recent[0]) / recent[0] * 100 if recent[0] else 0
+            if chg > 1.5:
+                signals.append({"text": f"краткосрочный рост +{chg:.1f}% 📈"})
+            elif chg < -1.5:
+                signals.append({"text": f"краткосрочное падение {chg:.1f}% 📉"})
+            elif abs(chg) < 0.3:
+                signals.append({"text": "рынок спокойный — мало движения"})
 
         if sma:
             diff = (price - sma) / sma * 100
             if diff < -3:
                 signals.append({"text": f"цена ниже SMA на {abs(diff):.1f}% — зона DIP"})
             elif diff > 3:
-                signals.append({"text": f"цена выше SMA на {diff:.1f}%"})
+                signals.append({"text": f"цена выше SMA на {diff:.1f}% — тренд вверх"})
 
-        summary = signals[0]["text"] if signals else "рынок спокойный"
+        if len(candles) >= 5:
+            hi = max(c.high for c in candles[-10:])
+            lo = min(c.low for c in candles[-10:])
+            avg = sum(c.close for c in candles[-10:]) / min(10, len(candles))
+            if avg > 0:
+                vol = (hi - lo) / avg * 100
+                if vol >= 8:
+                    signals.append({"text": f"высокая волатильность {vol:.1f}% — шанс на SPIKE-покупку"})
+
+        summary = signals[0]["text"] if signals else "рынок в боковике"
         return {"summary": summary, "signals": signals}
 
     def _fmt_market_line(self, ctx: dict) -> str:
         p = ctx["portfolio"]
+        vol_tag = " ⚡" if ctx.get("volatile") else ""
         return (
-            f"• {ctx['label']}: ${ctx['price']:,.2f} | "
+            f"• {ctx['label']}{vol_tag}: {self._fmt_price(ctx['price'], ctx['label'])} | "
             f"портфель ${p['portfolio_value']:,.2f} ({p['pnl_pct']:+.2f}%) | "
             f"сделок: {ctx['trade_count']}"
         )
+
+    def _find_coin(self, msg: str, contexts: list[dict]) -> dict | None:
+        by_label = {c["label"].lower(): c for c in contexts}
+        by_name = {c["name"].lower(): c for c in contexts}
+        norm = msg.replace("/", "").replace("-", " ")
+        for alias, label in COIN_SYNONYMS.items():
+            if alias in norm:
+                for ctx in contexts:
+                    if ctx["label"] == label:
+                        return ctx
+        for key, ctx in {**by_label, **by_name}.items():
+            if key in norm or ctx["symbol"].lower() in norm.replace("usdt", ""):
+                return ctx
+        return None
 
     def chat(
         self,
@@ -47,112 +98,208 @@ class TradingAssistant:
         total: dict[str, Any],
     ) -> str:
         msg = user_msg.lower().strip()
-        by_label = {c["label"].lower(): c for c in contexts}
-        by_name = {c["name"].lower(): c for c in contexts}
+        labels = self._labels(contexts)
+        n = len(contexts)
 
-        # Greeting
-        if any(w in msg for w in ("привет", "здравств", "hello", "hi")):
+        if any(w in msg for w in ("привет", "здравств", "hello", "hi", "start")):
             return (
-                "Привет! Я помощник TradeSim. Слежу за 4 рынками: BTC, ETH, SOL, BNB.\n"
-                "Спроси: «как дела?», «что с ETH?», «сколько заработал?», «как идёт обучение?»"
+                f"Привет! Я помощник TradeSim — слежу за {n} рынками: {labels}.\n"
+                f"Волатильные (для обучения на скачках): {self._volatile_labels(contexts)}.\n\n"
+                "Спроси:\n"
+                "• «как дела?» — сводка\n"
+                "• «что с DOGE?» — монета\n"
+                "• «сколько заработал?» — P&L\n"
+                "• «что думает мозг?» — 5 агентов\n"
+                "• «волатильность» / «риск» / «новости»\n"
+                "• «что такое DCA?» — объяснение"
             )
 
-        # Overall status
+        if any(w in msg for w in ("помощ", "help", "команды", "что умеешь", "что можешь")):
+            return (
+                "📖 Команды помощника:\n"
+                f"• Сводка: как дела, статус, обстановка\n"
+                f"• Монета: что с BTC/ETH/DOGE/PEPE...\n"
+                f"• Деньги: заработал, прибыль, pnl\n"
+                f"• Обучение: как идёт обучение, схемы\n"
+                f"• Мозг: что думает мозг, агенты, вердикт\n"
+                f"• Новости, волатильность, риск\n"
+                f"• Теория: что такое DCA, SMA, DIP, SPIKE\n"
+                f"• Сделки: последняя сделка, сколько торгов\n\n"
+                f"Рынки ({n}): {labels}"
+            )
+
+        if any(w in msg for w in ("dca", "дца", "доллар")) and any(
+            w in msg for w in ("что", "как", "объяс", "это")
+        ):
+            p = contexts[0]["strategy"]["params"] if contexts else {}
+            return (
+                "📘 DCA (Dollar Cost Averaging) — покупка на фиксированную сумму по расписанию, "
+                "чтобы не угадывать дно.\n\n"
+                f"Сейчас: ${p.get('dca_amount', 25)} каждые {p.get('dca_interval_hours', 24)} ч. "
+                "На волатильных (DOGE, PEPE) сумма меньше, интервал короче — больше шансов поймать скачки.\n\n"
+                "DIP — доп. покупка, когда цена ниже SMA. SPIKE — ещё одна покупка при резкой просадке на мемкоинах."
+            )
+
+        if any(w in msg for w in ("sma", "сма", "скользящ")):
+            return (
+                "📘 SMA (Simple Moving Average) — средняя цена за N свечей.\n"
+                "Бот сравнивает текущую цену с SMA-20 (или 10–14 на волатильных).\n"
+                "Ниже SMA → возможен DIP. Сильно ниже → SPIKE на DOGE/PEPE."
+            )
+
         if any(w in msg for w in ("как дела", "как идут", "статус", "обстановка", "сводка")):
             lines = [
                 f"📊 Общий портфель: ${total['total_value']:,.2f} ({total['pnl_pct']:+.2f}%)",
+                f"Рынков: {n} · на каждый ~${total.get('start_balance', 10000) / max(n, 1):,.0f}",
                 "",
             ]
             for ctx in contexts:
                 analysis = self.analyze_candles(ctx["candles"], ctx["price"], ctx["sma"])
                 lines.append(self._fmt_market_line(ctx))
                 lines.append(f"  └ {analysis['summary']}")
+                if ctx.get("volatility_pct"):
+                    lines.append(f"  └ волатильность: {ctx['volatility_pct']:.1f}%")
             lines.append("")
             lines.append(self._learning_summary(contexts, total))
             return "\n".join(lines)
 
-        # PnL / earnings
-        if any(w in msg for w in ("заработ", "прибыл", "убыт", "pnl", "доход", "сколько")):
+        if any(w in msg for w in ("заработ", "прибыл", "убыт", "pnl", "доход")) or (
+            "сколько" in msg and any(w in msg for w in ("заработ", "прибыл", "денег", "получ"))
+        ):
             best = max(contexts, key=lambda c: c["portfolio"]["pnl_pct"])
             worst = min(contexts, key=lambda c: c["portfolio"]["pnl_pct"])
+            volatile_ctx = [c for c in contexts if c.get("volatile")]
+            vol_line = ""
+            if volatile_ctx:
+                vbest = max(volatile_ctx, key=lambda c: c["portfolio"]["pnl_pct"])
+                vol_line = f"\nЛучший мемкоин: {vbest['label']} ({vbest['portfolio']['pnl_pct']:+.2f}%)"
             return (
                 f"💰 Всего: ${total['total_value']:,.2f} из ${total['start_balance']:,.2f} "
                 f"({total['pnl_pct']:+.2f}%)\n\n"
                 f"Лучший: {best['label']} ({best['portfolio']['pnl_pct']:+.2f}%)\n"
-                f"Слабее: {worst['label']} ({worst['portfolio']['pnl_pct']:+.2f}%)\n\n"
-                "Помни: это paper trading — деньги виртуальные, котировки настоящие."
+                f"Слабее: {worst['label']} ({worst['portfolio']['pnl_pct']:+.2f}%){vol_line}\n\n"
+                "Paper trading — деньги виртуальные, котировки реальные."
             )
 
-        # Learning
         if any(w in msg for w in ("учит", "обучен", "учёб", "учеб", "развива")):
             return self._learning_summary(contexts, total)
 
-        # Specific coin
-        for key, ctx in {**by_label, **by_name}.items():
-            if key in msg or ctx["symbol"].lower() in msg.replace("/", ""):
-                analysis = self.analyze_candles(ctx["candles"], ctx["price"], ctx["sma"])
-                st = ctx["strategy"]
-                p = ctx["portfolio"]
-                lines = [
-                    f"📈 {ctx['name']} ({ctx['label']}/USDT)",
-                    f"Цена: ${ctx['price']:,.4f}",
-                    f"Портфель: ${p['portfolio_value']:,.2f} ({p['pnl_pct']:+.2f}%)",
-                    f"vs «купил и держал»: {p.get('vs_hold_pct', 0):+.2f}%",
-                    f"📊 {analysis['summary']}",
-                    f"🤖 Бот: {'активен' if st.get('enabled') else 'на паузе'}",
-                    f"DCA: ${st['params']['dca_amount']} / {st['params']['dca_interval_hours']}ч",
-                    f"Сделок: {ctx['trade_count']}",
-                ]
-                if st.get("next_dca_in_hours") is not None:
-                    lines.append(f"След. DCA: ~{st['next_dca_in_hours']} ч.")
-                return "\n".join(lines)
-
-        # Trades
-        if any(w in msg for w in ("сделк", "торг", "покуп", "купил")):
-            total_trades = sum(c["trade_count"] for c in contexts)
-            lines = [f"📋 Всего сделок по 4 рынкам: {total_trades}", ""]
-            for ctx in contexts:
-                if ctx["trade_count"]:
-                    lines.append(f"{ctx['label']}: {ctx['trade_count']} сделок")
-            if total_trades == 0:
-                lines.append("Пока боты копят данные — скоро начнут DCA-покупки.")
+        if any(w in msg for w in ("сравн", "лучше", "хуже", "рейтинг", "топ")):
+            ranked = sorted(contexts, key=lambda c: c["portfolio"].get("vs_hold_pct", 0), reverse=True)
+            lines = ["🏆 Рейтинг vs «купил и держал»:", ""]
+            for i, ctx in enumerate(ranked, 1):
+                vh = ctx["portfolio"].get("vs_hold_pct", 0)
+                lines.append(f"{i}. {ctx['label']}: {vh:+.2f}%")
             return "\n".join(lines)
 
-        # Advice
+        if any(w in msg for w in ("последн", "недавн")) and any(
+            w in msg for w in ("сделк", "покуп", "торг")
+        ):
+            lines = ["📋 Последние сделки:", ""]
+            found = False
+            for ctx in contexts:
+                for t in reversed(ctx.get("recent_trades", [])):
+                    found = True
+                    d = self._fmt_price(t["price"], ctx["label"])
+                    lines.append(f"• [{ctx['label']}] {t['reason']} @ {d}")
+            if not found:
+                lines.append("Пока нет сделок — боты скоро сделают стартовые DCA.")
+            return "\n".join(lines)
+
+        coin = self._find_coin(msg, contexts)
+        if coin:
+            analysis = self.analyze_candles(coin["candles"], coin["price"], coin["sma"])
+            st = coin["strategy"]
+            p = coin["portfolio"]
+            lines = [
+                f"📈 {coin['name']} ({coin['label']}/USDT)"
+                + (" ⚡ волатильный" if coin.get("volatile") else ""),
+                f"Цена: {self._fmt_price(coin['price'], coin['label'])}",
+                f"Портфель: ${p['portfolio_value']:,.2f} ({p['pnl_pct']:+.2f}%)",
+                f"vs «купил и держал»: {p.get('vs_hold_pct', 0):+.2f}%",
+                f"📊 {analysis['summary']}",
+            ]
+            if coin.get("volatility_pct"):
+                lines.append(f"Волатильность (10 свечей): {coin['volatility_pct']:.1f}%")
+            lines += [
+                f"🤖 Бот: {'активен' if st.get('enabled') else 'на паузе'}",
+                f"DCA: ${st['params']['dca_amount']} / {st['params']['dca_interval_hours']}ч",
+                f"DIP порог: {st['params']['dip_threshold_pct']}%",
+            ]
+            if st["params"].get("spike_threshold_pct"):
+                lines.append(
+                    f"SPIKE: +${st['params'].get('spike_extra_amount', 0)} "
+                    f"при просадке ≥{st['params']['spike_threshold_pct']}%"
+                )
+            lines.append(f"Сделок: {coin['trade_count']} · источник: {coin.get('feed_source', '?')}")
+            if st.get("next_dca_in_hours") is not None:
+                lines.append(f"След. DCA: ~{st['next_dca_in_hours']} ч.")
+            for sig in analysis.get("signals", [])[1:3]:
+                lines.append(f"  • {sig['text']}")
+            return "\n".join(lines)
+
+        if any(w in msg for w in ("сделк", "торг", "покуп", "купил")):
+            total_trades = sum(c["trade_count"] for c in contexts)
+            lines = [f"📋 Всего сделок по {n} рынкам: {total_trades}", ""]
+            for ctx in sorted(contexts, key=lambda c: -c["trade_count"]):
+                if ctx["trade_count"]:
+                    tag = " ⚡" if ctx.get("volatile") else ""
+                    lines.append(f"{ctx['label']}{tag}: {ctx['trade_count']} сделок")
+            if total_trades == 0:
+                lines.append("Скоро стартовые DCA-покупки на всех рынках.")
+            return "\n".join(lines)
+
         if any(w in msg for w in ("совет", "что дума", "рекоменд", "покупать", "продавать")):
+            volatile = [c for c in contexts if c.get("volatile")]
+            extra = ""
+            if volatile:
+                best_v = max(volatile, key=lambda c: c["portfolio"].get("vs_hold_pct", -999))
+                extra = (
+                    f"\n\nНа волатильных ({self._volatile_labels(contexts)}) бот ловит SPIKE-просадки. "
+                    f"Сейчас лучше выглядит {best_v['label']}."
+                )
             return (
-                "Я не даю финансовых советов «покупай/продавай». Но по paper-счёту:\n"
+                "Я не даю финсоветов «покупай/продавай». По paper-счёту:\n"
                 + "\n".join(self._fmt_market_line(c) for c in contexts)
-                + "\n\nПродолжай paper trading 1–3 месяца, прежде чем думать о реальных деньгах."
+                + extra
+                + "\n\nPaper trading 1–3 месяца — потом смотри статистику vs hold."
             )
 
-        # Default
         return (
-            "Не совсем понял вопрос. Попробуй:\n"
-            "• «как идут дела?» — сводка по всем рынкам\n"
-            "• «что с ETH?» — детали по монете\n"
-            "• «сколько заработал?» — общий P&L\n"
-            "• «как идёт обучение?» — прогресс ботов"
+            "Не совсем понял. Попробуй:\n"
+            "• «как идут дела?» — сводка\n"
+            "• «что с DOGE?» / «что с PEPE?»\n"
+            "• «сколько заработал?» — P&L\n"
+            "• «что думает мозг?» — 5 агентов\n"
+            "• «волатильность» / «риск» / «новости»\n"
+            "• «что такое DCA?» — объяснение\n"
+            "• «помощь» — все команды"
         )
 
     def _learning_summary(self, contexts: list[dict], total: dict) -> str:
         total_trades = sum(c["trade_count"] for c in contexts)
+        labels = self._labels(contexts)
         if total_trades < 5:
             return (
-                f"🎓 Режим обучения: {total_trades} сделок из 5 нужных для автонастройки. "
-                "Боты учатся отдельно в каждой нише (BTC, ETH, SOL, BNB)."
+                f"🎓 Режим обучения: {total_trades} сделок из 5 для автонастройки. "
+                f"Боты учатся отдельно: {labels}."
             )
         beating = [c["label"] for c in contexts if c["portfolio"].get("vs_hold_pct", 0) >= 0]
+        volatile = [c["label"] for c in contexts if c.get("volatile")]
+        vol_note = ""
+        if volatile:
+            vbeat = [c["label"] for c in contexts if c.get("volatile") and c["portfolio"].get("vs_hold_pct", 0) >= 0]
+            vol_note = f" Мемкоины ({', '.join(volatile)}): опережают hold — {', '.join(vbeat) or 'пока никто'}."
         return (
-            f"🎓 Обучение: {total_trades} сделок. "
+            f"🎓 Обучение: {total_trades} сделок на {len(contexts)} рынках. "
             f"Опережают «купил и держал»: {', '.join(beating) or 'пока никто'}. "
-            f"Общий результат: {total['pnl_pct']:+.2f}%."
+            f"Общий результат: {total['pnl_pct']:+.2f}%.{vol_note}"
         )
 
     def explain_trade(self, reason: str, price: float, portfolio: dict, label: str = "") -> str:
         prefix = f"[{label}] " if label else ""
         return (
-            f"{prefix}Сделка: {reason}. Цена ~${price:,.4f}. "
+            f"{prefix}Сделка: {reason}. Цена ~${price:,.6f}. "
             f"Портфель: ${portfolio.get('portfolio_value', 0):,.2f} "
             f"({portfolio.get('pnl_pct', 0):+.2f}%)."
         )

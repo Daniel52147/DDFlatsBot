@@ -5,7 +5,7 @@
 This is a multi-product Python monorepo (Python 3.12 is available in the cloud VM; `runtime.txt` pins 3.11 for Render deploys). Dependencies install into the system `dist-packages` via `pip3` (no `python3-venv` in the image, so avoid `python -m venv`).
 
 Products:
-- `TradeSim/` — FastAPI paper-trading web app (4 crypto pairs: BTC, ETH, SOL, BNB). Primary locally-runnable service; no API keys required. Real prices via public exchange APIs.
+- `TradeSim/` — FastAPI paper-trading web app (6 crypto pairs: BTC, ETH, SOL, BNB, DOGE, PEPE). Primary locally-runnable service; no API keys required. Real prices via public exchange APIs.
 - `DDFlatsBot/` and root (`main.py`) — Warsaw flats Telegram bot.
 - `FlightsBot/` — SkyCheap flights Telegram bot.
 

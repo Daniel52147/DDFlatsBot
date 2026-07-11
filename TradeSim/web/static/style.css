@@ -233,6 +233,7 @@ footer {
 .brain-verdict { font-size: 0.85rem; color: var(--text); margin-bottom: 0.75rem; line-height: 1.4; }
 
 .agents-grid { display: grid; grid-template-columns: 1fr; gap: 0.5rem; }
+.tab.volatile-tab span::after { content: " ⚡"; font-size: 0.7em; }
 .agent {
   display: grid;
   grid-template-columns: 2rem 1fr;

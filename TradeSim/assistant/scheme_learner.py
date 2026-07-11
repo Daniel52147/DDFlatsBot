@@ -14,6 +14,16 @@ class SchemeLearnerAgent:
 
     SCHEMES = [
         {
+            "id": "meme_volatility",
+            "name": "Мемкоин-скачок",
+            "desc": "SPIKE-покупка при просадке >10% на волатильных",
+            "condition": lambda ctx: (
+                ctx.get("volatile")
+                and ctx.get("sma")
+                and ctx["price"] < ctx["sma"] * 0.9
+            ),
+        },
+        {
             "id": "deep_dip",
             "name": "Глубокий DIP",
             "desc": "Покупать только при просадке >5% от SMA",

@@ -52,6 +52,18 @@ class StrategyBot:
         if t2:
           trade = t2
 
+      # Volatile coins: extra buy on deep spike below SMA
+      spike_thr = self.params.get("spike_threshold_pct")
+      if spike_thr and dip_pct >= spike_thr:
+        spike_amt = self.params.get("spike_extra_amount", self.params["dip_extra_amount"])
+        t3 = self.engine.buy(
+          price,
+          spike_amt,
+          reason=f"SPIKE: резкая просадка {dip_pct:.1f}% — шанс на отскок",
+        )
+        if t3:
+          trade = t3
+
     return trade
 
   def status(self, price: float, sma: float | None) -> dict[str, Any]:

@@ -18,8 +18,16 @@ class StrategyOptimizer:
     "sma_period": (10, 50),
   }
 
-  def __init__(self, params: dict | None = None):
+  BOUNDS_VOLATILE = {
+    "dca_amount": (5.0, 40.0),
+    "dip_threshold_pct": (3.0, 15.0),
+    "dip_extra_amount": (10.0, 60.0),
+    "sma_period": (8, 30),
+  }
+
+  def __init__(self, params: dict | None = None, bounds: dict | None = None):
     self.params = copy.deepcopy(params or config.STRATEGY)
+    self.bounds = bounds or self.BOUNDS
 
   def get_params(self) -> dict:
     return copy.deepcopy(self.params)
@@ -40,19 +48,19 @@ class StrategyOptimizer:
       # Losing vs hold: buy dips more aggressively, smaller DCA chunks
       old_dip = p["dip_threshold_pct"]
       p["dip_threshold_pct"] = max(
-        self.BOUNDS["dip_threshold_pct"][0],
+        self.bounds["dip_threshold_pct"][0],
         old_dip - 0.5,
       )
       reason_parts.append(f"порог DIP {old_dip}% → {p['dip_threshold_pct']}%")
 
       old_dca = p["dca_amount"]
-      p["dca_amount"] = max(self.BOUNDS["dca_amount"][0], old_dca - 10)
+      p["dca_amount"] = max(self.bounds["dca_amount"][0], old_dca - 10)
       reason_parts.append(f"DCA ${old_dca} → ${p['dca_amount']}")
     else:
       # Beating hold: slightly more conservative dips
       old_dip = p["dip_threshold_pct"]
       p["dip_threshold_pct"] = min(
-        self.BOUNDS["dip_threshold_pct"][1],
+        self.bounds["dip_threshold_pct"][1],
         old_dip + 0.3,
       )
       reason_parts.append(f"порог DIP {old_dip}% → {p['dip_threshold_pct']}% (осторожнее)")
@@ -64,7 +72,7 @@ class StrategyOptimizer:
   def apply_params(self, params: dict):
     for k, v in params.items():
       if k in self.params:
-        lo, hi = self.BOUNDS.get(k, (v, v))
+        lo, hi = self.bounds.get(k, (v, v))
         if isinstance(v, int):
           self.params[k] = int(max(lo, min(hi, v)))
         else:

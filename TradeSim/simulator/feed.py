@@ -36,6 +36,8 @@ _ASSET: dict[str, dict[str, str]] = {
     "ETHUSDT": {"kraken": "ETHUSDT", "kraken_ws": "ETH/USDT", "coingecko": "ethereum"},
     "SOLUSDT": {"kraken": "SOLUSDT", "kraken_ws": "SOL/USDT", "coingecko": "solana"},
     "BNBUSDT": {"kraken": "BNBUSDT", "kraken_ws": "BNB/USDT", "coingecko": "binancecoin"},
+    "DOGEUSDT": {"coingecko": "dogecoin"},
+    "PEPEUSDT": {"coingecko": "pepe"},
 }
 
 # api.binance.com returns HTTP 451 from some regions (e.g. Cursor Cloud VM).
@@ -76,6 +78,9 @@ class PriceFeed:
             return _ASSET[self.symbol][key]
         except KeyError as e:
             raise RuntimeError(f"unsupported symbol for {key}: {self.symbol}") from e
+
+    def _has_kraken(self) -> bool:
+        return self.symbol in _ASSET and "kraken" in _ASSET[self.symbol]
 
     def on_tick(self, cb: Callable[[float, float], Awaitable[None]]):
         self._callbacks.append(cb)
@@ -130,9 +135,10 @@ class PriceFeed:
             ("binance", self._fetch_binance),
             ("binance.us", self._fetch_binance_us),
             ("bybit", self._fetch_bybit),
-            ("kraken", self._fetch_kraken),
-            ("coingecko", self._fetch_coingecko),
         ]
+        if self._has_kraken():
+            sources.append(("kraken", self._fetch_kraken))
+        sources.append(("coingecko", self._fetch_coingecko))
         if _binance_com_geo_blocked:
             sources = [s for s in sources if s[0] != "binance"]
         return sources
@@ -142,9 +148,10 @@ class PriceFeed:
             ("binance", self._klines_binance),
             ("binance.us", self._klines_binance_us),
             ("bybit", self._klines_bybit),
-            ("kraken", self._klines_kraken),
-            ("coingecko", self._klines_coingecko),
         ]
+        if self._has_kraken():
+            sources.append(("kraken", self._klines_kraken))
+        sources.append(("coingecko", self._klines_coingecko))
         if _binance_com_geo_blocked:
             sources = [s for s in sources if s[0] != "binance"]
         return sources

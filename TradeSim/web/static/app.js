@@ -7,7 +7,10 @@ let marketMeta = [
   { symbol: "ETHUSDT", label: "ETH" },
   { symbol: "SOLUSDT", label: "SOL" },
   { symbol: "BNBUSDT", label: "BNB" },
+  { symbol: "DOGEUSDT", label: "DOGE", volatile: true },
+  { symbol: "PEPEUSDT", label: "PEPE", volatile: true },
 ];
+let startBalance = 10000;
 let chatHistory = [];
 
 function showError(msg) {
@@ -28,6 +31,18 @@ function fmtPct(n) {
 function labelFor(sym) {
   const m = marketMeta.find(x => x.symbol === sym);
   return m ? m.label : sym.replace("USDT", "");
+}
+
+function priceDecimals(label) {
+  if (label === "BTC") return 0;
+  if (label === "PEPE") return 6;
+  if (label === "DOGE") return 4;
+  return 2;
+}
+
+function applyMarketMeta(meta) {
+  if (!meta?.length) return;
+  marketMeta = meta;
 }
 
 function initChart() {
@@ -81,9 +96,10 @@ function renderTabs() {
   if (!nav) return;
   nav.innerHTML = marketMeta.map(m => {
     const d = marketsData[m.symbol];
-    const price = d?.price != null && !isNaN(d.price) ? fmtMoney(d.price, m.label === "BTC" ? 0 : 2) : "…";
+    const price = d?.price != null && !isNaN(d.price) ? fmtMoney(d.price, priceDecimals(m.label)) : "…";
+    const vol = m.volatile ? " volatile-tab" : "";
     const active = m.symbol === activeSymbol ? " active" : "";
-    return `<button type="button" class="tab${active}" data-symbol="${m.symbol}">${m.label}<span>${price}</span></button>`;
+    return `<button type="button" class="tab${active}${vol}" data-symbol="${m.symbol}">${m.label}<span>${price}</span></button>`;
   }).join("");
   nav.querySelectorAll(".tab").forEach(btn => {
     btn.onclick = () => switchMarket(btn.dataset.symbol);
@@ -138,12 +154,19 @@ function renderBotStatus(d) {
   if (!el || !d) return;
   const st = d.strategy || {};
   const p = st.params || {};
+  const lbl = d.label || labelFor(d.symbol);
+  const vol = d.volatile ? " ⚡ волатильный" : "";
+  let spike = "";
+  if (p.spike_threshold_pct) {
+    spike = `<p>SPIKE: +$${p.spike_extra_amount} при просадке ≥${p.spike_threshold_pct}%</p>`;
+  }
   el.innerHTML = `
-    <p>Рынок: <strong>${d.label || labelFor(d.symbol)}</strong> · ${st.enabled !== false ? "✅ активен" : "⏸ пауза"}</p>
-    <p>Цена: <strong>${fmtMoney(d.price, d.label === "BTC" ? 2 : 4)}</strong></p>
+    <p>Рынок: <strong>${lbl}</strong>${vol} · ${st.enabled !== false ? "✅ активен" : "⏸ пауза"}</p>
+    <p>Цена: <strong>${fmtMoney(d.price, priceDecimals(lbl))}</strong></p>
     <p>Портфель: <strong>${fmtMoney(d.portfolio?.portfolio_value)}</strong> (${fmtPct(d.portfolio?.pnl_pct)})</p>
-    <p>DCA: $${p.dca_amount ?? 25} / ${p.dca_interval_hours ?? 24}ч</p>
-    <p>SMA-20: <strong>${st.sma ? fmtMoney(st.sma) : "—"}</strong></p>
+    <p>DCA: $${p.dca_amount ?? 25} / ${p.dca_interval_hours ?? 24}ч · DIP ${p.dip_threshold_pct ?? 3}%</p>
+    ${spike}
+    <p>SMA: <strong>${st.sma ? fmtMoney(st.sma, priceDecimals(lbl)) : "—"}</strong></p>
   `;
   const btn = document.getElementById("btn-toggle");
   if (btn) btn.textContent = st.enabled !== false ? "Пауза" : "Старт";
@@ -194,7 +217,13 @@ function renderBrain(brain) {
   if (!brain) return;
   const v = document.getElementById("brain-verdict");
   if (v) v.textContent = brain.verdict || "Мозг анализирует рынки...";
-  [["agent-mentor", brain.mentor], ["agent-news", brain.news], ["agent-schemer", brain.schemer]].forEach(([id, data]) => {
+  [
+    ["agent-mentor", brain.mentor],
+    ["agent-news", brain.news],
+    ["agent-schemer", brain.schemer],
+    ["agent-volatility", brain.volatility],
+    ["agent-risk", brain.risk],
+  ].forEach(([id, data]) => {
     const el = document.getElementById(id);
     if (!el || !data) return;
     el.classList.add("active");
@@ -208,6 +237,8 @@ const PRICE_RANGE = {
   ETH: [100, 50000],
   SOL: [1, 2000],
   BNB: [10, 5000],
+  DOGE: [0.001, 10],
+  PEPE: [0.0000001, 0.01],
 };
 
 function priceOk(label, price) {
@@ -295,12 +326,14 @@ function computeTotalFromMarkets(markets) {
     sum += markets[sym]?.portfolio?.portfolio_value || 0;
   }
   if (sum <= 0) return null;
-  const start = 10000;
+  const start = startBalance;
   return { total_value: sum, pnl_pct: ((sum - start) / start) * 100, start_balance: start };
 }
 
 function applyBootstrap(data) {
   if (!data) return false;
+  if (data.market_meta) applyMarketMeta(data.market_meta);
+  if (data.total?.start_balance) startBalance = data.total.start_balance;
   const parsed = parseStatus(data);
   if (parsed?.markets) {
     for (const [sym, payload] of Object.entries(parsed.markets)) {
@@ -434,7 +467,7 @@ function bindUi() {
   };
 
   document.getElementById("btn-reset").onclick = async () => {
-    if (!confirm("Сбросить все 4 счёта?")) return;
+    if (!confirm(`Сбросить все ${marketMeta.length} счётов?`)) return;
     await fetch("/api/reset", { method: "POST" });
     location.reload();
   };

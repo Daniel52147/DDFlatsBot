@@ -22,11 +22,13 @@ class MarketSession:
         self.label = market["label"]
         self.name = market["name"]
         self.demo_price = market["demo_price"]
+        self.volatile = market.get("volatile", False)
         self.feed = PriceFeed(self.symbol)
         self.candles = CandleBuilder(interval=config.CANDLE_INTERVAL, max_candles=config.MAX_CANDLES)
         self.engine = SimulatorEngine(initial_balance=config.BALANCE_PER_MARKET)
-        self.bot = StrategyBot(self.engine)
-        self.optimizer = StrategyOptimizer(self.bot.get_params())
+        self.bot = StrategyBot(self.engine, params=market.get("strategy"))
+        bounds = StrategyOptimizer.BOUNDS_VOLATILE if self.volatile else StrategyOptimizer.BOUNDS
+        self.optimizer = StrategyOptimizer(self.bot.get_params(), bounds=bounds)
         self.last_tune_ts = 0.0
         self.last_snapshot_ts = 0.0
 
@@ -116,6 +118,7 @@ class MarketSession:
             "symbol": self.symbol,
             "label": self.label,
             "name": self.name,
+            "volatile": self.volatile,
             "price": price,
             "portfolio": self.engine.snapshot(price),
             "strategy": self.bot.status(price, sma),
@@ -135,14 +138,42 @@ class MarketSession:
     def context_for_assistant(self) -> dict[str, Any]:
         price = self.feed.price
         sma = self.candles.sma(int(self.bot.params["sma_period"]))
+        candles = self.candles.last_n(20)
+        volatility = self._volatility_pct(candles)
+        recent = [
+            {
+                "side": t.side,
+                "price": t.price,
+                "amount_quote": t.amount_quote,
+                "reason": t.reason,
+                "ts": t.ts,
+            }
+            for t in self.engine.trades[-3:]
+        ]
         return {
             "symbol": self.symbol,
             "label": self.label,
             "name": self.name,
             "price": price,
             "sma": sma,
+            "volatile": self.volatile,
+            "volatility_pct": volatility,
             "portfolio": self.engine.snapshot(price),
             "strategy": self.bot.status(price, sma),
-            "candles": self.candles.last_n(20),
+            "candles": candles,
             "trade_count": len(self.engine.trades),
+            "recent_trades": recent,
+            "feed_source": self.feed.source,
         }
+
+    @staticmethod
+    def _volatility_pct(candles: list) -> float:
+        if len(candles) < 5:
+            return 0.0
+        closes = [c.close for c in candles]
+        avg = sum(closes) / len(closes)
+        if avg <= 0:
+            return 0.0
+        hi = max(c.high for c in candles)
+        lo = min(c.low for c in candles)
+        return round((hi - lo) / avg * 100, 2)

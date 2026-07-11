@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TradeSim — 4 рынка</title>
+  <title>TradeSim — 6 рынков</title>
   <link rel="stylesheet" href="/static/style.css?v=4" />
   <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 </head>
@@ -13,7 +13,7 @@
       <span class="logo">📊</span>
       <div>
         <h1>TradeSim</h1>
-        <p class="tagline">4 крипторынка · Виртуальные деньги · Живые котировки</p>
+        <p class="tagline">6 крипторынков · BTC–PEPE · Виртуальные деньги · Живые котировки</p>
       </div>
     </div>
     <div class="header-stats">
@@ -34,7 +34,7 @@
   </header>
 
   <nav class="market-tabs" id="market-tabs">
-    <button class="tab active" disabled>BTC · ETH · SOL · BNB — загрузка...</button>
+    <button class="tab active" disabled>Загрузка рынков...</button>
   </nav>
 
   <main class="grid">
@@ -57,6 +57,8 @@
           <div class="agent" id="agent-mentor"><span>🎓</span><b>Наставник</b><small>Профи-трейдеры</small></div>
           <div class="agent" id="agent-news"><span>📰</span><b>Новостник</b><small>Новости рынка</small></div>
           <div class="agent" id="agent-schemer"><span>🧪</span><b>Исследователь</b><small>Новые схемы</small></div>
+          <div class="agent" id="agent-volatility"><span>⚡</span><b>Волатильность</b><small>DOGE · PEPE</small></div>
+          <div class="agent" id="agent-risk"><span>🛡️</span><b>Риск</b><small>Просадки</small></div>
         </div>
       </section>
 
@@ -71,10 +73,10 @@
       <section class="card assistant-card">
         <div class="card-header"><h2>💬 Помощник</h2></div>
         <div id="chat-messages" class="chat-messages">
-          <div class="chat-bubble chat-bot">Привет! Напиши: <b>как дела?</b> или <b>что думает мозг?</b></div>
+          <div class="chat-bubble chat-bot">Привет! Напиши: <b>как дела?</b> · <b>что с DOGE?</b> · <b>что думает мозг?</b> · <b>помощь</b></div>
         </div>
         <form id="chat-form" class="chat-form">
-          <input id="chat-input" type="text" placeholder="как дела? / новости / что с ETH?" autocomplete="off" />
+          <input id="chat-input" type="text" placeholder="как дела? / волатильность / что с PEPE?" autocomplete="off" />
           <button type="submit" class="btn small">→</button>
         </form>
       </section>
@@ -95,6 +97,6 @@
 
   <div id="js-error" class="js-error" style="display:none"></div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
-  <script src="/static/app.js?v=8"></script>
+  <script src="/static/app.js?v=9"></script>
 </body>
 </html>

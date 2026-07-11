@@ -76,7 +76,7 @@ class TraderMentorAgent:
         insights.append({
             "market": "ALL",
             "rule": "Диверсификация",
-            "text": PRO_RULES[3]["advice_ok"],
+            "text": f"Портфель разбит на {len(contexts)} активов — это правильно.",
             "ok": True,
         })
         score += 1
