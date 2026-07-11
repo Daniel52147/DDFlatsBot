@@ -220,6 +220,22 @@ def _brain_public(cycle: dict) -> dict:
             "warnings": cycle["risk"].get("warnings", [])[:4],
             "critical": cycle["risk"].get("critical", []),
         },
+        "trend": {
+            **_agent(cycle["trend"]),
+            "trends": cycle["trend"].get("trends", [])[:5],
+            "counts": cycle["trend"].get("counts", {}),
+        },
+        "profit": {
+            **_agent(cycle["profit"]),
+            "tips": cycle["profit"].get("tips", [])[:4],
+            "ready": cycle["profit"].get("ready", [])[:3],
+        },
+        "correlation": {
+            **_agent(cycle["correlation"]),
+            "pairs": cycle["correlation"].get("pairs", [])[:4],
+            "leaders": cycle["correlation"].get("leaders", [])[:2],
+            "laggards": cycle["correlation"].get("laggards", [])[:2],
+        },
         "ts": cycle.get("ts"),
     }
 

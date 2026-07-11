@@ -3,17 +3,17 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TradeSim — 6 рынков</title>
-  <link rel="stylesheet" href="/static/style.css?v=6" />
+  <title>TradeSim v8 — 8 помощников</title>
+  <link rel="stylesheet" href="/static/style.css?v=8" />
   <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
   <header>
     <div class="brand">
-      <span class="logo">📊</span>
+      <span class="logo">⚡</span>
       <div>
         <h1>TradeSim</h1>
-        <p class="tagline">6 крипторынков · BTC–PEPE · Виртуальные деньги · Живые котировки</p>
+        <p class="tagline">8 AI-помощников · 6 рынков BTC–PEPE · Paper trading · Живые котировки</p>
       </div>
     </div>
     <div class="header-stats">
@@ -65,6 +65,9 @@
           <div class="agent" id="agent-schemer"><span>🧪</span><b>Исследователь</b><small>Новые схемы</small></div>
           <div class="agent" id="agent-volatility"><span>⚡</span><b>Волатильность</b><small>DOGE · PEPE</small></div>
           <div class="agent" id="agent-risk"><span>🛡️</span><b>Риск</b><small>Просадки</small></div>
+          <div class="agent" id="agent-trend"><span>📈</span><b>Тренд</b><small>SMA · направление</small></div>
+          <div class="agent" id="agent-profit"><span>💰</span><b>Коуч прибыли</b><small>Take-profit</small></div>
+          <div class="agent" id="agent-correlation"><span>🔗</span><b>Корреляция</b><small>Связи монет</small></div>
         </div>
       </section>
 
@@ -84,10 +87,10 @@
       <section class="card assistant-card">
         <div class="card-header"><h2>💬 Помощник</h2></div>
         <div id="chat-messages" class="chat-messages">
-          <div class="chat-bubble chat-bot">Привет! Напиши: <b>как дела?</b> · <b>что с DOGE?</b> · <b>что думает мозг?</b> · <b>помощь</b></div>
+          <div class="chat-bubble chat-bot">Привет! 8 помощников на связи. Спроси: <b>как дела?</b> · <b>тренд</b> · <b>коуч прибыли</b> · <b>корреляция</b> · <b>что думает мозг?</b></div>
         </div>
         <form id="chat-form" class="chat-form">
-          <input id="chat-input" type="text" placeholder="как дела? / волатильность / что с PEPE?" autocomplete="off" />
+          <input id="chat-input" type="text" placeholder="тренд / корреляция / что с DOGE?" autocomplete="off" />
           <button type="submit" class="btn small">→</button>
         </form>
       </section>
@@ -115,6 +118,6 @@
   </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=12"></script>
+  <script src="/static/app.js?v=13"></script>
 </body>
 </html>

@@ -87,4 +87,4 @@ PRICE_DECIMALS = {
     "BTC": 0, "ETH": 2, "SOL": 2, "BNB": 2, "DOGE": 4, "PEPE": 8,
 }
 
-APP_VERSION = 7
+APP_VERSION = 8

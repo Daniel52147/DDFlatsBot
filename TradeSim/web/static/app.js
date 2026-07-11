@@ -74,18 +74,18 @@ function initChart() {
   if (fallback) fallback.style.display = "none";
   const w = el.clientWidth || document.getElementById("chart-wrap")?.clientWidth || 600;
   chart = LightweightCharts.createChart(el, {
-    layout: { background: { color: "#161b22" }, textColor: "#8b949e" },
-    grid: { vertLines: { color: "#21262d" }, horzLines: { color: "#21262d" } },
+    layout: { background: { color: "#0c1220" }, textColor: "#8b9cb8" },
+    grid: { vertLines: { color: "#141c2e" }, horzLines: { color: "#141c2e" } },
     timeScale: { timeVisible: true, secondsVisible: false },
-    rightPriceScale: { borderColor: "#30363d" },
+    rightPriceScale: { borderColor: "rgba(0,229,192,0.15)" },
     width: w,
     height: 400,
   });
   candleSeries = chart.addCandlestickSeries({
-    upColor: "#3fb950", downColor: "#f85149", borderVisible: false,
-    wickUpColor: "#3fb950", wickDownColor: "#f85149",
+    upColor: "#00e5a8", downColor: "#ff5c7a", borderVisible: false,
+    wickUpColor: "#00e5a8", wickDownColor: "#ff5c7a",
   });
-  smaSeries = chart.addLineSeries({ color: "#a371f7", lineWidth: 2 });
+  smaSeries = chart.addLineSeries({ color: "#ffb020", lineWidth: 2 });
   window.addEventListener("resize", () => {
     if (chart && el) chart.applyOptions({ width: el.clientWidth || w });
   });
@@ -96,17 +96,17 @@ function initEquityChart() {
   const el = document.getElementById("equity-chart");
   if (!el || typeof LightweightCharts === "undefined") return false;
   equityChart = LightweightCharts.createChart(el, {
-    layout: { background: { color: "transparent" }, textColor: "#8b949e" },
-    grid: { vertLines: { visible: false }, horzLines: { color: "#21262d" } },
+    layout: { background: { color: "transparent" }, textColor: "#8b9cb8" },
+    grid: { vertLines: { visible: false }, horzLines: { color: "#141c2e" } },
     timeScale: { timeVisible: true, secondsVisible: false },
     rightPriceScale: { borderVisible: false },
     width: el.clientWidth || 400,
     height: 120,
   });
   equitySeries = equityChart.addAreaSeries({
-    lineColor: "#58a6ff",
-    topColor: "rgba(88, 166, 255, 0.25)",
-    bottomColor: "rgba(88, 166, 255, 0.02)",
+    lineColor: "#00e5c0",
+    topColor: "rgba(0, 229, 192, 0.28)",
+    bottomColor: "rgba(0, 229, 192, 0.02)",
     lineWidth: 2,
   });
   window.addEventListener("resize", () => {
@@ -342,6 +342,12 @@ function openAgentModal(key, data) {
   if (data.spikes?.length) extra += data.spikes.map(s => `<li>📊 ${s}</li>`).join("");
   if (data.critical?.length) extra += data.critical.map(w => `<li>🚨 ${w}</li>`).join("");
   if (data.warnings?.length) extra += data.warnings.map(w => `<li>⚠️ ${w}</li>`).join("");
+  if (data.trends?.length) extra += data.trends.map(t => `<li>📈 ${t}</li>`).join("");
+  if (data.tips?.length) extra += data.tips.map(t => `<li>💡 ${t}</li>`).join("");
+  if (data.ready?.length) extra += data.ready.map(r => `<li>🎯 ${r}</li>`).join("");
+  if (data.pairs?.length) extra += data.pairs.map(p => `<li>🔗 ${p}</li>`).join("");
+  if (data.leaders?.length) extra += data.leaders.map(l => `<li>🏆 ${l}</li>`).join("");
+  if (data.laggards?.length) extra += data.laggards.map(l => `<li>📉 ${l}</li>`).join("");
   body.innerHTML = `
     <h3>${data.emoji || ""} ${data.name || key}</h3>
     <p>${escapeHtml(data.summary || "")}</p>
@@ -362,6 +368,9 @@ function renderBrain(brain) {
     ["agent-schemer", brain.schemer],
     ["agent-volatility", brain.volatility],
     ["agent-risk", brain.risk],
+    ["agent-trend", brain.trend],
+    ["agent-profit", brain.profit],
+    ["agent-correlation", brain.correlation],
   ].forEach(([id, data]) => {
     const el = document.getElementById(id);
     if (!el || !data) return;
