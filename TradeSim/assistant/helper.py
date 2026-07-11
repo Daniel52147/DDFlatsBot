@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import config
 from simulator.candles import Candle
 
 
@@ -146,6 +147,17 @@ class TradingAssistant:
 
         if any(w in msg for w in ("экспорт", "export", "скачать", "json")):
             return "📥 Экспорт сделок — кнопка «Экспорт сделок» внизу страницы (JSON)."
+
+        if any(w in msg for w in ("лаборатор", "shadow", "клон", "mock", "мок", "тенев")):
+            n = len(contexts) * config.SHADOW_CLONES_PER_MARKET
+            return (
+                f"🔬 Shadow Lab — скрытая лаборатория внизу страницы.\n"
+                f"• {config.SHADOW_CLONES_PER_MARKET} mock-ботов на каждую монету ({n} всего)\n"
+                f"• Те же цены, разные параметры DCA/DIP/TP\n"
+                f"• OHLC forward-walk — ускоренное обучение\n"
+                f"• Победитель каждые ~{config.SHADOW_EVAL_SEC} сек → живой бот\n\n"
+                "Открой панель 🔬 внизу или спроси «как дела?»."
+            )
 
         if any(w in msg for w in ("полный сброс", "full reset", "очистить бд", "базу")):
             return (

@@ -16,6 +16,7 @@ Each market gets ~$1,667 virtual balance.
 - **Live data** — Binance / Bybit / CoinGecko fallback (no API key)
 - **6 parallel bots** — DCA + DIP + SPIKE + **TAKE-PROFIT** + **STOP-LOSS** (cost-basis exits)
 - **Persistence** — portfolio, trades, bot params survive server restart (SQLite WAL)
+- **Shadow Lab** — 12 hidden mock bots per market (72 total) learn in parallel; winners promote to live bot
 - **Central brain** — 11 agents with emergency halt and decision history
 - **Analytics** — drawdown, Sharpe proxy, win rate, per-market breakdown
 - **Manual paper trades** — buy/sell $25 from UI

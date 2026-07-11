@@ -26,6 +26,7 @@ from learning.analytics import build_portfolio_analytics
 from learning.logger import LearningLogger
 from learning.optimizer import StrategyOptimizer
 from simulator.market_session import MarketSession
+from simulator.shadow_lab import ShadowLab
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("tradesim")
@@ -35,6 +36,7 @@ BASE_DIR = Path(__file__).resolve().parent
 sessions: dict[str, MarketSession] = {
     m["symbol"]: MarketSession(m) for m in config.MARKETS
 }
+shadow_lab: ShadowLab | None = None
 logger_db = LearningLogger()
 brain = CentralBrain()
 
@@ -85,7 +87,15 @@ def total_portfolio() -> dict[str, Any]:
 
 async def run_session_loop(session: MarketSession):
     async def on_tick(price: float, ts: float):
-        for msg in await session.on_tick(price, ts):
+        msgs = await session.on_tick(price, ts)
+        if shadow_lab and config.SHADOW_LAB_ENABLED:
+            period = int(session.bot.params.get("sma_period", 20))
+            sma = session.candles.sma(period)
+            shadow_lab.on_tick(session.symbol, price, sma)
+            for msg in msgs:
+                if msg.get("type") == "candle" and msg.get("candle"):
+                    shadow_lab.on_candle(session.symbol, msg["candle"], sma)
+        for msg in msgs:
             await broadcast(msg)
 
     session.feed.on_tick(on_tick)
@@ -132,6 +142,39 @@ async def brain_loop():
         except Exception as e:
             logger.warning("brain loop error: %s", e)
         await asyncio.sleep(config.BRAIN_CYCLE_SEC)
+
+
+async def shadow_eval_loop():
+    """Evaluate shadow clones and promote winners to live bots."""
+    await asyncio.sleep(30)
+    while state["running"]:
+        try:
+            if shadow_lab and config.SHADOW_LAB_ENABLED:
+                promotions = shadow_lab.evaluate_and_promote()
+                for p in promotions:
+                    sym = p["symbol"]
+                    if sym in sessions:
+                        s = sessions[sym]
+                        await s.persist()
+                        reason = (
+                            f"🔬 Shadow Lab: клон #{p['clone_id']} vs hold {p['vs_hold_pct']:+.2f}% "
+                            f"(live {p['live_vs_hold']:+.2f}%) — {', '.join(p['changes'])}"
+                        )
+                        await logger_db.log_strategy_change(
+                            s.bot.get_params(), reason,
+                            s.engine.snapshot(s.feed.price).get("pnl_pct", 0),
+                            symbol=sym,
+                        )
+                        await broadcast({
+                            "type": "shadow_promote",
+                            "symbol": sym,
+                            "label": p["label"],
+                            "clone_id": p["clone_id"],
+                            "reason": reason,
+                        })
+        except Exception as e:
+            logger.warning("shadow eval error: %s", e)
+        await asyncio.sleep(config.SHADOW_EVAL_SEC)
 
 
 async def snapshot_loop():
@@ -210,6 +253,8 @@ async def _bootstrap_payload_async() -> dict[str, Any]:
     payload["brain_history"] = await logger_db.brain_history(6)
     payload["analytics"] = _analytics_payload(equity)
     payload["strategy_history"] = await logger_db.strategy_history(limit=10)
+    if shadow_lab:
+        payload["shadow_lab"] = shadow_lab.status()
     return payload
 
 
@@ -288,7 +333,9 @@ def _brain_public(cycle: dict) -> dict:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global shadow_lab
     await logger_db.init()
+    shadow_lab = ShadowLab(sessions)
     for session in sessions.values():
         session.learning_logger = logger_db
     for session in sessions.values():
@@ -299,6 +346,7 @@ async def lifespan(app: FastAPI):
     state["running"] = True
     tasks = [asyncio.create_task(run_session_loop(s)) for s in sessions.values()]
     tasks.append(asyncio.create_task(brain_loop()))
+    tasks.append(asyncio.create_task(shadow_eval_loop()))
     tasks.append(asyncio.create_task(snapshot_loop()))
 
     # First brain think
@@ -363,6 +411,23 @@ async def api_learning_summary():
 @app.get("/api/learning/equity")
 async def api_equity(hours: int = 48):
     return {"curve": await logger_db.equity_curve(hours)}
+
+
+@app.get("/api/shadow-lab")
+async def api_shadow_lab(symbol: str | None = None):
+    if not shadow_lab:
+        return {"enabled": False}
+    return {
+        **shadow_lab.status(),
+        "leaderboard": shadow_lab.leaderboard(symbol, limit=20),
+    }
+
+
+@app.post("/api/shadow-lab/reset")
+async def api_shadow_reset(symbol: str | None = None):
+    if shadow_lab:
+        shadow_lab.reset_clones(symbol)
+    return {"ok": True, "status": shadow_lab.status() if shadow_lab else {}}
 
 
 @app.get("/api/analytics")
@@ -501,6 +566,9 @@ async def reset_portfolio(full: bool = False):
         await s.persist()
     state["chat_history"] = []
     state["brain_cycle"] = None
+    if shadow_lab:
+        shadow_lab.reset_clones()
+        shadow_lab.total_shadow_trades = 0
     return {"total": total_portfolio(), "full": full}
 
 

@@ -16,6 +16,7 @@ let chatHistory = [];
 let lastBrain = null;
 let activityLog = [];
 let lastAnalytics = null;
+let lastShadowLab = null;
 
 function showError(msg) {
   const el = document.getElementById("js-error");
@@ -129,6 +130,41 @@ function renderEquityCurve(points) {
   if (lbl && last) {
     lbl.textContent = `48ч · ${fmtMoney(last.value)} (${fmtPct(last.pnl_pct ?? 0)})`;
   }
+}
+
+function renderShadowLab(data) {
+  if (!data) return;
+  lastShadowLab = data;
+  const sum = document.getElementById("shadow-lab-summary");
+  if (sum) {
+    sum.textContent = `${data.total_clones || 0} mock-ботов · ${data.total_shadow_trades || 0} теневых сделок`;
+  }
+  const grid = document.getElementById("shadow-lab-grid");
+  if (grid && data.markets?.length) {
+    grid.innerHTML = data.markets.map(m => {
+      const beat = m.best_vs_hold >= m.live_vs_hold ? "↑" : "·";
+      return `<div class="shadow-cell">
+        <b>${m.label} ×${m.clones}</b>
+        <div class="sc-row"><span>Лучший клон #${m.best_clone}</span><span class="sc-val">${fmtPct(m.best_vs_hold)}</span></div>
+        <div class="sc-row"><span>Живой бот ${beat}</span><span>${fmtPct(m.live_vs_hold)}</span></div>
+        <div class="sc-row"><span>Теневых сделок</span><span>${m.shadow_trades}</span></div>
+      </div>`;
+    }).join("");
+  }
+  const prom = document.getElementById("shadow-promotions");
+  if (prom) {
+    const items = data.promotions || [];
+    prom.innerHTML = items.length
+      ? items.map(p => `<li>🔬 ${p.label} клон #${p.clone_id}: vs hold ${fmtPct(p.vs_hold_pct)} → ${(p.changes || []).join(", ")}</li>`).join("")
+      : "<li>Пока нет переносов — лаборатория копит данные…</li>";
+  }
+}
+
+async function loadShadowLab() {
+  try {
+    const data = await (await fetch("/api/shadow-lab")).json();
+    if (data.enabled !== false) renderShadowLab(data);
+  } catch (_) {}
 }
 
 function renderLearningPanel(learning, brainHistory, analytics) {
@@ -525,6 +561,12 @@ function connectWs() {
         showToast(`${icon} ${msg.label || labelFor(msg.symbol)}: ${msg.trade.reason}`);
         pushActivity(`${msg.label || labelFor(msg.symbol)} ${msg.trade.side.toUpperCase()}: ${msg.trade.reason}`);
       }
+      if (msg.type === "shadow_promote") {
+        showToast(`🔬 ${msg.label}: клон #${msg.clone_id} → живой бот`);
+        pushActivity(`🔬 ${msg.label}: клон #${msg.clone_id} победил`);
+        loadShadowLab();
+        if (msg.symbol) refreshStatus();
+      }
       if (msg.type === "trade") {
         renderAllTrades();
         refreshStatus();
@@ -581,6 +623,7 @@ function applyBootstrap(data) {
       pushActivity(`🔧 ${h.symbol?.replace("USDT", "")}: ${(h.reason || "").slice(0, 50)}`);
     });
   }
+  if (data.shadow_lab) renderShadowLab(data.shadow_lab);
   setLiveStatus(true);
   return Object.keys(marketsData).length > 0;
 }
@@ -766,10 +809,12 @@ async function main() {
     if (!initChart()) showError("График: проверь интернет, нажми Ctrl+F5");
     initEquityChart();
     await loadInitial();
+    await loadShadowLab();
     connectWs();
     setInterval(refreshStatus, 5000);
     setInterval(loadBrain, 15000);
     setInterval(loadLearning, 60000);
+    setInterval(loadShadowLab, 30000);
   } catch (e) {
     showError(e.message);
   }

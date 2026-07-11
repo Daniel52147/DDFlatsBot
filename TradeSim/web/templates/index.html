@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TradeSim v9 — полная лаборатория</title>
-  <link rel="stylesheet" href="/static/style.css?v=9" />
+  <title>TradeSim v10 — Shadow Lab</title>
+  <link rel="stylesheet" href="/static/style.css?v=10" />
   <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -115,8 +115,17 @@
     </aside>
   </main>
 
+  <details class="shadow-lab-panel" id="shadow-lab-panel">
+    <summary>🔬 Скрытая лаборатория — <span id="shadow-lab-summary">72 mock-бота учатся параллельно</span></summary>
+    <div class="shadow-lab-inner">
+      <p class="muted">12 клонов на каждую монету с разными параметрами. Лучшие настройки переносятся на живого бота каждые ~90 сек.</p>
+      <div id="shadow-lab-grid" class="shadow-lab-grid">Загрузка...</div>
+      <ul id="shadow-promotions" class="shadow-promotions"></ul>
+    </div>
+  </details>
+
   <footer>
-    <span>Данные: Binance · v9 · Ctrl+Shift+R после обновления</span>
+    <span>Данные: Binance · v10 Shadow Lab · Ctrl+Shift+R</span>
     <div class="footer-actions">
       <button id="btn-export" class="btn ghost small">Экспорт сделок</button>
       <button id="btn-reset" class="btn ghost small">Сброс портфеля</button>
@@ -133,6 +142,6 @@
   </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=14"></script>
+  <script src="/static/app.js?v=15"></script>
 </body>
 </html>

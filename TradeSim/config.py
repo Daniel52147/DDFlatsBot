@@ -100,8 +100,17 @@ MIN_TRADES_VOLATILE = 1
 FAST_LEARN_EVERY_N_TRADES = 2     # retune every 2 trades if losing
 BRAIN_CYCLE_SEC = 45
 
+# Shadow Lab — hidden parallel mock bots (same crypto, many param variants)
+SHADOW_LAB_ENABLED = True
+SHADOW_CLONES_PER_MARKET = 12       # 12 mocks × 6 markets = 72 shadow bots
+SHADOW_BALANCE = 500.0              # virtual $ per clone
+SHADOW_EVAL_SEC = 90                # pick winners every 90s
+SHADOW_PARAM_JITTER = 0.18          # random extra variation
+SHADOW_MIN_TRADES_PROMOTE = 3       # clone needs N trades before promotion
+SHADOW_PROMOTE_MARGIN = 0.35        # must beat live by this many pp vs hold
+
 PRICE_DECIMALS = {
     "BTC": 0, "ETH": 2, "SOL": 2, "BNB": 2, "DOGE": 4, "PEPE": 8,
 }
 
-APP_VERSION = 9
+APP_VERSION = 10
