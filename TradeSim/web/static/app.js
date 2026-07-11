@@ -151,6 +151,8 @@ function renderLearningPanel(learning, brainHistory) {
   }
   el.innerHTML = `
     <div class="lp-row"><span class="lp-label">Сделок в БД</span><span class="lp-val">${learning.trade_count || 0}</span></div>
+    <div class="lp-row"><span class="lp-label">Режим</span><span class="lp-val">⚡ быстрое обучение</span></div>
+    <div class="lp-row"><span class="lp-label">Мозг</span><span class="lp-val">каждые 45 сек</span></div>
     <div class="lp-row"><span class="lp-label">По рынкам</span><span class="lp-val">${markets}</span></div>
     <div class="lp-row"><span class="lp-label">Портфель</span><span class="lp-val">сохраняется ✓</span></div>
     ${tune}${bh}

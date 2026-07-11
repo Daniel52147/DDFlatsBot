@@ -148,6 +148,54 @@ class CentralBrain:
 
             session.set_params_bounded(p)
 
+    def apply_learning_boost(self, sessions: dict, contexts: list[dict]):
+        """Micro-tune each market every brain cycle from live stats."""
+        for ctx in contexts:
+            sym = ctx.get("symbol")
+            if sym not in sessions:
+                continue
+            session = sessions[sym]
+            vs = ctx["portfolio"].get("vs_hold_pct", 0)
+            pnl = ctx["portfolio"].get("pnl_pct", 0)
+            vol = ctx.get("volatility_pct", 0)
+            stats = ctx.get("trade_stats", {})
+            deltas: dict[str, float] = {}
+
+            if ctx.get("volatile") and vs < -0.5 and vol >= 6:
+                deltas["dip_threshold_pct"] = -0.2
+                if vol >= 10:
+                    deltas["spike_threshold_pct"] = -0.5
+            if vs > 1.2 and stats.get("tp", 0) < stats.get("buy", 1) // 3:
+                deltas["take_profit_pct"] = -0.4
+            if vs > 2:
+                deltas["take_profit_fraction"] = 0.02
+            if stats.get("spike", 0) >= 2 and vs >= 0:
+                deltas["spike_extra_amount"] = 2
+
+            if deltas:
+                _, msg = session.optimizer.apply_deltas(deltas)
+                session.bot.update_params(session.optimizer.get_params())
+                session.base_params = dict(session.bot.get_params())
+
+    def apply_schemer_hints(self, sessions: dict, schemer: dict):
+        """Turn active scheme signals into bounded param tweaks."""
+        by_label = {s.label: s for s in sessions.values()}
+        for proposal in schemer.get("proposals", []):
+            pid = proposal.get("id")
+            for label in proposal.get("markets", []):
+                session = by_label.get(label)
+                if not session:
+                    continue
+                p = dict(session.bot.get_params())
+                if pid == "deep_dip" and session.volatile:
+                    p["spike_threshold_pct"] = max(4, p.get("spike_threshold_pct", 10) - 0.5)
+                elif pid == "meme_volatility":
+                    p["dip_threshold_pct"] = max(2, p.get("dip_threshold_pct", 5) - 0.3)
+                    p["spike_extra_amount"] = min(80, p.get("spike_extra_amount", 30) + 2)
+                elif pid == "quiet_market":
+                    p["dca_amount"] = min(80, p.get("dca_amount", 25) + 2)
+                session.set_params_bounded(p)
+
     def chat(self, user_msg: str, contexts: list[dict], total: dict) -> str:
         msg = user_msg.lower().strip()
 

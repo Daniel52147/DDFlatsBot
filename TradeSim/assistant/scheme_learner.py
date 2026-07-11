@@ -1,4 +1,4 @@
-"""Agent 3: discovers and tests new micro-schemes from paper trading data."""
+"""Agent 3: discovers schemes and learns from live trade stats."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import Any
 
 
 class SchemeLearnerAgent:
-    """Tests new parameter combos and proposes schemes to the central brain."""
+    """Tests schemes and recommends experiments from real paper-trading data."""
 
     name = "Исследователь"
     role = "scheme_learner"
@@ -16,7 +16,7 @@ class SchemeLearnerAgent:
         {
             "id": "meme_volatility",
             "name": "Мемкоин-скачок",
-            "desc": "SPIKE-покупка при просадке >10% на волатильных",
+            "desc": "SPIKE при просадке >10% на волатильных",
             "condition": lambda ctx: (
                 ctx.get("volatile")
                 and ctx.get("sma")
@@ -26,20 +26,32 @@ class SchemeLearnerAgent:
         {
             "id": "deep_dip",
             "name": "Глубокий DIP",
-            "desc": "Покупать только при просадке >5% от SMA",
+            "desc": "Покупка при просадке >5% от SMA",
             "condition": lambda ctx: ctx.get("sma") and ctx["price"] < ctx["sma"] * 0.95,
         },
         {
             "id": "momentum",
-            "name": "Моментум DCA",
-            "desc": "DCA только когда цена выше SMA (тренд вверх)",
-            "condition": lambda ctx: ctx.get("sma") and ctx["price"] > ctx["sma"],
+            "name": "Моментум",
+            "desc": "Цена выше SMA — тренд вверх, фиксируем TP",
+            "condition": lambda ctx: ctx.get("sma") and ctx["price"] > ctx["sma"] * 1.03,
         },
         {
             "id": "quiet_market",
             "name": "Тихий рынок",
-            "desc": "Увеличить DCA когда волатильность низкая (цена ~SMA)",
-            "condition": lambda ctx: ctx.get("sma") and abs(ctx["price"] - ctx["sma"]) / ctx["sma"] < 0.01,
+            "desc": "Низкая волатильность — умеренный DCA",
+            "condition": lambda ctx: (
+                ctx.get("sma")
+                and abs(ctx["price"] - ctx["sma"]) / ctx["sma"] < 0.01
+            ),
+        },
+        {
+            "id": "spike_working",
+            "name": "SPIKE работает",
+            "desc": "Много SPIKE-сделок и vs hold в плюсе",
+            "condition": lambda ctx: (
+                ctx.get("trade_stats", {}).get("spike", 0) >= 2
+                and ctx["portfolio"].get("vs_hold_pct", 0) >= 0
+            ),
         },
     ]
 
@@ -56,7 +68,6 @@ class SchemeLearnerAgent:
                     "status": "active_signal",
                 })
 
-        # Learn from performance: which market beats hold?
         performers = sorted(
             contexts,
             key=lambda c: c["portfolio"].get("vs_hold_pct", -999),
@@ -67,30 +78,40 @@ class SchemeLearnerAgent:
 
         learned = []
         if best and best["portfolio"].get("vs_hold_pct", 0) > 0:
+            st = best.get("trade_stats", {})
+            hint = ""
+            if st.get("spike", 0) >= 2:
+                hint = " (SPIKE-сделки помогают)"
+            elif st.get("tp", 0) >= 1:
+                hint = " (take-profit сработал)"
             learned.append(
-                f"{best['label']} опережает «держать» на {best['portfolio']['vs_hold_pct']:+.2f}% "
-                f"— схема DCA+DIP здесь работает."
+                f"{best['label']} +{best['portfolio']['vs_hold_pct']:.2f}% vs hold{hint}."
             )
-        if worst and worst["portfolio"].get("vs_hold_pct", 0) < -1:
+        if worst and worst["portfolio"].get("vs_hold_pct", 0) < -0.5:
             learned.append(
-                f"{worst['label']} отстаёт на {abs(worst['portfolio']['vs_hold_pct']):.2f}% "
-                f"— тестируем более глубокий порог DIP."
+                f"{worst['label']} отстаёт {worst['portfolio']['vs_hold_pct']:.2f}% "
+                f"— ускоренная автонастройка уже идёт."
             )
 
         total_trades = sum(c["trade_count"] for c in contexts)
+        min_data = 2 if any(c.get("volatile") for c in contexts) else 3
+
         recommendation = "experiment"
-        if total_trades < 5:
-            action = "Мало данных — копим сделки для теста новых схем."
+        if total_trades < min_data:
+            action = f"Копим данные ({total_trades}/{min_data} сделок) — быстрый режим обучения."
             recommendation = "collect_data"
         elif proposals:
-            action = f"Активны схемы: {', '.join(p['scheme'] for p in proposals)}. Передаю центральному мозгу."
+            action = (
+                f"Схемы: {', '.join(p['scheme'] for p in proposals)}. "
+                "Мозг применяет микро-настройки каждые 45 сек."
+            )
         else:
-            action = "Явных сигналов нет — держим базовую стратегию."
+            action = "Паттернов нет — анализируем каждую сделку."
             recommendation = "hold"
 
         summary = (
-            f"Протестировал {len(self.SCHEMES)} схем на {len(contexts)} рынках. "
-            f"Активных сигналов: {len(proposals)}. Сделок для обучения: {total_trades}."
+            f"Протестировал {len(self.SCHEMES)} схем. Сигналов: {len(proposals)}. "
+            f"Сделок: {total_trades}. Режим: быстрое обучение."
         )
 
         return {
@@ -102,5 +123,5 @@ class SchemeLearnerAgent:
             "learned": learned,
             "recommendation": recommendation,
             "action_for_brain": action,
-            "confidence": min(0.85, 0.3 + total_trades * 0.05),
+            "confidence": min(0.9, 0.4 + total_trades * 0.08),
         }

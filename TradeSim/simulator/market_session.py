@@ -31,10 +31,11 @@ class MarketSession:
         self.bot = StrategyBot(self.engine, params=market.get("strategy"))
         self.base_params = copy.deepcopy(self.bot.get_params())
         bounds = StrategyOptimizer.BOUNDS_VOLATILE if self.volatile else StrategyOptimizer.BOUNDS
-        self.optimizer = StrategyOptimizer(self.bot.get_params(), bounds=bounds)
+        self.optimizer = StrategyOptimizer(self.bot.get_params(), bounds=bounds, volatile=self.volatile)
         self.learning_logger: LearningLogger | None = None
         self.last_tune_ts = 0.0
         self.last_snapshot_ts = 0.0
+        self._trades_at_last_tune = 0
         self._restored = False
 
     def set_params_bounded(self, updates: dict):
@@ -62,6 +63,7 @@ class MarketSession:
         self.optimizer = StrategyOptimizer(
             self.bot.get_params(),
             bounds=StrategyOptimizer.BOUNDS_VOLATILE if self.volatile else StrategyOptimizer.BOUNDS,
+            volatile=self.volatile,
         )
         self._restored = True
         logger.info("[%s] restored portfolio $%.2f (%d trades)", self.symbol,
@@ -167,11 +169,30 @@ class MarketSession:
                     snap, self.bot.get_params(), symbol=self.symbol,
                 )
 
-        if self.optimizer.should_tune(snap["trade_count"], snap.get("vs_hold_pct")):
-            if now - self.last_tune_ts > config.LEARNING_CHECK_HOURS * 3600:
-                new_params, reason = self.optimizer.tune(snap["vs_hold_pct"], snap["trade_count"])
+        if self.optimizer.should_tune(
+            snap["trade_count"],
+            snap.get("vs_hold_pct"),
+            pnl_pct=snap.get("pnl_pct", 0),
+            trades_since_tune=snap["trade_count"] - self._trades_at_last_tune,
+        ):
+            interval = self.optimizer.tune_interval_sec()
+            losing_fast = (
+                snap["trade_count"] - self._trades_at_last_tune >= config.FAST_LEARN_EVERY_N_TRADES
+                and snap.get("vs_hold_pct", 0) < -0.5
+            )
+            if losing_fast or (now - self.last_tune_ts >= interval):
+                vol = self._volatility_pct(self.candles.last_n(20))
+                new_params, reason = self.optimizer.tune(
+                    snap["vs_hold_pct"],
+                    snap["trade_count"],
+                    recent_trades=self.engine.export_trades()[-20:],
+                    volatile=self.volatile,
+                    volatility_pct=vol,
+                    pnl_pct=snap.get("pnl_pct", 0),
+                )
                 self.bot.update_params(new_params)
                 self.last_tune_ts = now
+                self._trades_at_last_tune = snap["trade_count"]
                 if self.learning_logger:
                     await self.learning_logger.log_strategy_change(
                         new_params, reason, snap["pnl_pct"], symbol=self.symbol,
@@ -239,9 +260,25 @@ class MarketSession:
             "strategy": self.bot.status(price, sma),
             "candles": candles,
             "trade_count": len(self.engine.trades),
+            "trade_stats": self._trade_stats(),
             "recent_trades": recent,
             "feed_source": self.feed.source,
         }
+
+    def _trade_stats(self) -> dict[str, int]:
+        stats = {"dca": 0, "dip": 0, "spike": 0, "tp": 0, "buy": 0, "sell": 0}
+        for t in self.engine.trades:
+            stats["buy" if t.side == "buy" else "sell"] += 1
+            r = t.reason.upper()
+            if "SPIKE" in r:
+                stats["spike"] += 1
+            elif "DIP" in r:
+                stats["dip"] += 1
+            elif "DCA" in r:
+                stats["dca"] += 1
+            elif "TAKE-PROFIT" in r:
+                stats["tp"] += 1
+        return stats
 
     @staticmethod
     def _volatility_pct(candles: list) -> float:

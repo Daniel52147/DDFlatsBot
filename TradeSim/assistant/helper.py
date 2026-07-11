@@ -311,22 +311,22 @@ class TradingAssistant:
 
     def _learning_summary(self, contexts: list[dict], total: dict) -> str:
         total_trades = sum(c["trade_count"] for c in contexts)
-        labels = self._labels(contexts)
-        if total_trades < 5:
+        if total_trades < 2:
             return (
-                f"🎓 Режим обучения: {total_trades} сделок из 5 для автонастройки. "
-                f"Боты учатся отдельно: {labels}."
+                f"🎓 Быстрое обучение: {total_trades}/2 сделок до первой автонастройки. "
+                f"Мозг каждые 45 сек, DOGE/PEPE — автонастройка каждые 10 мин."
             )
         beating = [c["label"] for c in contexts if c["portfolio"].get("vs_hold_pct", 0) >= 0]
         volatile = [c["label"] for c in contexts if c.get("volatile")]
         vol_note = ""
         if volatile:
             vbeat = [c["label"] for c in contexts if c.get("volatile") and c["portfolio"].get("vs_hold_pct", 0) >= 0]
-            vol_note = f" Мемкоины ({', '.join(volatile)}): опережают hold — {', '.join(vbeat) or 'пока никто'}."
+            vol_note = f" Мемкоины: {', '.join(vbeat) or 'учатся'}."
         return (
-            f"🎓 Обучение: {total_trades} сделок на {len(contexts)} рынках. "
-            f"Опережают «купил и держал»: {', '.join(beating) or 'пока никто'}. "
-            f"Общий результат: {total['pnl_pct']:+.2f}%.{vol_note}"
+            f"🎓 Быстрое обучение: {total_trades} сделок на {len(contexts)} рынках. "
+            f"Опережают hold: {', '.join(beating) or 'пока никто'}. "
+            f"P&L: {total['pnl_pct']:+.2f}%.{vol_note} "
+            f"Анализ каждой сделки + автонастройка при просадке."
         )
 
     def explain_trade(self, reason: str, price: float, portfolio: dict, label: str = "") -> str:

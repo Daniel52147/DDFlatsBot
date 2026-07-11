@@ -110,12 +110,14 @@ async def brain_loop():
             cycle = await brain.think(ctx, total)
             state["brain_cycle"] = cycle
             brain.apply_decision(sessions, cycle["decision"])
+            brain.apply_learning_boost(sessions, ctx)
+            brain.apply_schemer_hints(sessions, cycle.get("schemer", {}))
             await logger_db.log_brain_cycle(cycle["decision"], cycle["verdict"])
             await logger_db.log_assistant("brain", cycle["summary"])
             await broadcast({"type": "brain_update", "cycle": _brain_public(cycle)})
         except Exception as e:
             logger.warning("brain loop error: %s", e)
-        await asyncio.sleep(120)
+        await asyncio.sleep(config.BRAIN_CYCLE_SEC)
 
 
 async def snapshot_loop():
@@ -241,6 +243,8 @@ async def lifespan(app: FastAPI):
     cycle = await brain.think(all_contexts(), total_portfolio())
     state["brain_cycle"] = cycle
     brain.apply_decision(sessions, cycle["decision"])
+    brain.apply_learning_boost(sessions, all_contexts())
+    brain.apply_schemer_hints(sessions, cycle.get("schemer", {}))
 
     greeting = brain.chat("привет", all_contexts(), total_portfolio())
     state["chat_history"] = [
