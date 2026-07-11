@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TradeSim v11 — 17 рынков</title>
-  <link rel="stylesheet" href="/static/style.css?v=12" />
+  <title>TradeSim v13 — 17 рынков</title>
+  <link rel="stylesheet" href="/static/style.css?v=13" />
   <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -62,12 +62,14 @@
           <button type="button" class="tbl-tab" data-table="analytics">📈 Аналитика</button>
           <button type="button" class="tbl-tab" data-table="learning">🎓 Обучение</button>
           <button type="button" class="tbl-tab" data-table="deposits">💵 Пополнения</button>
+          <button type="button" class="tbl-tab" data-table="backtest">⏱ Бэктест</button>
           <button type="button" class="tbl-tab" data-table="honesty">🔍 Честный статус</button>
         </div>
         <div id="table-markets" class="data-table-wrap"></div>
         <div id="table-analytics" class="data-table-wrap hidden"></div>
         <div id="table-learning" class="data-table-wrap hidden"></div>
         <div id="table-deposits" class="data-table-wrap hidden"></div>
+        <div id="table-backtest" class="data-table-wrap hidden"></div>
         <div id="table-honesty" class="data-table-wrap hidden"></div>
       </section>
     </section>
@@ -88,6 +90,7 @@
           <div class="agent" id="agent-analyst"><span>📊</span><b>Аналитик</b><small>Метрики · win rate</small></div>
           <div class="agent" id="agent-guardian"><span>🛑</span><b>Стоп-охранник</b><small>Stop-loss</small></div>
           <div class="agent" id="agent-allocator"><span>⚖️</span><b>Аллокатор</b><small>Капитал</small></div>
+          <div class="agent" id="agent-trader-watch"><span>👁️</span><b>Следопыт</b><small>Топ-трейдеры</small></div>
         </div>
       </section>
 
@@ -179,6 +182,6 @@
   </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=17"></script>
+  <script src="/static/app.js?v=18"></script>
 </body>
 </html>

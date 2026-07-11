@@ -143,17 +143,39 @@ class LearningLogger:
       await db.commit()
 
   async def recent_trades(self, limit: int = 50, symbol: str | None = None) -> list[dict[str, Any]]:
+    return await self.all_trades(symbol=symbol, limit=limit)
+
+  async def all_trades_for_symbol(self, symbol: str, limit: int | None = None) -> list[dict[str, Any]]:
+    return await self.all_trades(symbol=symbol, limit=limit, ascending=True)
+
+  async def all_trades(
+      self,
+      symbol: str | None = None,
+      limit: int | None = None,
+      ascending: bool = False,
+  ) -> list[dict[str, Any]]:
+    order = "ASC" if ascending else "DESC"
     async with aiosqlite.connect(self.db_path) as db:
       db.row_factory = aiosqlite.Row
       if symbol:
-        cur = await db.execute(
-          "SELECT * FROM trades WHERE symbol = ? ORDER BY ts DESC LIMIT ?",
-          (symbol, limit),
-        )
+        sql = f"SELECT * FROM trades WHERE symbol = ? ORDER BY ts {order}"
+        params: tuple = (symbol,)
       else:
-        cur = await db.execute("SELECT * FROM trades ORDER BY ts DESC LIMIT ?", (limit,))
+        sql = f"SELECT * FROM trades ORDER BY ts {order}"
+        params = ()
+      if limit is not None:
+        sql += " LIMIT ?"
+        params = (*params, limit)
+      cur = await db.execute(sql, params)
       rows = await cur.fetchall()
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+      d = dict(r)
+      d.pop("strategy_params", None)
+      out.append(d)
+    if not ascending:
+      return out
+    return out
 
   async def performance_summary(self) -> dict[str, Any]:
     async with aiosqlite.connect(self.db_path) as db:

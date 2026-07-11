@@ -11,8 +11,9 @@ import config
 from learning.logger import LearningLogger
 from learning.optimizer import StrategyOptimizer
 from simulator.candles import CandleBuilder
-from simulator.engine import SimulatorEngine
+from simulator.engine import SimulatorEngine, Trade, Trade
 from simulator.feed import PriceFeed
+from simulator.price_walk import prices_for_tick, run_strategy_prices
 from simulator.strategy import StrategyBot
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,18 @@ class MarketSession:
         merged = {**self.bot.get_params(), **updates}
         self.bot.update_params(self.optimizer.apply_params(merged))
 
+    def sync_base_params(self):
+        """Keep baseline in sync with tuned params — prevents brain rollback."""
+        self.base_params = copy.deepcopy(self.bot.get_params())
+        bounds = (
+            StrategyOptimizer.BOUNDS_VOLATILE
+            if (self.volatile or self.growth)
+            else StrategyOptimizer.BOUNDS
+        )
+        self.optimizer = StrategyOptimizer(
+            self.base_params, bounds=bounds, volatile=(self.volatile or self.growth),
+        )
+
     async def restore_from_db(self) -> bool:
         if not self.learning_logger:
             return False
@@ -73,11 +86,18 @@ class MarketSession:
         self.bot.last_spike_ts = saved.get("last_spike_ts", 0)
         self.bot.last_stop_loss_ts = saved.get("last_stop_loss_ts", 0)
         self.bot.enabled = saved.get("bot_enabled", True)
-        self.optimizer = StrategyOptimizer(
-            self.bot.get_params(),
-            bounds=StrategyOptimizer.BOUNDS_VOLATILE if (self.volatile or self.growth) else StrategyOptimizer.BOUNDS,
-            volatile=(self.volatile or self.growth),
-        )
+        db_trades = await self.learning_logger.all_trades_for_symbol(self.symbol)
+        if len(db_trades) > len(self.engine.trades):
+            self.engine.restore(
+                quote=saved["quote"],
+                base=saved["base"],
+                trade_counter=max(saved["trade_counter"], len(db_trades)),
+                start_balance=saved["start_balance"],
+                start_ts=saved["start_ts"],
+                trades=db_trades,
+                cost_basis=saved.get("cost_basis", 0),
+            )
+        self.sync_base_params()
         self._restored = True
         logger.info("[%s] restored portfolio $%.2f (%d trades)", self.symbol,
                     self.engine.snapshot(self.feed.price or self.demo_price)["portfolio_value"],
@@ -102,7 +122,7 @@ class MarketSession:
             "last_spike_ts": self.bot.last_spike_ts,
             "last_stop_loss_ts": self.bot.last_stop_loss_ts,
             "bot_enabled": self.bot.enabled,
-            "trades": self.engine.export_trades(),
+            "trades": self.engine.export_trades(limit=200),
         })
 
     async def _log_trade(self, trade):
@@ -141,14 +161,8 @@ class MarketSession:
                 logger.info("[%s] стартовая сделка: %s", self.symbol, trade.reason)
                 await self._log_trade(trade)
 
-    async def on_tick(self, price: float, ts: float) -> list[dict[str, Any]]:
-        msgs: list[dict[str, Any]] = []
-        closed = self.candles.add_tick(price, ts)
-        sma_period = int(self.bot.params.get("sma_period", 20))
-        sma = self.candles.sma(sma_period)
-
-        trade = self.bot.maybe_trade(price, sma)
-        if trade:
+    async def _execute_trades(self, trades: list[Trade], msgs: list[dict[str, Any]]):
+        for trade in trades:
             await self._log_trade(trade)
             msgs.append({
                 "type": "trade",
@@ -163,8 +177,19 @@ class MarketSession:
                 },
             })
 
+    async def on_tick(self, price: float, ts: float) -> list[dict[str, Any]]:
+        msgs: list[dict[str, Any]] = []
+        closed = self.candles.add_tick(price, ts)
+        sma_period = int(self.bot.params.get("sma_period", 20))
+        sma = self.candles.sma(sma_period)
+
+        closed_dict = closed.to_dict() if closed else None
+        walk_prices = prices_for_tick(price, closed_dict)
+        executed = run_strategy_prices(self.bot, walk_prices, sma)
+        await self._execute_trades(executed, msgs)
+
         if closed:
-            msgs.append({"type": "candle", "symbol": self.symbol, "candle": closed.to_dict()})
+            msgs.append({"type": "candle", "symbol": self.symbol, "candle": closed_dict})
 
         snap = self.engine.snapshot(price)
         msgs.append({
@@ -208,6 +233,7 @@ class MarketSession:
                     pnl_pct=snap.get("pnl_pct", 0),
                 )
                 self.bot.update_params(new_params)
+                self.sync_base_params()
                 self.last_tune_ts = now
                 self._trades_at_last_tune = snap["trade_count"]
                 if self.learning_logger:

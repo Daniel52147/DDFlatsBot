@@ -22,9 +22,11 @@ from starlette.requests import Request
 
 import config
 from assistant.coordinator import CentralBrain
+from exchange.binance_live import BinanceLiveExchange
 from learning.analytics import build_portfolio_analytics
 from learning.logger import LearningLogger
 from learning.optimizer import StrategyOptimizer
+from simulator.backtest import Backtester
 from simulator.market_session import MarketSession
 from simulator.shadow_lab import ShadowLab
 
@@ -39,6 +41,7 @@ sessions: dict[str, MarketSession] = {
 shadow_lab: ShadowLab | None = None
 logger_db = LearningLogger()
 brain = CentralBrain()
+live_exchange = BinanceLiveExchange()
 
 state: dict[str, Any] = {
     "connected_clients": set(),
@@ -65,6 +68,12 @@ class ManualTradeRequest(BaseModel):
     side: str  # buy | sell
     amount_usd: float = 25.0
     reason: str = "ручная сделка"
+
+
+class BacktestRequest(BaseModel):
+    symbol: str = "BTCUSDT"
+    limit: int = 500
+    initial_balance: float | None = None
 
 
 async def broadcast(data: dict):
@@ -125,8 +134,8 @@ def _learning_honesty(stats: dict) -> dict[str, Any]:
         ],
         "what_is_not": [
             "Это не настоящие деньги и не гарантия прибыли",
-            "11 агентов — правила на Python, не ChatGPT",
-            "Нет подключения к реальной бирже для ордеров",
+            "12 агентов — правила на Python, не ChatGPT",
+            "Реальная биржа только с BINANCE_API_KEY (testnet)",
         ],
         "evidence": stats,
     }
@@ -173,10 +182,11 @@ async def run_session_loop(session: MarketSession):
         if shadow_lab and config.SHADOW_LAB_ENABLED:
             period = int(session.bot.params.get("sma_period", 20))
             sma = session.candles.sma(period)
-            shadow_lab.on_tick(session.symbol, price, sma)
+            closed_candle = None
             for msg in msgs:
                 if msg.get("type") == "candle" and msg.get("candle"):
-                    shadow_lab.on_candle(session.symbol, msg["candle"], sma)
+                    closed_candle = msg["candle"]
+            shadow_lab.on_market_update(session.symbol, price, sma, closed_candle)
         for msg in msgs:
             await broadcast(msg)
 
@@ -287,7 +297,7 @@ def _market_meta() -> list[dict[str, Any]]:
     ]
 
 
-def _all_trades(limit: int = 30) -> list[dict[str, Any]]:
+def _all_trades(limit: int | None = 30) -> list[dict[str, Any]]:
     all_trades = []
     for sym, s in sessions.items():
         for t in s.engine.trades:
@@ -297,11 +307,22 @@ def _all_trades(limit: int = 30) -> list[dict[str, Any]]:
                 "side": t.side,
                 "price": t.price,
                 "amount_quote": t.amount_quote,
+                "amount_base": t.amount_base,
+                "fee": t.fee,
                 "reason": t.reason,
                 "ts": t.ts,
             })
     all_trades.sort(key=lambda x: x["ts"], reverse=True)
-    return all_trades[:limit]
+    return all_trades if limit is None else all_trades[:limit]
+
+
+async def _all_trades_db(limit: int | None = 500, symbol: str | None = None) -> list[dict[str, Any]]:
+    """Full trade history from SQLite (authoritative)."""
+    rows = await logger_db.all_trades(symbol=symbol, limit=limit, ascending=False)
+    label_map = {s.symbol: s.label for s in sessions.values()}
+    for r in rows:
+        r["label"] = label_map.get(r.get("symbol", ""), r.get("symbol", ""))
+    return rows
 
 
 def _bootstrap_payload() -> dict[str, Any]:
@@ -416,6 +437,12 @@ def _brain_public(cycle: dict) -> dict:
             **_agent(cycle["allocator"]),
             "suggestions": cycle["allocator"].get("suggestions", [])[:3],
             "overweight": cycle["allocator"].get("overweight", [])[:2],
+        },
+        "trader_watcher": {
+            **_agent(cycle["trader_watcher"]),
+            "signals": cycle["trader_watcher"].get("signals", [])[:5],
+            "hot": cycle["trader_watcher"].get("hot", [])[:3],
+            "warnings": cycle["trader_watcher"].get("warnings", [])[:3],
         },
         "ts": cycle.get("ts"),
     }
@@ -538,9 +565,58 @@ async def api_strategy_history(symbol: str | None = None, limit: int = 15):
 
 
 @app.get("/api/export/trades")
-async def api_export_trades():
-    trades = _all_trades(500)
-    return {"trades": trades, "count": len(trades), "version": config.APP_VERSION}
+async def api_export_trades(symbol: str | None = None, limit: int | None = None):
+    trades = await _all_trades_db(limit=limit or 5000, symbol=symbol)
+    return {"trades": trades, "count": len(trades), "version": config.APP_VERSION, "source": "sqlite"}
+
+
+@app.get("/api/trades")
+async def api_all_trades(symbol: str | None = None, limit: int = 200):
+    trades = await _all_trades_db(limit=limit, symbol=symbol)
+    mem_count = sum(len(s.engine.trades) for s in sessions.values())
+    return {
+        "trades": trades,
+        "count": len(trades),
+        "memory_trades": mem_count,
+        "source": "sqlite",
+    }
+
+
+@app.post("/api/backtest")
+async def api_backtest(body: BacktestRequest):
+    sym = body.symbol
+    if sym not in sessions:
+        return {"error": f"unknown symbol {sym}"}
+    s = sessions[sym]
+    try:
+        candles = await s.feed.fetch_klines(interval=config.CANDLE_INTERVAL, limit=min(body.limit, 1000))
+    except Exception as e:
+        return {"error": f"klines failed: {e}"}
+    market = next(m for m in config.MARKETS if m["symbol"] == sym)
+    params = s.bot.get_params()
+    bt = Backtester(params=params, initial_balance=body.initial_balance or config.BALANCE_PER_MARKET)
+    result = bt.run(candles)
+    result["symbol"] = sym
+    result["label"] = s.label
+    result["market_tier"] = market.get("tier", "major")
+    return result
+
+
+@app.get("/api/exchange/status")
+async def api_exchange_status():
+    return live_exchange.status()
+
+
+@app.post("/api/exchange/order")
+async def api_exchange_order(body: ManualTradeRequest):
+    if body.symbol not in sessions:
+        return {"error": "unknown symbol"}
+    s = sessions[body.symbol]
+    snap = s.engine.snapshot(s.feed.price or s.demo_price)
+    return await live_exchange.place_market_order(
+        body.symbol, body.side, body.amount_usd,
+        snap["portfolio_value"], snap.get("pnl_pct", 0),
+    )
 
 
 @app.get("/api/brain/history")
@@ -675,11 +751,6 @@ async def api_chat(body: ChatRequest):
     await logger_db.log_assistant("user", msg)
     await logger_db.log_assistant("assistant", reply)
     return {"reply": reply, "chat": state["chat_history"][-10:]}
-
-
-@app.get("/api/trades")
-async def api_all_trades():
-    return {"trades": _all_trades(50)}
 
 
 @app.post("/api/bot/toggle")

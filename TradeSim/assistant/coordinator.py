@@ -15,6 +15,7 @@ from assistant.risk_manager import RiskManagerAgent
 from assistant.scheme_learner import SchemeLearnerAgent
 from assistant.trader_mentor import TraderMentorAgent
 from assistant.trend_scout import TrendScoutAgent
+from assistant.trader_watcher import TraderWatcherAgent
 from assistant.volatility_watcher import VolatilityWatcherAgent
 from assistant.helper import TradingAssistant
 
@@ -47,6 +48,7 @@ class CentralBrain:
         self.analyst = PerformanceAnalystAgent()
         self.guardian = StopGuardianAgent()
         self.allocator = PortfolioAllocatorAgent()
+        self.trader_watcher = TraderWatcherAgent()
         self.talker = TradingAssistant()
         self.last_cycle: dict[str, Any] = {}
         self.last_cycle_ts = 0.0
@@ -65,6 +67,7 @@ class CentralBrain:
         analyst = self.analyst.analyze(contexts, total)
         guardian = self.guardian.analyze(contexts, total)
         allocator = self.allocator.analyze(contexts, total)
+        trader_watch = await self.trader_watcher.analyze(contexts, total)
 
         votes = {
             "continue": 0.0,
@@ -77,7 +80,7 @@ class CentralBrain:
         }
         reports = (
             mentor, news, schemer, volatility, risk, trend, profit, correlation,
-            analyst, guardian, allocator,
+            analyst, guardian, allocator, trader_watch,
         )
         for report in reports:
             rec = report.get("recommendation", "hold")
@@ -109,7 +112,7 @@ class CentralBrain:
 
         brain_summary = self._format_brain_report(
             mentor, news, schemer, volatility, risk, trend, profit, correlation,
-            analyst, guardian, allocator, verdict,
+            analyst, guardian, allocator, trader_watch, verdict,
         )
 
         cycle = {
@@ -127,6 +130,7 @@ class CentralBrain:
             "analyst": analyst,
             "guardian": guardian,
             "allocator": allocator,
+            "trader_watcher": trader_watch,
             "votes": votes,
             "summary": brain_summary,
         }
@@ -136,7 +140,7 @@ class CentralBrain:
 
     def _format_brain_report(
         self, mentor, news, schemer, volatility, risk, trend, profit, correlation,
-        analyst, guardian, allocator, verdict: str,
+        analyst, guardian, allocator, trader_watch, verdict: str,
     ) -> str:
         lines = [
             "🧠 ЦЕНТРАЛЬНЫЙ МОЗГ",
@@ -178,6 +182,9 @@ class CentralBrain:
             "",
             f"{allocator['emoji']} {allocator['name']}: {allocator['summary']}",
             f"   → {allocator['action_for_brain']}",
+            "",
+            f"{trader_watch['emoji']} {trader_watch['name']}: {trader_watch['summary']}",
+            f"   → {trader_watch['action_for_brain']}",
         ]
         for item in schemer.get("learned", [])[:2]:
             lines.append(f"   • {item}")
@@ -208,6 +215,7 @@ class CentralBrain:
             elif decision == "experiment" and session.volatile:
                 p["dip_threshold_pct"] = max(3.0, p.get("dip_threshold_pct", 5) - 0.5)
             elif decision in ("continue", "hold", "collect_data"):
+                # Keep tuned params — base_params synced after every tune
                 p = dict(session.base_params)
 
             session.set_params_bounded(p)
@@ -239,7 +247,7 @@ class CentralBrain:
             if deltas:
                 _, msg = session.optimizer.apply_deltas(deltas)
                 session.bot.update_params(session.optimizer.get_params())
-                session.base_params = dict(session.bot.get_params())
+                session.sync_base_params()
 
     def apply_schemer_hints(self, sessions: dict, schemer: dict):
         """Turn active scheme signals into bounded param tweaks."""
@@ -259,6 +267,7 @@ class CentralBrain:
                 elif pid == "quiet_market":
                     p["dca_amount"] = min(80, p.get("dca_amount", 25) + 2)
                 session.set_params_bounded(p)
+                session.sync_base_params()
 
     def chat(self, user_msg: str, contexts: list[dict], total: dict) -> str:
         msg = user_msg.lower().strip()
@@ -381,6 +390,31 @@ class CentralBrain:
                     lines.append(f"• {s}")
                 return "\n".join(lines) if len(lines) > 1 else al["summary"]
             return "Аллокатор проверит распределение по рынкам."
+
+        if any(w in msg for w in ("трейдер", "следопыт", "копитрейд", "copy", "ansem", "planb")):
+            tw = self.last_cycle.get("trader_watcher") if self.last_cycle else None
+            if tw:
+                lines = [f"👁️ {tw['summary']}", ""]
+                for s in tw.get("hot", [])[:3]:
+                    lines.append(f"🟢 {s}")
+                for s in tw.get("warnings", [])[:3]:
+                    lines.append(f"🔴 {s}")
+                return "\n".join(lines) if len(lines) > 1 else tw["summary"]
+            return "Следопыт мониторит 8 публичных стилей топ-трейдеров — спроси через минуту."
+
+        if any(w in msg for w in ("бэктест", "backtest", "история свеч")):
+            return (
+                "⏱ Бэктест: вкладка «Бэктест» под графиком или POST /api/backtest "
+                f"с {{\"symbol\": \"{contexts[0]['symbol'] if contexts else 'BTCUSDT'}\", \"limit\": 500}}. "
+                "Прогон за минуты по OHLC — та же логика что live + Shadow Lab."
+            )
+
+        if any(w in msg for w in ("биржа", "binance", "api ключ", "реальн")):
+            return (
+                "🏦 Реальная биржа: задай BINANCE_API_KEY + BINANCE_API_SECRET в env, "
+                "EXCHANGE_ENABLED=true в config. Сейчас paper по умолчанию. "
+                "GET /api/exchange/status · риск-лимиты: max ордер, дневная просадка."
+            )
 
         base = self.talker.chat(user_msg, contexts, total)
         if self.last_cycle:

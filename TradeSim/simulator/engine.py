@@ -169,7 +169,8 @@ class SimulatorEngine:
                 portfolio_value=row.get("portfolio_value", 0),
             ))
 
-    def export_trades(self) -> list[dict[str, Any]]:
+    def export_trades(self, limit: int | None = None) -> list[dict[str, Any]]:
+        rows = self.trades if limit is None else self.trades[-limit:]
         return [
             {
                 "id": t.id,
@@ -184,5 +185,5 @@ class SimulatorEngine:
                 "balance_base": t.balance_base,
                 "portfolio_value": t.portfolio_value,
             }
-            for t in self.trades[-50:]
+            for t in rows
         ]

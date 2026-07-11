@@ -16,8 +16,7 @@ from typing import Any
 
 import config
 from learning.optimizer import StrategyOptimizer
-from simulator.engine import SimulatorEngine
-from simulator.strategy import StrategyBot
+from simulator.price_walk import prices_for_tick, run_strategy_prices
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +98,7 @@ class ShadowLab:
     def _init_clones(self):
         n = config.SHADOW_CLONES_PER_MARKET
         for sym, session in self.sessions.items():
-            base = copy.deepcopy(session.base_params)
+            base = copy.deepcopy(session.bot.get_params())
             volatile = session.volatile
             label = session.label
             clones: list[ShadowClone] = []
@@ -139,26 +138,31 @@ class ShadowLab:
 
         return opt.apply_params(p)
 
-    def on_tick(self, symbol: str, price: float, sma: float | None) -> int:
+    def on_market_update(
+        self,
+        symbol: str,
+        price: float,
+        sma: float | None,
+        closed_candle: dict | None = None,
+    ) -> int:
+        """Same price path as live bot — tick or OHLC on candle close."""
         if not config.SHADOW_LAB_ENABLED:
             return 0
+        walk = prices_for_tick(price, closed_candle)
         new_trades = 0
         for clone in self.clones.get(symbol, []):
-            if clone.process_price(price, sma):
-                new_trades += 1
+            for p in walk:
+                if clone.process_price(p, sma):
+                    new_trades += 1
         self.total_shadow_trades += new_trades
         return new_trades
 
+    def on_tick(self, symbol: str, price: float, sma: float | None) -> int:
+        return self.on_market_update(symbol, price, sma, None)
+
     def on_candle(self, symbol: str, candle: dict, sma: float | None) -> int:
-        """Forward-walk OHLC — 4 virtual prices per candle (shadow tracking)."""
-        if not config.SHADOW_LAB_ENABLED:
-            return 0
-        prices = [candle.get("open"), candle.get("low"), candle.get("high"), candle.get("close")]
-        new_trades = 0
-        for price in prices:
-            if price and price > 0:
-                new_trades += self.on_tick(symbol, price, sma)
-        return new_trades
+        """Deprecated — use on_market_update with closed_candle."""
+        return self.on_market_update(symbol, candle.get("close", 0), sma, candle)
 
     def evaluate_and_promote(self) -> list[dict[str, Any]]:
         """Pick best clone per market; merge winning params into live bot."""
@@ -235,7 +239,7 @@ class ShadowLab:
             session = self.sessions.get(sym)
             if not session:
                 continue
-            base = copy.deepcopy(session.base_params)
+            base = copy.deepcopy(session.bot.get_params())
             n = config.SHADOW_CLONES_PER_MARKET
             self.clones[sym] = [
                 ShadowClone(i, sym, session.label, self._jitter_params(base, i, session.volatile),
@@ -249,7 +253,7 @@ class ShadowLab:
         for sym, session in sessions.items():
             if sym in self.clones:
                 continue
-            base = copy.deepcopy(session.base_params)
+            base = copy.deepcopy(session.bot.get_params())
             self.clones[sym] = [
                 ShadowClone(
                     i, sym, session.label,

@@ -158,6 +158,36 @@ function renderHonestyTable(h) {
   </div>`;
 }
 
+async function runBacktestTable() {
+  const el = document.getElementById("table-backtest");
+  if (!el) return;
+  el.innerHTML = "<p class='muted'>⏱ Прогон стратегии по историческим свечам...</p>";
+  try {
+    const res = await fetch("/api/backtest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol: activeSymbol, limit: 500 }),
+    });
+    const r = await res.json();
+    if (r.error) {
+      el.innerHTML = `<p class="muted">Ошибка: ${r.error}</p>`;
+      return;
+    }
+    const cls = r.pnl_pct >= 0 ? "up" : "down";
+    const log = (r.trade_log || []).map(t =>
+      `<tr><td>${t.side}</td><td>${fmtMoney(t.price)}</td><td>${fmtMoney(t.amount_quote)}</td><td>${t.reason?.slice(0, 40)}</td></tr>`
+    ).join("");
+    el.innerHTML = `<div class="honesty-box ok">
+      <p><b>${r.label}</b> · ${r.candles} свечей · ${r.trades} сделок (buy ${r.buys} / sell ${r.sells})</p>
+      <p>P&L: <span class="${cls}"><b>${fmtPct(r.pnl_pct)}</b></span> · vs hold ${fmtPct(r.vs_hold_pct)} · портфель ${fmtMoney(r.portfolio_value)}</p>
+    </div>
+    <table class="data-table"><thead><tr><th>Сторона</th><th>Цена</th><th>Сумма</th><th>Причина</th></tr></thead><tbody>${log || "<tr><td colspan=4>Нет сделок</td></tr>"}</tbody></table>
+    <p class="muted" style="margin-top:0.5rem">Та же OHLC-логика что у live бота и Shadow Lab</p>`;
+  } catch (e) {
+    el.innerHTML = "<p class='muted'>Не удалось запустить бэктест</p>";
+  }
+}
+
 function renderAllTables(data) {
   renderMarketsTable(data?.markets_table);
   renderAnalyticsTable(data?.analytics || lastAnalytics);
@@ -610,6 +640,7 @@ function renderBrain(brain) {
     ["agent-analyst", brain.analyst],
     ["agent-guardian", brain.guardian],
     ["agent-allocator", brain.allocator],
+    ["agent-trader-watch", brain.trader_watcher],
   ].forEach(([id, data]) => {
     const el = document.getElementById(id);
     if (!el || !data) return;
@@ -989,6 +1020,7 @@ function bindUi() {
       const id = btn.dataset.table;
       document.querySelectorAll(".data-table-wrap").forEach(w => w.classList.add("hidden"));
       document.getElementById(`table-${id}`)?.classList.remove("hidden");
+      if (id === "backtest") runBacktestTable();
     };
   });
 
