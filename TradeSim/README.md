@@ -1,20 +1,22 @@
 # TradeSim
 
-**Paper trading** simulator: 6 crypto markets, virtual $10,000, live prices, self-learning bots.
+**Paper trading** simulator: **17 crypto markets**, virtual $10,000, live prices, self-learning bots.
 
-## Markets
+## Markets (17)
 
-| Pair | Type | Strategy |
-|------|------|----------|
-| BTC, ETH, SOL, BNB | Majors | DCA $25 / 24h + DIP below SMA |
-| DOGE, PEPE | Volatile | Smaller DCA, shorter interval, SPIKE buys on deep dips |
+| Tier | Coins | Strategy |
+|------|-------|----------|
+| **Majors** | BTC, ETH, SOL, BNB | DCA $25 / 24h + DIP |
+| **Growth** | XRP, ADA, AVAX, LINK, ARB, SUI, NEAR, DOT, INJ, TON | Faster DCA + SPIKE + TP |
+| **Meme** | DOGE, PEPE | Aggressive volatile params |
+| **🔥 Viral** | WIF (dogwifhat) | Ultra-fast — trending coin slot |
 
-Each market gets ~$1,667 virtual balance.
+Each market gets ~$588 virtual balance ($10k ÷ 17).
 
 ## Features
 
 - **Live data** — Binance / Bybit / CoinGecko fallback (no API key)
-- **6 parallel bots** — DCA + DIP + SPIKE + **TAKE-PROFIT** + **STOP-LOSS** (cost-basis exits)
+- **17 parallel bots** — majors + 10 growth alts + memes + viral WIF
 - **Persistence** — portfolio, trades, bot params survive server restart (SQLite WAL)
 - **Shadow Lab** — 12 hidden mock bots per market (72 total) learn in parallel; winners promote to live bot
 - **Central brain** — 11 agents with emergency halt and decision history

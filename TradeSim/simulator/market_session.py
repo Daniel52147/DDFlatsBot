@@ -25,13 +25,22 @@ class MarketSession:
         self.name = market["name"]
         self.demo_price = market["demo_price"]
         self.volatile = market.get("volatile", False)
+        self.growth = market.get("growth", False)
+        self.viral = market.get("viral", False)
+        self.tier = market.get("tier", "major")
         self.feed = PriceFeed(self.symbol)
         self.candles = CandleBuilder(interval=config.CANDLE_INTERVAL, max_candles=config.MAX_CANDLES)
         self.engine = SimulatorEngine(initial_balance=config.BALANCE_PER_MARKET)
         self.bot = StrategyBot(self.engine, params=market.get("strategy"))
         self.base_params = copy.deepcopy(self.bot.get_params())
-        bounds = StrategyOptimizer.BOUNDS_VOLATILE if self.volatile else StrategyOptimizer.BOUNDS
-        self.optimizer = StrategyOptimizer(self.bot.get_params(), bounds=bounds, volatile=self.volatile)
+        bounds = (
+            StrategyOptimizer.BOUNDS_VOLATILE
+            if (self.volatile or self.growth)
+            else StrategyOptimizer.BOUNDS
+        )
+        self.optimizer = StrategyOptimizer(
+            self.bot.get_params(), bounds=bounds, volatile=(self.volatile or self.growth),
+        )
         self.learning_logger: LearningLogger | None = None
         self.last_tune_ts = 0.0
         self.last_snapshot_ts = 0.0
@@ -66,8 +75,8 @@ class MarketSession:
         self.bot.enabled = saved.get("bot_enabled", True)
         self.optimizer = StrategyOptimizer(
             self.bot.get_params(),
-            bounds=StrategyOptimizer.BOUNDS_VOLATILE if self.volatile else StrategyOptimizer.BOUNDS,
-            volatile=self.volatile,
+            bounds=StrategyOptimizer.BOUNDS_VOLATILE if (self.volatile or self.growth) else StrategyOptimizer.BOUNDS,
+            volatile=(self.volatile or self.growth),
         )
         self._restored = True
         logger.info("[%s] restored portfolio $%.2f (%d trades)", self.symbol,
@@ -194,7 +203,7 @@ class MarketSession:
                     snap["vs_hold_pct"],
                     snap["trade_count"],
                     recent_trades=self.engine.export_trades()[-20:],
-                    volatile=self.volatile,
+                    volatile=(self.volatile or self.growth),
                     volatility_pct=vol,
                     pnl_pct=snap.get("pnl_pct", 0),
                 )
@@ -223,6 +232,9 @@ class MarketSession:
             "label": self.label,
             "name": self.name,
             "volatile": self.volatile,
+            "growth": self.growth,
+            "viral": self.viral,
+            "tier": self.tier,
             "restored": self._restored,
             "price": price,
             "portfolio": self.engine.snapshot(price),
@@ -263,6 +275,9 @@ class MarketSession:
             "price": price,
             "sma": sma,
             "volatile": self.volatile,
+            "growth": self.growth,
+            "viral": self.viral,
+            "tier": self.tier,
             "volatility_pct": volatility,
             "portfolio": self.engine.snapshot(price),
             "strategy": self.bot.status(price, sma),

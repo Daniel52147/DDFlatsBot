@@ -196,6 +196,9 @@ def _market_meta() -> list[dict[str, Any]]:
             "label": m["label"],
             "name": m.get("name", m["label"]),
             "volatile": m.get("volatile", False),
+            "growth": m.get("growth", False),
+            "viral": m.get("viral", False),
+            "tier": m.get("tier", "major"),
             "price_decimals": config.PRICE_DECIMALS.get(m["label"], 2),
         }
         for m in config.MARKETS

@@ -38,6 +38,17 @@ _ASSET: dict[str, dict[str, str]] = {
     "BNBUSDT": {"kraken": "BNBUSDT", "kraken_ws": "BNB/USDT", "coingecko": "binancecoin"},
     "DOGEUSDT": {"coingecko": "dogecoin"},
     "PEPEUSDT": {"coingecko": "pepe"},
+    "XRPUSDT": {"coingecko": "ripple"},
+    "ADAUSDT": {"coingecko": "cardano"},
+    "AVAXUSDT": {"coingecko": "avalanche-2"},
+    "LINKUSDT": {"coingecko": "chainlink"},
+    "ARBUSDT": {"coingecko": "arbitrum"},
+    "SUIUSDT": {"coingecko": "sui"},
+    "NEARUSDT": {"coingecko": "near"},
+    "DOTUSDT": {"coingecko": "polkadot"},
+    "INJUSDT": {"coingecko": "injective-protocol"},
+    "TONUSDT": {"coingecko": "the-open-network"},
+    "WIFUSDT": {"coingecko": "dogwifcoin"},
 }
 
 # api.binance.com returns HTTP 451 from some regions (e.g. Cursor Cloud VM).

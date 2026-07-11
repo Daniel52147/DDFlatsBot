@@ -20,13 +20,20 @@ class VolatilityWatcherAgent:
         for ctx in contexts:
             vol = ctx.get("volatility_pct", 0)
             label = ctx["label"]
-            if ctx.get("volatile"):
+            tag = ""
+            if ctx.get("viral"):
+                tag = " 🔥"
+            elif ctx.get("growth"):
+                tag = " 📈"
+            if ctx.get("volatile") or ctx.get("viral"):
                 if vol >= 8:
-                    hot.append(f"{label} ({vol:.1f}% колебания)")
+                    hot.append(f"{label}{tag} ({vol:.1f}% колебания)")
                 elif vol >= 4:
-                    spikes.append(f"{label} ({vol:.1f}%)")
+                    spikes.append(f"{label}{tag} ({vol:.1f}%)")
                 else:
-                    calm.append(label)
+                    calm.append(f"{label}{tag}")
+            elif ctx.get("growth") and vol >= 5:
+                spikes.append(f"{label}{tag} growth ({vol:.1f}%)")
             elif vol >= 5:
                 spikes.append(f"{label} ({vol:.1f}%)")
 
@@ -46,11 +53,14 @@ class VolatilityWatcherAgent:
             recommendation = "continue"
             action = f"Есть движение: {', '.join(spikes[:3])}. DIP/SPIKE по правилам."
 
+        viral_labels = [c["label"] for c in contexts if c.get("viral")]
+        growth_labels = [c["label"] for c in contexts if c.get("growth")]
         volatile_labels = [c["label"] for c in contexts if c.get("volatile")]
         summary = (
             f"Слежу за {len(contexts)} рынками. "
-            f"Волатильные: {', '.join(volatile_labels) or 'нет'}. "
-            f"Горячих: {len(hot)}, сигналов движения: {len(spikes)}."
+            f"Growth: {len(growth_labels)}, волатильные: {len(volatile_labels)}"
+            f"{', 🔥 ' + ', '.join(viral_labels) if viral_labels else ''}. "
+            f"Горячих: {len(hot)}, сигналов: {len(spikes)}."
         )
 
         return {

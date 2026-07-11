@@ -13,8 +13,19 @@ COIN_SYNONYMS = {
     "eth": "ETH", "эфир": "ETH", "ethereum": "ETH", "эфириум": "ETH",
     "sol": "SOL", "солана": "SOL", "solana": "SOL",
     "bnb": "BNB", "бинанс": "BNB",
+    "xrp": "XRP", "рипл": "XRP", "ripple": "XRP",
+    "ada": "ADA", "кардано": "ADA", "cardano": "ADA",
+    "avax": "AVAX", "авакс": "AVAX", "avalanche": "AVAX",
+    "link": "LINK", "чейнлинк": "LINK", "chainlink": "LINK",
+    "arb": "ARB", "arbitrum": "ARB", "арбитрум": "ARB",
+    "sui": "SUI", "суи": "SUI",
+    "near": "NEAR", "ниар": "NEAR",
+    "dot": "DOT", "полкадот": "DOT", "polkadot": "DOT",
+    "inj": "INJ", "инжектив": "INJ", "injective": "INJ",
+    "ton": "TON", "тонкоин": "TON", "toncoin": "TON", "телеграм": "TON",
     "doge": "DOGE", "доги": "DOGE", "догик": "DOGE", "dogecoin": "DOGE",
-    "pepe": "PEPE", "пепе": "PEPE", "мем": "PEPE",
+    "pepe": "PEPE", "пепе": "PEPE",
+    "wif": "WIF", "виф": "WIF", "dogwifhat": "WIF", "вирус": "WIF", "хайп": "WIF",
 }
 
 
@@ -25,6 +36,14 @@ class TradingAssistant:
     def _volatile_labels(self, contexts: list[dict]) -> str:
         v = [c["label"] for c in contexts if c.get("volatile")]
         return ", ".join(v) if v else "нет"
+
+    def _viral_labels(self, contexts: list[dict]) -> str:
+        v = [c["label"] for c in contexts if c.get("viral")]
+        return ", ".join(v) if v else "нет"
+
+    def _growth_labels(self, contexts: list[dict]) -> str:
+        g = [c["label"] for c in contexts if c.get("growth")]
+        return ", ".join(g) if g else "нет"
 
     def _fmt_price(self, price: float, label: str) -> str:
         if label == "PEPE":
@@ -105,7 +124,9 @@ class TradingAssistant:
         if any(w in msg for w in ("привет", "здравств", "hello", "hi", "start")):
             return (
                 f"Привет! Я помощник TradeSim — слежу за {n} рынками: {labels}.\n"
-                f"Волатильные (для обучения на скачках): {self._volatile_labels(contexts)}.\n\n"
+                f"Growth-альты: {self._growth_labels(contexts)}.\n"
+                f"Волатильные: {self._volatile_labels(contexts)}.\n"
+                f"🔥 Вирусный тренд: {self._viral_labels(contexts)}.\n\n"
                 "Спроси:\n"
                 "• «как дела?» — сводка\n"
                 "• «что с DOGE?» — монета\n"

@@ -8,8 +8,19 @@ let marketMeta = [
   { symbol: "ETHUSDT", label: "ETH" },
   { symbol: "SOLUSDT", label: "SOL" },
   { symbol: "BNBUSDT", label: "BNB" },
+  { symbol: "XRPUSDT", label: "XRP", growth: true },
+  { symbol: "ADAUSDT", label: "ADA", growth: true },
+  { symbol: "AVAXUSDT", label: "AVAX", growth: true },
+  { symbol: "LINKUSDT", label: "LINK", growth: true },
+  { symbol: "ARBUSDT", label: "ARB", growth: true },
+  { symbol: "SUIUSDT", label: "SUI", growth: true },
+  { symbol: "NEARUSDT", label: "NEAR", growth: true },
+  { symbol: "DOTUSDT", label: "DOT", growth: true },
+  { symbol: "INJUSDT", label: "INJ", growth: true },
+  { symbol: "TONUSDT", label: "TON", growth: true },
   { symbol: "DOGEUSDT", label: "DOGE", volatile: true },
   { symbol: "PEPEUSDT", label: "PEPE", volatile: true },
+  { symbol: "WIFUSDT", label: "WIF", volatile: true, viral: true },
 ];
 let startBalance = 10000;
 let chatHistory = [];
@@ -259,8 +270,11 @@ function renderPortfolioGrid() {
     const cls = pnl == null ? "" : (pnl >= 0 ? "up" : "down");
     const active = m.symbol === activeSymbol ? " active" : "";
     const vol = m.volatile ? " volatile" : "";
-    return `<button type="button" class="pf-cell${active}${vol}" data-symbol="${m.symbol}">
-      <span class="pf-label">${m.label}${m.volatile ? " ⚡" : ""}</span>
+    const viral = m.viral ? " viral" : "";
+    const growth = m.growth ? " growth" : "";
+    const badge = m.viral ? " 🔥" : m.growth ? " 📈" : m.volatile ? " ⚡" : "";
+    return `<button type="button" class="pf-cell${active}${vol}${viral}${growth}" data-symbol="${m.symbol}">
+      <span class="pf-label">${m.label}${badge}</span>
       <span class="pf-pnl ${cls}">${pnl != null ? fmtPct(pnl) : "…"}</span>
       <span class="pf-vs">${vs != null ? "vs hold " + fmtPct(vs) : ""}</span>
     </button>`;
@@ -277,8 +291,10 @@ function renderTabs() {
     const d = marketsData[m.symbol];
     const price = d?.price != null && !isNaN(d.price) ? fmtMoney(d.price, priceDecimals(m.label)) : "…";
     const vol = m.volatile ? " volatile-tab" : "";
+    const viral = m.viral ? " viral-tab" : "";
+    const growth = m.growth ? " growth-tab" : "";
     const active = m.symbol === activeSymbol ? " active" : "";
-    return `<button type="button" class="tab${active}${vol}" data-symbol="${m.symbol}">${m.label}<span>${price}</span></button>`;
+    return `<button type="button" class="tab${active}${vol}${viral}${growth}" data-symbol="${m.symbol}">${m.label}${m.viral ? " 🔥" : m.growth ? " 📈" : ""}<span>${price}</span></button>`;
   }).join("");
   nav.querySelectorAll(".tab").forEach(btn => {
     btn.onclick = () => switchMarket(btn.dataset.symbol);
@@ -335,7 +351,8 @@ function renderBotStatus(d) {
   const st = d.strategy || {};
   const p = st.params || {};
   const lbl = d.label || labelFor(d.symbol);
-  const vol = d.volatile ? " ⚡ волатильный" : "";
+    const vol = d.volatile ? " ⚡" : "";
+    const viralTag = d.viral ? " 🔥 VIRAL" : d.growth ? " 📈 growth" : "";
   let spike = "";
   if (p.spike_threshold_pct) {
     spike = `<p>SPIKE: +$${p.spike_extra_amount} при просадке ≥${p.spike_threshold_pct}%</p>`;
@@ -468,8 +485,19 @@ const PRICE_RANGE = {
   ETH: [100, 50000],
   SOL: [1, 2000],
   BNB: [10, 5000],
+  XRP: [0.1, 50],
+  ADA: [0.01, 10],
+  AVAX: [1, 500],
+  LINK: [1, 200],
+  ARB: [0.05, 20],
+  SUI: [0.1, 50],
+  NEAR: [0.1, 50],
+  DOT: [0.5, 100],
+  INJ: [1, 200],
+  TON: [0.5, 50],
   DOGE: [0.001, 10],
   PEPE: [0.0000001, 0.01],
+  WIF: [0.01, 50],
 };
 
 function priceOk(label, price) {
