@@ -27,8 +27,13 @@ MARKETS = [
             "spike_threshold_pct": 10.0,
             "spike_extra_amount": 35.0,
             "take_profit_pct": 6.0,
+            "take_profit_cost_pct": 5.0,
             "take_profit_fraction": 0.25,
             "take_profit_cooldown_hours": 3,
+            "dip_cooldown_minutes": 15,
+            "spike_cooldown_minutes": 30,
+            "stop_loss_pct": 15.0,
+            "stop_loss_fraction": 0.25,
         },
     },
     {
@@ -46,8 +51,13 @@ MARKETS = [
             "spike_threshold_pct": 15.0,
             "spike_extra_amount": 40.0,
             "take_profit_pct": 8.0,
+            "take_profit_cost_pct": 6.0,
             "take_profit_fraction": 0.30,
             "take_profit_cooldown_hours": 2,
+            "dip_cooldown_minutes": 10,
+            "spike_cooldown_minutes": 20,
+            "stop_loss_pct": 18.0,
+            "stop_loss_fraction": 0.3,
         },
     },
 ]
@@ -66,10 +76,17 @@ STRATEGY = {
     "dca_interval_hours": 24,
     "dip_threshold_pct": 3.0,
     "dip_extra_amount": 40.0,
+    "dip_cooldown_minutes": 30,
+    "spike_cooldown_minutes": 60,
     "sma_period": 20,
     "take_profit_pct": 10.0,
+    "take_profit_cost_pct": 8.0,
     "take_profit_fraction": 0.15,
     "take_profit_cooldown_hours": 6,
+    "stop_loss_pct": 12.0,
+    "stop_loss_fraction": 0.2,
+    "stop_loss_cooldown_hours": 12,
+    "max_buy_pct_of_cash": 0.5,
 }
 
 CANDLE_INTERVAL = "1m"
@@ -87,4 +104,4 @@ PRICE_DECIMALS = {
     "BTC": 0, "ETH": 2, "SOL": 2, "BNB": 2, "DOGE": 4, "PEPE": 8,
 }
 
-APP_VERSION = 8
+APP_VERSION = 9

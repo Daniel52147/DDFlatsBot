@@ -5,6 +5,7 @@ TradeSim — multi-market paper trading with live crypto data.
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 import time
@@ -21,7 +22,9 @@ from starlette.requests import Request
 
 import config
 from assistant.coordinator import CentralBrain
+from learning.analytics import build_portfolio_analytics
 from learning.logger import LearningLogger
+from learning.optimizer import StrategyOptimizer
 from simulator.market_session import MarketSession
 
 logging.basicConfig(level=logging.INFO)
@@ -45,6 +48,13 @@ state: dict[str, Any] = {
 
 class ChatRequest(BaseModel):
     message: str
+
+
+class ManualTradeRequest(BaseModel):
+    symbol: str
+    side: str  # buy | sell
+    amount_usd: float = 25.0
+    reason: str = "ручная сделка"
 
 
 async def broadcast(data: dict):
@@ -101,7 +111,7 @@ async def run_session_loop(session: MarketSession):
 
 
 async def brain_loop():
-    """Central brain thinks every 2 minutes — agents report, brain decides."""
+    """Central brain thinks every BRAIN_CYCLE_SEC — agents report, brain decides."""
     await asyncio.sleep(15)
     while state["running"]:
         try:
@@ -109,7 +119,11 @@ async def brain_loop():
             total = total_portfolio()
             cycle = await brain.think(ctx, total)
             state["brain_cycle"] = cycle
+            prev_decision = brain.last_applied_decision
             brain.apply_decision(sessions, cycle["decision"])
+            if brain.last_applied_decision != prev_decision:
+                for s in sessions.values():
+                    await s.persist()
             brain.apply_learning_boost(sessions, ctx)
             brain.apply_schemer_hints(sessions, cycle.get("schemer", {}))
             await logger_db.log_brain_cycle(cycle["decision"], cycle["verdict"])
@@ -174,11 +188,28 @@ def _bootstrap_payload() -> dict[str, Any]:
     }
 
 
+def _analytics_payload(equity: list | None = None) -> dict[str, Any]:
+    snaps = []
+    for s in sessions.values():
+        snaps.append({
+            "symbol": s.symbol,
+            "label": s.label,
+            "portfolio": s.engine.snapshot(s.feed.price or s.demo_price),
+            "trades": s.engine.export_trades(),
+            "avg_entry": s.engine.avg_entry_price(),
+            "bot_enabled": s.bot.enabled,
+        })
+    return build_portfolio_analytics(snaps, equity)
+
+
 async def _bootstrap_payload_async() -> dict[str, Any]:
     payload = _bootstrap_payload()
     payload["learning"] = await logger_db.performance_summary()
-    payload["equity"] = await logger_db.equity_curve(48)
+    equity = await logger_db.equity_curve(48)
+    payload["equity"] = equity
     payload["brain_history"] = await logger_db.brain_history(6)
+    payload["analytics"] = _analytics_payload(equity)
+    payload["strategy_history"] = await logger_db.strategy_history(limit=10)
     return payload
 
 
@@ -235,6 +266,21 @@ def _brain_public(cycle: dict) -> dict:
             "pairs": cycle["correlation"].get("pairs", [])[:4],
             "leaders": cycle["correlation"].get("leaders", [])[:2],
             "laggards": cycle["correlation"].get("laggards", [])[:2],
+        },
+        "analyst": {
+            **_agent(cycle["analyst"]),
+            "highlights": cycle["analyst"].get("highlights", [])[:4],
+            "metrics": cycle["analyst"].get("metrics", {}),
+        },
+        "guardian": {
+            **_agent(cycle["guardian"]),
+            "alerts": cycle["guardian"].get("alerts", [])[:4],
+            "halts": cycle["guardian"].get("halts", []),
+        },
+        "allocator": {
+            **_agent(cycle["allocator"]),
+            "suggestions": cycle["allocator"].get("suggestions", [])[:3],
+            "overweight": cycle["allocator"].get("overweight", [])[:2],
         },
         "ts": cycle.get("ts"),
     }
@@ -319,6 +365,23 @@ async def api_equity(hours: int = 48):
     return {"curve": await logger_db.equity_curve(hours)}
 
 
+@app.get("/api/analytics")
+async def api_analytics():
+    equity = await logger_db.equity_curve(48)
+    return _analytics_payload(equity)
+
+
+@app.get("/api/strategy/history")
+async def api_strategy_history(symbol: str | None = None, limit: int = 15):
+    return {"history": await logger_db.strategy_history(symbol, limit)}
+
+
+@app.get("/api/export/trades")
+async def api_export_trades():
+    trades = _all_trades(500)
+    return {"trades": trades, "count": len(trades), "version": config.APP_VERSION}
+
+
 @app.get("/api/brain/history")
 async def api_brain_history():
     return {"history": await logger_db.brain_history(10)}
@@ -394,16 +457,51 @@ async def toggle_bot(symbol: str = config.MARKETS[0]["symbol"]):
     return {"symbol": symbol, "enabled": s.bot.enabled}
 
 
+@app.post("/api/trade")
+async def manual_trade(body: ManualTradeRequest):
+    if body.symbol not in sessions:
+        return {"error": "unknown symbol"}
+    if body.side not in ("buy", "sell"):
+        return {"error": "side must be buy or sell"}
+    if body.amount_usd <= 0 or body.amount_usd > 500:
+        return {"error": "amount_usd must be 1–500"}
+    s = sessions[body.symbol]
+    trade = await s.manual_trade(body.side, body.amount_usd, body.reason)
+    if not trade:
+        return {"error": "trade failed — insufficient balance or price"}
+    await broadcast({
+        "type": "trade",
+        "symbol": body.symbol,
+        "label": s.label,
+        "trade": trade,
+    })
+    return {"ok": True, "trade": trade, "portfolio": s.engine.snapshot(s.feed.price)}
+
+
 @app.post("/api/reset")
-async def reset_portfolio():
-    await logger_db.clear_sessions()
+async def reset_portfolio(full: bool = False):
+    if full:
+        await logger_db.full_reset()
+    else:
+        await logger_db.clear_sessions()
     for s in sessions.values():
+        market = next(m for m in config.MARKETS if m["symbol"] == s.symbol)
         s.engine.reset(config.BALANCE_PER_MARKET)
+        s.base_params = copy.deepcopy({**config.STRATEGY, **market.get("strategy", {})})
+        bounds = StrategyOptimizer.BOUNDS_VOLATILE if s.volatile else StrategyOptimizer.BOUNDS
+        s.optimizer = StrategyOptimizer(s.base_params, bounds=bounds, volatile=s.volatile)
+        s.bot.update_params(dict(s.base_params))
         s.bot.last_dca_ts = 0.0
         s.bot.last_take_profit_ts = 0.0
+        s.bot.last_dip_ts = 0.0
+        s.bot.last_spike_ts = 0.0
+        s.bot.last_stop_loss_ts = 0.0
+        s.bot.enabled = True
         s._restored = False
         await s.persist()
-    return {"total": total_portfolio()}
+    state["chat_history"] = []
+    state["brain_cycle"] = None
+    return {"total": total_portfolio(), "full": full}
 
 
 @app.websocket("/ws")

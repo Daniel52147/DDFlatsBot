@@ -14,6 +14,8 @@ let marketMeta = [
 let startBalance = 10000;
 let chatHistory = [];
 let lastBrain = null;
+let activityLog = [];
+let lastAnalytics = null;
 
 function showError(msg) {
   const el = document.getElementById("js-error");
@@ -129,34 +131,63 @@ function renderEquityCurve(points) {
   }
 }
 
-function renderLearningPanel(learning, brainHistory) {
+function renderLearningPanel(learning, brainHistory, analytics) {
   const el = document.getElementById("learning-panel");
   if (!el) return;
-  if (!learning) {
+  if (!learning && !analytics) {
     el.textContent = "Статистика появится после первых сделок.";
     return;
   }
-  const pm = learning.per_market || {};
+  const pm = learning?.per_market || {};
   const markets = Object.entries(pm).map(([s, c]) => `${labelFor(s)}:${c}`).join(" · ") || "—";
   let tune = "";
-  if (learning.strategy_versions?.length) {
+  if (learning?.strategy_versions?.length) {
     const t = learning.strategy_versions[0];
-    tune = `<div class="lp-tune">Последняя настройка [${t.symbol?.replace("USDT", "") || "?"}]: ${(t.reason || "").slice(0, 80)}…</div>`;
+    tune = `<div class="lp-tune">🔧 [${t.symbol?.replace("USDT", "") || "?"}] ${(t.reason || "").slice(0, 70)}…</div>`;
   }
   let bh = "";
   if (brainHistory?.length) {
     bh = `<ul class="brain-history">${brainHistory.slice(-4).map(h =>
-      `<li>${new Date(h.ts * 1000).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })} · ${h.decision}: ${(h.verdict || "").slice(0, 50)}</li>`
+      `<li>${new Date(h.ts * 1000).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })} · ${h.decision}: ${(h.verdict || "").slice(0, 45)}</li>`
     ).join("")}</ul>`;
   }
+  const a = analytics || lastAnalytics;
+  let metrics = "";
+  if (a) {
+    metrics = `
+      <div class="lp-row"><span class="lp-label">Max drawdown</span><span class="lp-val">${a.max_drawdown_pct ?? 0}%</span></div>
+      <div class="lp-row"><span class="lp-label">Опережают hold</span><span class="lp-val">${a.markets_beating_hold ?? 0}/${a.markets_total ?? 6}</span></div>
+      <div class="lp-row"><span class="lp-label">Среднее vs hold</span><span class="lp-val">${fmtPct(a.avg_vs_hold_pct)}</span></div>
+      ${a.sharpe_proxy != null ? `<div class="lp-row"><span class="lp-label">Sharpe (proxy)</span><span class="lp-val">${a.sharpe_proxy}</span></div>` : ""}
+    `;
+  }
   el.innerHTML = `
-    <div class="lp-row"><span class="lp-label">Сделок в БД</span><span class="lp-val">${learning.trade_count || 0}</span></div>
-    <div class="lp-row"><span class="lp-label">Режим</span><span class="lp-val">⚡ быстрое обучение</span></div>
-    <div class="lp-row"><span class="lp-label">Мозг</span><span class="lp-val">каждые 45 сек</span></div>
+    <div class="lp-row"><span class="lp-label">Сделок в БД</span><span class="lp-val">${learning?.trade_count || a?.total_trades || 0}</span></div>
+    <div class="lp-row"><span class="lp-label">Продаж / TP / SL</span><span class="lp-val">${a?.total_sells ?? "—"}</span></div>
+    <div class="lp-row"><span class="lp-label">Мозг · 11 агентов</span><span class="lp-val">каждые 45 сек</span></div>
     <div class="lp-row"><span class="lp-label">По рынкам</span><span class="lp-val">${markets}</span></div>
-    <div class="lp-row"><span class="lp-label">Портфель</span><span class="lp-val">сохраняется ✓</span></div>
+    ${metrics}
     ${tune}${bh}
   `;
+  renderActivityFeed();
+}
+
+function pushActivity(text) {
+  activityLog.unshift({ ts: Date.now(), text });
+  activityLog = activityLog.slice(0, 12);
+  renderActivityFeed();
+}
+
+function renderActivityFeed() {
+  const el = document.getElementById("activity-feed");
+  if (!el) return;
+  if (!activityLog.length) {
+    el.innerHTML = "<li>Лента: сделки, автонастройки, решения мозга…</li>";
+    return;
+  }
+  el.innerHTML = activityLog.map(a =>
+    `<li>${new Date(a.ts).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })} · ${escapeHtml(a.text)}</li>`
+  ).join("");
 }
 
 function updateSmaLegend(period) {
@@ -231,6 +262,7 @@ function switchMarket(symbol) {
   if (candleSeries && lastCandles.length) {
     candleSeries.setData(lastCandles);
     updateSMA(lastCandles, period);
+    updateTradeMarkers(d.trades || []);
   }
   const title = document.getElementById("chart-title");
   if (title) title.textContent = `${d.label || labelFor(symbol)}/USDT — свечи`;
@@ -276,13 +308,18 @@ function renderBotStatus(d) {
   if (p.take_profit_pct) {
     tp = `<p>TAKE-PROFIT: ${Math.round((p.take_profit_fraction || 0.15) * 100)}% позиции при +${p.take_profit_pct}% над SMA</p>`;
   }
+  let sl = "";
+  if (p.stop_loss_pct) {
+    sl = `<p>STOP-LOSS: −${p.stop_loss_pct}% от входа → продажа ${Math.round((p.stop_loss_fraction || 0.2) * 100)}%</p>`;
+  }
+  const avg = st.avg_entry || d.portfolio?.avg_entry;
   el.innerHTML = `
     <p>Рынок: <strong>${lbl}</strong>${vol}${d.restored ? " · 💾 восстановлен" : ""} · ${st.enabled !== false ? "✅ активен" : "⏸ пауза"}</p>
-    <p>Цена: <strong>${fmtMoney(d.price, priceDecimals(lbl))}</strong></p>
-    <p>Портфель: <strong>${fmtMoney(d.portfolio?.portfolio_value)}</strong> (${fmtPct(d.portfolio?.pnl_pct)})</p>
-    <p>DCA: $${p.dca_amount ?? 25} / ${p.dca_interval_hours ?? 24}ч · DIP ${p.dip_threshold_pct ?? 3}%</p>
-    ${spike}${tp}
-    <p>SMA: <strong>${st.sma ? fmtMoney(st.sma, priceDecimals(lbl)) : "—"}</strong>${st.profit_pct > 0 ? ` · над SMA +${st.profit_pct}%` : st.dip_pct > 0 ? ` · ниже SMA ${st.dip_pct}%` : ""}</p>
+    <p>Цена: <strong>${fmtMoney(d.price, priceDecimals(lbl))}</strong>${avg ? ` · вход ~${fmtMoney(avg, priceDecimals(lbl))}` : ""}</p>
+    <p>Портфель: <strong>${fmtMoney(d.portfolio?.portfolio_value)}</strong> (${fmtPct(d.portfolio?.pnl_pct)}) · vs hold ${fmtPct(d.portfolio?.vs_hold_pct)}</p>
+    <p>DCA: $${p.dca_amount ?? 25} / ${p.dca_interval_hours ?? 24}ч · DIP ${p.dip_threshold_pct ?? 3}% (кд ${p.dip_cooldown_minutes ?? 30}м)</p>
+    ${spike}${tp}${sl}
+    <p>SMA: <strong>${st.sma ? fmtMoney(st.sma, priceDecimals(lbl)) : "—"}</strong>${st.profit_pct > 0 ? ` · над SMA +${st.profit_pct}%` : st.dip_pct > 0 ? ` · ниже SMA ${st.dip_pct}%` : ""}${st.cost_profit_pct != null ? ` · от входа ${st.cost_profit_pct >= 0 ? "+" : ""}${st.cost_profit_pct}%` : ""}</p>
   `;
   const btn = document.getElementById("btn-toggle");
   if (btn) btn.textContent = st.enabled !== false ? "Пауза" : "Старт";
@@ -348,6 +385,11 @@ function openAgentModal(key, data) {
   if (data.pairs?.length) extra += data.pairs.map(p => `<li>🔗 ${p}</li>`).join("");
   if (data.leaders?.length) extra += data.leaders.map(l => `<li>🏆 ${l}</li>`).join("");
   if (data.laggards?.length) extra += data.laggards.map(l => `<li>📉 ${l}</li>`).join("");
+  if (data.highlights?.length) extra += data.highlights.map(h => `<li>📊 ${h}</li>`).join("");
+  if (data.alerts?.length) extra += data.alerts.map(a => `<li>⚠️ ${a}</li>`).join("");
+  if (data.halts?.length) extra += data.halts.map(h => `<li>🛑 ${h}</li>`).join("");
+  if (data.suggestions?.length) extra += data.suggestions.map(s => `<li>⚖️ ${s}</li>`).join("");
+  if (data.overweight?.length) extra += data.overweight.map(o => `<li>📦 ${o}</li>`).join("");
   body.innerHTML = `
     <h3>${data.emoji || ""} ${data.name || key}</h3>
     <p>${escapeHtml(data.summary || "")}</p>
@@ -371,6 +413,9 @@ function renderBrain(brain) {
     ["agent-trend", brain.trend],
     ["agent-profit", brain.profit],
     ["agent-correlation", brain.correlation],
+    ["agent-analyst", brain.analyst],
+    ["agent-guardian", brain.guardian],
+    ["agent-allocator", brain.allocator],
   ].forEach(([id, data]) => {
     const el = document.getElementById(id);
     if (!el || !data) return;
@@ -396,6 +441,25 @@ function priceOk(label, price) {
   const r = PRICE_RANGE[label];
   if (!r) return price > 0;
   return price >= r[0] && price <= r[1];
+}
+
+function updateTradeMarkers(trades) {
+  if (!candleSeries || !trades?.length || !lastCandles.length) return;
+  const times = new Set(lastCandles.map(c => c.time));
+  const markers = trades.slice(-20).map(t => {
+    const bucket = Math.floor(t.ts / 60) * 60;
+    const time = times.has(bucket) ? bucket : lastCandles[0]?.time;
+    if (!time) return null;
+    const buy = t.side === "buy";
+    return {
+      time,
+      position: buy ? "belowBar" : "aboveBar",
+      color: buy ? "#00e5a8" : "#ff5c7a",
+      shape: buy ? "arrowUp" : "arrowDown",
+      text: buy ? "B" : "S",
+    };
+  }).filter(Boolean);
+  candleSeries.setMarkers(markers);
 }
 
 function mergeMarket(sym, patch) {
@@ -431,9 +495,8 @@ function connectWs() {
       if (msg.type === "init") applyWsInit(msg);
       if (msg.type === "brain_update" && msg.cycle) {
         renderBrain(msg.cycle);
-        if (msg.cycle.summary) {
-          chatHistory.push({ role: "assistant", content: msg.cycle.summary });
-          renderChat();
+        if (msg.cycle.verdict) {
+          pushActivity(`Мозг: ${msg.cycle.verdict.slice(0, 80)}`);
         }
       }
       if (msg.type === "tick" && msg.symbol) {
@@ -452,12 +515,15 @@ function connectWs() {
       }
       if (msg.type === "strategy_update") {
         showToast(`🔧 ${msg.label || labelFor(msg.symbol)}: ${msg.reason || "автонастройка"}`);
+        pushActivity(`🔧 ${msg.label}: ${(msg.reason || "").slice(0, 60)}`);
         if (msg.symbol) mergeMarket(msg.symbol, { strategy: { params: msg.params, enabled: true } });
         if (msg.symbol === activeSymbol) renderBotStatus(marketsData[msg.symbol]);
+        loadLearning();
       }
       if (msg.type === "trade" && msg.trade) {
         const icon = msg.trade.side === "sell" ? "💵" : "💰";
         showToast(`${icon} ${msg.label || labelFor(msg.symbol)}: ${msg.trade.reason}`);
+        pushActivity(`${msg.label || labelFor(msg.symbol)} ${msg.trade.side.toUpperCase()}: ${msg.trade.reason}`);
       }
       if (msg.type === "trade") {
         renderAllTrades();
@@ -508,7 +574,13 @@ function applyBootstrap(data) {
   if (data.trades?.length) renderTradesList(data.trades);
   else renderAllTrades();
   if (data.equity) renderEquityCurve(data.equity);
-  if (data.learning) renderLearningPanel(data.learning, data.brain_history);
+  if (data.learning) renderLearningPanel(data.learning, data.brain_history, data.analytics);
+  if (data.analytics) lastAnalytics = data.analytics;
+  if (data.strategy_history?.length) {
+    data.strategy_history.slice(0, 3).forEach(h => {
+      pushActivity(`🔧 ${h.symbol?.replace("USDT", "")}: ${(h.reason || "").slice(0, 50)}`);
+    });
+  }
   setLiveStatus(true);
   return Object.keys(marketsData).length > 0;
 }
@@ -624,10 +696,47 @@ function bindUi() {
   };
 
   document.getElementById("btn-reset").onclick = async () => {
-    if (!confirm(`Сбросить все ${marketMeta.length} счётов?`)) return;
+    if (!confirm(`Сбросить портфели ${marketMeta.length} рынков? (сделки в БД останутся)`)) return;
     await fetch("/api/reset", { method: "POST" });
     location.reload();
   };
+
+  document.getElementById("btn-reset-full")?.addEventListener("click", async () => {
+    if (!confirm("ПОЛНЫЙ сброс: портфели + все сделки и история в SQLite. Продолжить?")) return;
+    await fetch("/api/reset?full=true", { method: "POST" });
+    location.reload();
+  });
+
+  document.getElementById("btn-export")?.addEventListener("click", async () => {
+    try {
+      const data = await (await fetch("/api/export/trades")).json();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `tradesim-trades-v${data.version || 9}.json`;
+      a.click();
+      showToast(`Экспорт: ${data.count || 0} сделок`);
+    } catch (_) {
+      showToast("Ошибка экспорта");
+    }
+  });
+
+  document.querySelectorAll(".manual-btn").forEach(btn => {
+    btn.onclick = async () => {
+      const side = btn.dataset.side;
+      const res = await fetch("/api/trade", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol: activeSymbol, side, amount_usd: 25 }),
+      });
+      const data = await res.json();
+      if (data.error) showToast("⚠ " + data.error);
+      else {
+        showToast(`${side === "buy" ? "💰" : "💵"} Ручная ${side} на ${labelFor(activeSymbol)}`);
+        await refreshStatus();
+      }
+    };
+  });
 
   document.getElementById("agent-modal-close")?.addEventListener("click", () => {
     document.getElementById("agent-modal")?.classList.add("hidden");
@@ -639,12 +748,14 @@ function bindUi() {
 
 async function loadLearning() {
   try {
-    const [sum, eq, bh] = await Promise.all([
+    const [sum, eq, bh, an] = await Promise.all([
       fetch("/api/learning/summary").then(r => r.json()),
       fetch("/api/learning/equity").then(r => r.json()),
       fetch("/api/brain/history").then(r => r.json()),
+      fetch("/api/analytics").then(r => r.json()),
     ]);
-    renderLearningPanel(sum, bh.history);
+    lastAnalytics = an;
+    renderLearningPanel(sum, bh.history, an);
     if (eq.curve) renderEquityCurve(eq.curve);
   } catch (_) {}
 }

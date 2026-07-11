@@ -14,11 +14,14 @@ Each market gets ~$1,667 virtual balance.
 ## Features
 
 - **Live data** — Binance / Bybit / CoinGecko fallback (no API key)
-- **6 parallel bots** — DCA + DIP + SPIKE + **TAKE-PROFIT** (partial sells on rallies)
-- **Persistence** — portfolio, trades, bot params survive server restart (SQLite)
-- **Central brain** — 8 agents with decision history
-- **Learning dashboard** — equity curve, per-market stats, auto-tuning log
-- **Chat assistant** — Russian Q&A
+- **6 parallel bots** — DCA + DIP + SPIKE + **TAKE-PROFIT** + **STOP-LOSS** (cost-basis exits)
+- **Persistence** — portfolio, trades, bot params survive server restart (SQLite WAL)
+- **Central brain** — 11 agents with emergency halt and decision history
+- **Analytics** — drawdown, Sharpe proxy, win rate, per-market breakdown
+- **Manual paper trades** — buy/sell $25 from UI
+- **Export** — JSON download of all trades; full DB reset option
+- **Learning dashboard** — equity curve, activity feed, auto-tuning log
+- **Chat assistant** — Russian Q&A (11 agents, analytics, stop-loss)
 
 ## Quick start
 

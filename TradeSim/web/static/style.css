@@ -86,7 +86,7 @@ header {
 
 .grid {
   display: grid;
-  grid-template-columns: 1fr 360px;
+  grid-template-columns: 1fr 380px;
   gap: 1.1rem;
   padding: 1.1rem 1.75rem;
   max-width: 1480px;
@@ -215,7 +215,31 @@ footer {
   border-top: 1px solid var(--border);
   color: var(--muted);
   font-size: 0.78rem;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
+.footer-actions { display: flex; gap: 0.45rem; flex-wrap: wrap; }
+
+.manual-trade {
+  margin-top: 0.75rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.78rem;
+}
+.manual-row { display: flex; gap: 0.45rem; margin-top: 0.45rem; }
+.manual-btn { flex: 1; }
+
+.activity-feed {
+  list-style: none;
+  margin-top: 0.65rem;
+  max-height: 100px;
+  overflow-y: auto;
+  font-size: 0.72rem;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  padding-top: 0.5rem;
+}
+.activity-feed li { padding: 0.2rem 0; }
 
 .positive { color: var(--green) !important; }
 .negative { color: var(--red) !important; }
@@ -425,7 +449,9 @@ footer {
 .agents-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.45rem;
+  gap: 0.4rem;
+  max-height: 280px;
+  overflow-y: auto;
 }
 .tab.volatile-tab span::after { content: " ⚡"; font-size: 0.7em; color: var(--accent2); }
 

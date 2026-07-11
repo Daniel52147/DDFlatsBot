@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TradeSim v8 — 8 помощников</title>
-  <link rel="stylesheet" href="/static/style.css?v=8" />
+  <title>TradeSim v9 — полная лаборатория</title>
+  <link rel="stylesheet" href="/static/style.css?v=9" />
   <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -13,7 +13,7 @@
       <span class="logo">⚡</span>
       <div>
         <h1>TradeSim</h1>
-        <p class="tagline">8 AI-помощников · 6 рынков BTC–PEPE · Paper trading · Живые котировки</p>
+        <p class="tagline">11 AI-помощников · Stop-loss · Аналитика · 6 рынков · Paper trading</p>
       </div>
     </div>
     <div class="header-stats">
@@ -68,26 +68,37 @@
           <div class="agent" id="agent-trend"><span>📈</span><b>Тренд</b><small>SMA · направление</small></div>
           <div class="agent" id="agent-profit"><span>💰</span><b>Коуч прибыли</b><small>Take-profit</small></div>
           <div class="agent" id="agent-correlation"><span>🔗</span><b>Корреляция</b><small>Связи монет</small></div>
+          <div class="agent" id="agent-analyst"><span>📊</span><b>Аналитик</b><small>Метрики · win rate</small></div>
+          <div class="agent" id="agent-guardian"><span>🛑</span><b>Стоп-охранник</b><small>Stop-loss</small></div>
+          <div class="agent" id="agent-allocator"><span>⚖️</span><b>Аллокатор</b><small>Капитал</small></div>
         </div>
       </section>
 
       <section class="card learning-card">
-        <div class="card-header"><h2>🎓 Обучение</h2></div>
+        <div class="card-header"><h2>🎓 Обучение и аналитика</h2></div>
         <div id="learning-panel" class="learning-panel">Загрузка статистики...</div>
+        <ul id="activity-feed" class="activity-feed"></ul>
       </section>
 
       <section class="card">
         <div class="card-header">
-          <h2>🤖 Бот DCA + DIP + TP</h2>
+          <h2>🤖 Бот DCA + DIP + SL + TP</h2>
           <button id="btn-toggle" class="btn small">Пауза</button>
         </div>
         <div id="bot-status" class="bot-status"><p>Загрузка...</p></div>
+        <div class="manual-trade">
+          <span class="muted">Ручная сделка (paper):</span>
+          <div class="manual-row">
+            <button type="button" class="btn small manual-btn" data-side="buy">Купить $25</button>
+            <button type="button" class="btn ghost small manual-btn" data-side="sell">Продать $25</button>
+          </div>
+        </div>
       </section>
 
       <section class="card assistant-card">
         <div class="card-header"><h2>💬 Помощник</h2></div>
         <div id="chat-messages" class="chat-messages">
-          <div class="chat-bubble chat-bot">Привет! 8 помощников на связи. Спроси: <b>как дела?</b> · <b>тренд</b> · <b>коуч прибыли</b> · <b>корреляция</b> · <b>что думает мозг?</b></div>
+          <div class="chat-bubble chat-bot">11 помощников на связи. Спроси: <b>как дела?</b> · <b>аналитика</b> · <b>стоп</b> · <b>аллокация</b> · <b>что думает мозг?</b></div>
         </div>
         <form id="chat-form" class="chat-form">
           <input id="chat-input" type="text" placeholder="тренд / корреляция / что с DOGE?" autocomplete="off" />
@@ -105,8 +116,12 @@
   </main>
 
   <footer>
-    <span>Данные: Binance · Ctrl+F5 если пусто</span>
-    <button id="btn-reset" class="btn ghost small">Сбросить всё</button>
+    <span>Данные: Binance · v9 · Ctrl+Shift+R после обновления</span>
+    <div class="footer-actions">
+      <button id="btn-export" class="btn ghost small">Экспорт сделок</button>
+      <button id="btn-reset" class="btn ghost small">Сброс портфеля</button>
+      <button id="btn-reset-full" class="btn ghost small">Полный сброс БД</button>
+    </div>
   </footer>
 
   <div id="toast" class="toast hidden"></div>
@@ -118,6 +133,6 @@
   </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=13"></script>
+  <script src="/static/app.js?v=14"></script>
 </body>
 </html>

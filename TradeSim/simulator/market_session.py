@@ -55,10 +55,14 @@ class MarketSession:
             start_balance=saved["start_balance"],
             start_ts=saved["start_ts"],
             trades=saved.get("trades"),
+            cost_basis=saved.get("cost_basis", 0),
         )
         self.bot.update_params(saved["bot_params"])
         self.bot.last_dca_ts = saved.get("last_dca_ts", 0)
         self.bot.last_take_profit_ts = saved.get("last_take_profit_ts", 0)
+        self.bot.last_dip_ts = saved.get("last_dip_ts", 0)
+        self.bot.last_spike_ts = saved.get("last_spike_ts", 0)
+        self.bot.last_stop_loss_ts = saved.get("last_stop_loss_ts", 0)
         self.bot.enabled = saved.get("bot_enabled", True)
         self.optimizer = StrategyOptimizer(
             self.bot.get_params(),
@@ -78,12 +82,16 @@ class MarketSession:
         await self.learning_logger.save_session(self.symbol, {
             "quote": self.engine.position.quote,
             "base": self.engine.position.base,
+            "cost_basis": self.engine.position.cost_basis,
             "trade_counter": len(self.engine.trades),
             "start_balance": self.engine.start_balance,
             "start_ts": self.engine.start_ts,
             "bot_params": self.bot.get_params(),
             "last_dca_ts": self.bot.last_dca_ts,
             "last_take_profit_ts": self.bot.last_take_profit_ts,
+            "last_dip_ts": self.bot.last_dip_ts,
+            "last_spike_ts": self.bot.last_spike_ts,
+            "last_stop_loss_ts": self.bot.last_stop_loss_ts,
             "bot_enabled": self.bot.enabled,
             "trades": self.engine.export_trades(),
         })
@@ -263,14 +271,20 @@ class MarketSession:
             "trade_stats": self._trade_stats(),
             "recent_trades": recent,
             "feed_source": self.feed.source,
+            "avg_entry": self.engine.avg_entry_price(),
+            "bot_enabled": self.bot.enabled,
         }
 
     def _trade_stats(self) -> dict[str, int]:
-        stats = {"dca": 0, "dip": 0, "spike": 0, "tp": 0, "buy": 0, "sell": 0}
+        stats = {"dca": 0, "dip": 0, "spike": 0, "tp": 0, "stop": 0, "manual": 0, "buy": 0, "sell": 0}
         for t in self.engine.trades:
             stats["buy" if t.side == "buy" else "sell"] += 1
             r = t.reason.upper()
-            if "SPIKE" in r:
+            if "STOP" in r:
+                stats["stop"] += 1
+            elif "MANUAL" in r:
+                stats["manual"] += 1
+            elif "SPIKE" in r:
                 stats["spike"] += 1
             elif "DIP" in r:
                 stats["dip"] += 1
@@ -279,6 +293,27 @@ class MarketSession:
             elif "TAKE-PROFIT" in r:
                 stats["tp"] += 1
         return stats
+
+    async def manual_trade(self, side: str, amount_quote: float, reason: str = "MANUAL") -> dict | None:
+        price = self.feed.price or self.demo_price
+        if price <= 0:
+            return None
+        if side == "buy":
+            trade = self.engine.buy(price, amount_quote, reason=f"MANUAL: {reason}")
+        elif side == "sell":
+            base = amount_quote / price
+            trade = self.engine.sell(price, base, reason=f"MANUAL: {reason}")
+        else:
+            return None
+        if trade:
+            await self._log_trade(trade)
+        return {
+            "side": trade.side,
+            "price": trade.price,
+            "amount_quote": trade.amount_quote,
+            "reason": trade.reason,
+            "ts": trade.ts,
+        } if trade else None
 
     @staticmethod
     def _volatility_pct(candles: list) -> float:

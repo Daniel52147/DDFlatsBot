@@ -22,6 +22,10 @@ class LearningLogger:
       "ALTER TABLE trades ADD COLUMN symbol TEXT DEFAULT ''",
       "ALTER TABLE snapshots ADD COLUMN symbol TEXT DEFAULT ''",
       "ALTER TABLE strategy_versions ADD COLUMN symbol TEXT DEFAULT ''",
+      "ALTER TABLE sessions ADD COLUMN cost_basis REAL DEFAULT 0",
+      "ALTER TABLE sessions ADD COLUMN last_dip_ts REAL DEFAULT 0",
+      "ALTER TABLE sessions ADD COLUMN last_spike_ts REAL DEFAULT 0",
+      "ALTER TABLE sessions ADD COLUMN last_stop_loss_ts REAL DEFAULT 0",
     ):
       try:
         await db.execute(stmt)
@@ -30,6 +34,7 @@ class LearningLogger:
 
   async def init(self):
     async with aiosqlite.connect(self.db_path) as db:
+      await db.execute("PRAGMA journal_mode=WAL")
       await db.execute("""
         CREATE TABLE IF NOT EXISTS trades (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -182,14 +187,17 @@ class LearningLogger:
       await db.execute(
         """INSERT INTO sessions
            (symbol, quote, base, trade_counter, start_balance, start_ts,
-            bot_params, last_dca_ts, last_take_profit_ts, bot_enabled, trades_json, updated_ts)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            bot_params, last_dca_ts, last_take_profit_ts, bot_enabled, trades_json, updated_ts,
+            cost_basis, last_dip_ts, last_spike_ts, last_stop_loss_ts)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(symbol) DO UPDATE SET
              quote=excluded.quote, base=excluded.base, trade_counter=excluded.trade_counter,
              start_balance=excluded.start_balance, start_ts=excluded.start_ts,
              bot_params=excluded.bot_params, last_dca_ts=excluded.last_dca_ts,
              last_take_profit_ts=excluded.last_take_profit_ts, bot_enabled=excluded.bot_enabled,
-             trades_json=excluded.trades_json, updated_ts=excluded.updated_ts""",
+             trades_json=excluded.trades_json, updated_ts=excluded.updated_ts,
+             cost_basis=excluded.cost_basis, last_dip_ts=excluded.last_dip_ts,
+             last_spike_ts=excluded.last_spike_ts, last_stop_loss_ts=excluded.last_stop_loss_ts""",
         (
           symbol, data["quote"], data["base"], data["trade_counter"],
           data["start_balance"], data["start_ts"],
@@ -197,6 +205,10 @@ class LearningLogger:
           1 if data["bot_enabled"] else 0,
           json.dumps(data.get("trades", [])),
           time.time(),
+          data.get("cost_basis", 0),
+          data.get("last_dip_ts", 0),
+          data.get("last_spike_ts", 0),
+          data.get("last_stop_loss_ts", 0),
         ),
       )
       await db.commit()
@@ -218,6 +230,41 @@ class LearningLogger:
     async with aiosqlite.connect(self.db_path) as db:
       await db.execute("DELETE FROM sessions")
       await db.commit()
+
+  async def full_reset(self):
+    async with aiosqlite.connect(self.db_path) as db:
+      for table in (
+        "trades", "snapshots", "strategy_versions", "assistant_messages",
+        "sessions", "total_snapshots", "brain_cycles",
+      ):
+        await db.execute(f"DELETE FROM {table}")
+      await db.commit()
+
+  async def strategy_history(self, symbol: str | None = None, limit: int = 15) -> list[dict[str, Any]]:
+    async with aiosqlite.connect(self.db_path) as db:
+      db.row_factory = aiosqlite.Row
+      if symbol:
+        cur = await db.execute(
+          """SELECT ts, symbol, params, reason, avg_pnl_pct
+             FROM strategy_versions WHERE symbol = ? ORDER BY ts DESC LIMIT ?""",
+          (symbol, limit),
+        )
+      else:
+        cur = await db.execute(
+          """SELECT ts, symbol, params, reason, avg_pnl_pct
+             FROM strategy_versions ORDER BY ts DESC LIMIT ?""",
+          (limit,),
+        )
+      rows = await cur.fetchall()
+    out = []
+    for r in rows:
+      d = dict(r)
+      try:
+        d["params"] = json.loads(d.get("params") or "{}")
+      except json.JSONDecodeError:
+        d["params"] = {}
+      out.append(d)
+    return out
 
   async def log_total_snapshot(self, total_value: float, pnl_pct: float):
     async with aiosqlite.connect(self.db_path) as db:

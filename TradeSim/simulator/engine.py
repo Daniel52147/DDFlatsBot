@@ -13,6 +13,7 @@ import config
 class Position:
     quote: float = config.INITIAL_BALANCE
     base: float = 0.0
+    cost_basis: float = 0.0
 
     def total_value(self, price: float) -> float:
         return self.quote + self.base * price
@@ -57,6 +58,7 @@ class SimulatorEngine:
         base_got = net / fill
         self.position.quote -= amount_quote
         self.position.base += base_got
+        self.position.cost_basis += amount_quote
         self._trade_counter += 1
         trade = Trade(
             id=self._trade_counter,
@@ -81,6 +83,9 @@ class SimulatorEngine:
         gross = amount_base * fill
         fee = gross * config.FEE_RATE
         net = gross - fee
+        if self.position.base > 0:
+            sold_frac = amount_base / (self.position.base + amount_base)
+            self.position.cost_basis *= max(0, 1 - sold_frac)
         self.position.base -= amount_base
         self.position.quote += net
         self._trade_counter += 1
@@ -100,12 +105,18 @@ class SimulatorEngine:
         self.trades.append(trade)
         return trade
 
+    def avg_entry_price(self) -> float | None:
+        if self.position.base <= 0 or self.position.cost_basis <= 0:
+            return None
+        return self.position.cost_basis / self.position.base
+
     def snapshot(self, price: float) -> dict[str, Any]:
         pv = self.position.total_value(price)
         pnl = pv - self.start_balance
         pnl_pct = (pnl / self.start_balance * 100) if self.start_balance else 0
         hold_value = self.start_balance / price if price else 0
         hold_pnl_pct = ((price * hold_value - self.start_balance) / self.start_balance * 100) if self.start_balance else 0
+        avg = self.avg_entry_price()
         return {
             "quote": round(self.position.quote, 2),
             "base": round(self.position.base, 8),
@@ -116,11 +127,13 @@ class SimulatorEngine:
             "vs_hold_pct": round(pnl_pct - hold_pnl_pct, 2),
             "trade_count": len(self.trades),
             "start_balance": self.start_balance,
+            "avg_entry": round(avg, 8) if avg else None,
+            "cost_profit_pct": round((price - avg) / avg * 100, 2) if avg and price else None,
         }
 
     def reset(self, initial_balance: float | None = None):
         bal = initial_balance if initial_balance is not None else config.INITIAL_BALANCE
-        self.position = Position(quote=bal, base=0.0)
+        self.position = Position(quote=bal, base=0.0, cost_basis=0.0)
         self.trades.clear()
         self._trade_counter = 0
         self.start_balance = bal
@@ -134,8 +147,9 @@ class SimulatorEngine:
         start_balance: float,
         start_ts: float,
         trades: list[dict] | None = None,
+        cost_basis: float = 0.0,
     ):
-        self.position = Position(quote=quote, base=base)
+        self.position = Position(quote=quote, base=base, cost_basis=cost_basis or 0.0)
         self.start_balance = start_balance
         self.start_ts = start_ts
         self._trade_counter = trade_counter

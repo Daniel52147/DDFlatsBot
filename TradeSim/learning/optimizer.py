@@ -21,6 +21,10 @@ class StrategyOptimizer:
     "take_profit_fraction": (0.08, 0.40),
     "take_profit_cooldown_hours": (1.0, 12.0),
     "dca_interval_hours": (4, 48),
+    "dip_cooldown_minutes": (10, 120),
+    "spike_cooldown_minutes": (15, 180),
+    "stop_loss_pct": (6.0, 20.0),
+    "stop_loss_fraction": (0.10, 0.40),
   }
 
   BOUNDS_VOLATILE = {
@@ -34,6 +38,10 @@ class StrategyOptimizer:
     "take_profit_fraction": (0.10, 0.45),
     "take_profit_cooldown_hours": (0.5, 6.0),
     "dca_interval_hours": (2, 24),
+    "dip_cooldown_minutes": (5, 60),
+    "spike_cooldown_minutes": (10, 90),
+    "stop_loss_pct": (8.0, 25.0),
+    "stop_loss_fraction": (0.10, 0.45),
   }
 
   def __init__(self, params: dict | None = None, bounds: dict | None = None, volatile: bool = False):

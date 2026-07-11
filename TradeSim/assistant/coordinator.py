@@ -6,6 +6,9 @@ import time
 from typing import Any
 
 from assistant.correlation_analyst import CorrelationAnalystAgent
+from assistant.performance_analyst import PerformanceAnalystAgent
+from assistant.portfolio_allocator import PortfolioAllocatorAgent
+from assistant.stop_guardian import StopGuardianAgent
 from assistant.news_watcher import NewsWatcherAgent
 from assistant.profit_coach import ProfitCoachAgent
 from assistant.risk_manager import RiskManagerAgent
@@ -27,6 +30,9 @@ class CentralBrain:
       📈 Тренд-разведчик — SMA и направление рынка
       💰 Коуч прибыли — take-profit и фиксация
       🔗 Корреляция — связи между монетами
+      📊 Аналитик — метрики и win rate
+      🛑 Стоп-охранник — stop-loss и паузы
+      ⚖️ Аллокатор — распределение капитала
     """
 
     def __init__(self):
@@ -38,6 +44,9 @@ class CentralBrain:
         self.trend = TrendScoutAgent()
         self.profit = ProfitCoachAgent()
         self.correlation = CorrelationAnalystAgent()
+        self.analyst = PerformanceAnalystAgent()
+        self.guardian = StopGuardianAgent()
+        self.allocator = PortfolioAllocatorAgent()
         self.talker = TradingAssistant()
         self.last_cycle: dict[str, Any] = {}
         self.last_cycle_ts = 0.0
@@ -53,6 +62,9 @@ class CentralBrain:
         trend = self.trend.analyze(contexts, total)
         profit = self.profit.analyze(contexts, total)
         correlation = self.correlation.analyze(contexts, total)
+        analyst = self.analyst.analyze(contexts, total)
+        guardian = self.guardian.analyze(contexts, total)
+        allocator = self.allocator.analyze(contexts, total)
 
         votes = {
             "continue": 0.0,
@@ -63,14 +75,20 @@ class CentralBrain:
             "experiment": 0.0,
             "collect_data": 0.0,
         }
-        reports = (mentor, news, schemer, volatility, risk, trend, profit, correlation)
+        reports = (
+            mentor, news, schemer, volatility, risk, trend, profit, correlation,
+            analyst, guardian, allocator,
+        )
         for report in reports:
             rec = report.get("recommendation", "hold")
             if rec == "observe":
                 rec = "hold"
             votes[rec] = votes.get(rec, 0) + report.get("confidence", 0.5)
 
-        if votes.get("pause_dip", 0) >= 1.2 and votes.get("reduce_aggression", 0) >= 0.5:
+        if guardian.get("halts") and len(guardian["halts"]) >= 2:
+            decision = "emergency_halt"
+            verdict = f"🛑 СТОП: {guardian['halts'][0]} — пауза просадочных ботов."
+        elif votes.get("pause_dip", 0) >= 1.2 and votes.get("reduce_aggression", 0) >= 0.5:
             decision = "pause_dip"
             verdict = "⚠️ ОСТОРОЖНО: новости + риск — не усиливать покупки на просадке."
         elif votes.get("reduce_aggression", 0) >= 1.0:
@@ -90,7 +108,8 @@ class CentralBrain:
             verdict = "⏸ Держим курс — ждём больше сигналов."
 
         brain_summary = self._format_brain_report(
-            mentor, news, schemer, volatility, risk, trend, profit, correlation, verdict,
+            mentor, news, schemer, volatility, risk, trend, profit, correlation,
+            analyst, guardian, allocator, verdict,
         )
 
         cycle = {
@@ -105,6 +124,9 @@ class CentralBrain:
             "trend": trend,
             "profit": profit,
             "correlation": correlation,
+            "analyst": analyst,
+            "guardian": guardian,
+            "allocator": allocator,
             "votes": votes,
             "summary": brain_summary,
         }
@@ -113,7 +135,8 @@ class CentralBrain:
         return cycle
 
     def _format_brain_report(
-        self, mentor, news, schemer, volatility, risk, trend, profit, correlation, verdict: str,
+        self, mentor, news, schemer, volatility, risk, trend, profit, correlation,
+        analyst, guardian, allocator, verdict: str,
     ) -> str:
         lines = [
             "🧠 ЦЕНТРАЛЬНЫЙ МОЗГ",
@@ -146,6 +169,15 @@ class CentralBrain:
             "",
             f"{correlation['emoji']} {correlation['name']}: {correlation['summary']}",
             f"   → {correlation['action_for_brain']}",
+            "",
+            f"{analyst['emoji']} {analyst['name']}: {analyst['summary']}",
+            f"   → {analyst['action_for_brain']}",
+            "",
+            f"{guardian['emoji']} {guardian['name']}: {guardian['summary']}",
+            f"   → {guardian['action_for_brain']}",
+            "",
+            f"{allocator['emoji']} {allocator['name']}: {allocator['summary']}",
+            f"   → {allocator['action_for_brain']}",
         ]
         for item in schemer.get("learned", [])[:2]:
             lines.append(f"   • {item}")
@@ -167,6 +199,12 @@ class CentralBrain:
             elif decision == "reduce_aggression":
                 p["dca_amount"] = p.get("dca_amount", 25) * 0.85
                 p["dip_extra_amount"] = p.get("dip_extra_amount", 0) * 0.85
+            elif decision == "emergency_halt":
+                pnl = session.engine.snapshot(session.feed.price or session.demo_price).get("pnl_pct", 0)
+                if pnl <= -8:
+                    session.bot.enabled = False
+                p["dip_extra_amount"] = p.get("dip_extra_amount", 0) * 0.3
+                p["dca_amount"] = p.get("dca_amount", 25) * 0.7
             elif decision == "experiment" and session.volatile:
                 p["dip_threshold_pct"] = max(3.0, p.get("dip_threshold_pct", 5) - 0.5)
             elif decision in ("continue", "hold", "collect_data"):
@@ -314,6 +352,35 @@ class CentralBrain:
                     lines.append(f"🏆 {item}")
                 return "\n".join(lines) if len(lines) > 1 else c["summary"]
             return "Аналитик корреляции сравнит движения монет через минуту."
+
+        if any(w in msg for w in ("аналит", "метрик", "статистик", "win rate")):
+            a = self.last_cycle.get("analyst") if self.last_cycle else None
+            if a:
+                lines = [f"📊 {a['summary']}", ""]
+                for h in a.get("highlights", [])[:5]:
+                    lines.append(f"• {h}")
+                return "\n".join(lines) if len(lines) > 1 else a["summary"]
+            return "Аналитик собирает метрики по сделкам."
+
+        if any(w in msg for w in ("стоп", "stop", "охранник", "halt")):
+            g = self.last_cycle.get("guardian") if self.last_cycle else None
+            if g:
+                lines = [f"🛑 {g['summary']}", ""]
+                for h in g.get("halts", []):
+                    lines.append(f"🚨 {h}")
+                for a in g.get("alerts", [])[:4]:
+                    lines.append(f"⚠️ {a}")
+                return "\n".join(lines) if len(lines) > 1 else g["summary"]
+            return "Стоп-охранник следит за просадками и stop-loss."
+
+        if any(w in msg for w in ("аллок", "распредел", "баланс", "allocator")):
+            al = self.last_cycle.get("allocator") if self.last_cycle else None
+            if al:
+                lines = [f"⚖️ {al['summary']}", ""]
+                for s in al.get("suggestions", [])[:4]:
+                    lines.append(f"• {s}")
+                return "\n".join(lines) if len(lines) > 1 else al["summary"]
+            return "Аллокатор проверит распределение по рынкам."
 
         base = self.talker.chat(user_msg, contexts, total)
         if self.last_cycle:
