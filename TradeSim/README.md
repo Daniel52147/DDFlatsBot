@@ -1,15 +1,24 @@
 # TradeSim
 
-**Paper trading** simulator: real BTC/USDT prices from Binance, virtual $10,000 wallet.
+**Paper trading** simulator: 6 crypto markets, virtual $10,000, live prices, self-learning bots.
 
-## What it does
+## Markets
 
-- **Live market data** — WebSocket + REST fallback from Binance (no API key)
-- **Virtual wallet** — fees 0.1%, slippage 0.05%
-- **One niche bot** — DCA every 24h + extra buy when price dips below SMA
-- **Candlestick chart** — real-time 1m candles + SMA-20
-- **Learning** — logs trades, snapshots; auto-tunes dip threshold vs buy-and-hold
-- **Assistant** — explains candles, bot actions, learning tips (Russian)
+| Pair | Type | Strategy |
+|------|------|----------|
+| BTC, ETH, SOL, BNB | Majors | DCA $25 / 24h + DIP below SMA |
+| DOGE, PEPE | Volatile | Smaller DCA, shorter interval, SPIKE buys on deep dips |
+
+Each market gets ~$1,667 virtual balance.
+
+## Features
+
+- **Live data** — Binance / Bybit / CoinGecko fallback (no API key)
+- **6 parallel bots** — DCA + DIP + SPIKE (memecoins)
+- **Central brain** — 5 agents: Наставник, Новостник, Исследователь, Волатильность, Риск
+- **Learning** — SQLite logs trades, snapshots, auto-tuning
+- **Chat assistant** — Russian Q&A (`помощь`, `как дела?`, `что с DOGE?`)
+- **Web UI** — candlestick chart, portfolio grid, agent details
 
 ## Quick start
 
@@ -21,31 +30,35 @@ python main.py
 
 Open http://localhost:8765
 
-### Windows SSL error (`CERTIFICATE_VERIFY_FAILED`)
+### Windows
 
-If APIs fail on Windows Python 3.13:
+```powershell
+cd TradeSim
+python -m pip install -r requirements.txt
+python main.py
+```
+
+Or double-click `start.bat` (git pull + launch).
+
+### SSL error (`CERTIFICATE_VERIFY_FAILED`)
 
 ```powershell
 python -m pip install certifi
 python main.py
 ```
 
-Or enable local workaround (paper trading only):
+Or: `$env:TRADESIM_INSECURE_SSL="1"`
 
-```powershell
-$env:TRADESIM_INSECURE_SSL="1"
-python main.py
-```
+## API
 
-The app also auto-retries without SSL verify after the first SSL failure.
-
-## Monetization path (later)
-
-- Subscription for alerts + paper accounts
-- Premium strategy packs
-- REST API access
-- Telegram bot integration (same stack as your other bots)
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/bootstrap` | Full UI payload |
+| `GET /api/ping` | Version + markets |
+| `GET /api/brain` | Central brain cycle |
+| `POST /api/assistant/chat` | Chat |
+| `GET /api/learning/summary` | DB learning stats |
 
 ## Stack
 
-Python · FastAPI · SQLite · Lightweight Charts · Binance public API
+Python · FastAPI · SQLite · Lightweight Charts · Multi-source crypto feeds

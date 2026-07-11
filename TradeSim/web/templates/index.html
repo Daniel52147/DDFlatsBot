@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TradeSim — 6 рынков</title>
-  <link rel="stylesheet" href="/static/style.css?v=4" />
+  <link rel="stylesheet" href="/static/style.css?v=5" />
   <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -33,15 +33,14 @@
     </div>
   </header>
 
-  <nav class="market-tabs" id="market-tabs">
-    <button class="tab active" disabled>Загрузка рынков...</button>
-  </nav>
+  <nav class="market-tabs" id="market-tabs"></nav>
+  <div class="portfolio-grid" id="portfolio-grid"></div>
 
   <main class="grid">
     <section class="card chart-card">
       <div class="card-header">
         <h2 id="chart-title">BTC/USDT — свечи</h2>
-        <div class="chart-legend"><span class="legend sma">SMA-20</span></div>
+        <div class="chart-legend"><span class="legend sma" id="sma-legend">SMA</span></div>
       </div>
       <div id="chart-wrap">
         <p id="chart-fallback" class="chart-loading">Загрузка графика...</p>
@@ -95,8 +94,15 @@
     <button id="btn-reset" class="btn ghost small">Сбросить всё</button>
   </footer>
 
-  <div id="js-error" class="js-error" style="display:none"></div>
+  <div id="toast" class="toast hidden"></div>
+  <div id="agent-modal" class="agent-modal hidden">
+    <div class="agent-modal-inner">
+      <button type="button" id="agent-modal-close" class="btn ghost small">✕</button>
+      <div id="agent-modal-body"></div>
+    </div>
+  </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
-  <script src="/static/app.js?v=9"></script>
+  <div id="js-error" class="js-error" style="display:none"></div>
+  <script src="/static/app.js?v=10"></script>
 </body>
 </html>

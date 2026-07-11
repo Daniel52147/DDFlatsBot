@@ -12,9 +12,9 @@ class StrategyOptimizer:
   """Tunes only params in the configured niche — no cross-market learning."""
 
   BOUNDS = {
-    "dca_amount": (50.0, 300.0),
-    "dip_threshold_pct": (1.0, 8.0),
-    "dip_extra_amount": (50.0, 400.0),
+    "dca_amount": (10.0, 80.0),
+    "dip_threshold_pct": (1.0, 10.0),
+    "dip_extra_amount": (15.0, 80.0),
     "sma_period": (10, 50),
   }
 
@@ -23,6 +23,8 @@ class StrategyOptimizer:
     "dip_threshold_pct": (3.0, 15.0),
     "dip_extra_amount": (10.0, 60.0),
     "sma_period": (8, 30),
+    "spike_threshold_pct": (5.0, 20.0),
+    "spike_extra_amount": (10.0, 80.0),
   }
 
   def __init__(self, params: dict | None = None, bounds: dict | None = None):
@@ -37,7 +39,6 @@ class StrategyOptimizer:
       return False
     if vs_hold_pct is None:
       return False
-    # Tune when underperforming buy-and-hold
     return vs_hold_pct < -0.5
 
   def tune(self, vs_hold_pct: float, trade_count: int) -> tuple[dict, str]:
@@ -45,35 +46,33 @@ class StrategyOptimizer:
     reason_parts = []
 
     if vs_hold_pct < 0:
-      # Losing vs hold: buy dips more aggressively, smaller DCA chunks
       old_dip = p["dip_threshold_pct"]
-      p["dip_threshold_pct"] = max(
-        self.bounds["dip_threshold_pct"][0],
-        old_dip - 0.5,
-      )
+      p["dip_threshold_pct"] = max(self.bounds["dip_threshold_pct"][0], old_dip - 0.5)
       reason_parts.append(f"порог DIP {old_dip}% → {p['dip_threshold_pct']}%")
 
       old_dca = p["dca_amount"]
-      p["dca_amount"] = max(self.bounds["dca_amount"][0], old_dca - 10)
+      step = 5.0 if self.bounds["dca_amount"][1] <= 40 else 10.0
+      p["dca_amount"] = max(self.bounds["dca_amount"][0], old_dca - step)
       reason_parts.append(f"DCA ${old_dca} → ${p['dca_amount']}")
     else:
-      # Beating hold: slightly more conservative dips
       old_dip = p["dip_threshold_pct"]
-      p["dip_threshold_pct"] = min(
-        self.bounds["dip_threshold_pct"][1],
-        old_dip + 0.3,
-      )
+      p["dip_threshold_pct"] = min(self.bounds["dip_threshold_pct"][1], old_dip + 0.3)
       reason_parts.append(f"порог DIP {old_dip}% → {p['dip_threshold_pct']}% (осторожнее)")
 
-    self.params = p
-    reason = f"Автонастройка после {trade_count} сделок (vs hold {vs_hold_pct:+.2f}%): " + ", ".join(reason_parts)
-    return p, reason
+    self.apply_params(p)
+    reason = (
+      f"Автонастройка после {trade_count} сделок (vs hold {vs_hold_pct:+.2f}%): "
+      + ", ".join(reason_parts)
+    )
+    return self.get_params(), reason
 
-  def apply_params(self, params: dict):
+  def apply_params(self, params: dict) -> dict:
     for k, v in params.items():
-      if k in self.params:
-        lo, hi = self.bounds.get(k, (v, v))
-        if isinstance(v, int):
-          self.params[k] = int(max(lo, min(hi, v)))
-        else:
-          self.params[k] = max(lo, min(hi, float(v)))
+      if k not in self.params:
+        continue
+      lo, hi = self.bounds.get(k, (v, v))
+      if isinstance(v, int) or isinstance(self.params.get(k), int):
+        self.params[k] = int(max(lo, min(hi, int(v))))
+      else:
+        self.params[k] = max(lo, min(hi, float(v)))
+    return self.get_params()

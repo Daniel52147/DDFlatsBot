@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import time
 from typing import Any
 
 import config
+from learning.logger import LearningLogger
 from learning.optimizer import StrategyOptimizer
 from simulator.candles import CandleBuilder
 from simulator.engine import SimulatorEngine
@@ -27,10 +29,22 @@ class MarketSession:
         self.candles = CandleBuilder(interval=config.CANDLE_INTERVAL, max_candles=config.MAX_CANDLES)
         self.engine = SimulatorEngine(initial_balance=config.BALANCE_PER_MARKET)
         self.bot = StrategyBot(self.engine, params=market.get("strategy"))
+        self.base_params = copy.deepcopy(self.bot.get_params())
         bounds = StrategyOptimizer.BOUNDS_VOLATILE if self.volatile else StrategyOptimizer.BOUNDS
         self.optimizer = StrategyOptimizer(self.bot.get_params(), bounds=bounds)
+        self.learning_logger: LearningLogger | None = None
         self.last_tune_ts = 0.0
         self.last_snapshot_ts = 0.0
+
+    def set_params_bounded(self, updates: dict):
+        merged = {**self.bot.get_params(), **updates}
+        self.bot.update_params(self.optimizer.apply_params(merged))
+
+    async def _log_trade(self, trade):
+        if self.learning_logger:
+            await self.learning_logger.log_trade(
+                trade, self.bot.get_params(), symbol=self.symbol,
+            )
 
     async def startup(self):
         try:
@@ -50,16 +64,15 @@ class MarketSession:
             self.feed.price = history[-1]["close"]
             self.feed.last_update = time.time()
 
-        # Первая покупка сразу при старте — чтобы было видно, что бот живой
         price = self.feed.price
         if price > 0:
             sma = self.candles.sma(int(self.bot.params["sma_period"]))
             trade = self.bot.maybe_trade(price, sma)
             if trade:
                 logger.info("[%s] стартовая сделка: %s", self.symbol, trade.reason)
+                await self._log_trade(trade)
 
     async def on_tick(self, price: float, ts: float) -> list[dict[str, Any]]:
-        """Process tick; return list of WS messages to broadcast."""
         msgs: list[dict[str, Any]] = []
         closed = self.candles.add_tick(price, ts)
         sma_period = int(self.bot.params.get("sma_period", 20))
@@ -67,9 +80,11 @@ class MarketSession:
 
         trade = self.bot.maybe_trade(price, sma)
         if trade:
+            await self._log_trade(trade)
             msgs.append({
                 "type": "trade",
                 "symbol": self.symbol,
+                "label": self.label,
                 "trade": {
                     "side": trade.side,
                     "price": trade.price,
@@ -97,15 +112,24 @@ class MarketSession:
         now = time.time()
         if now - self.last_snapshot_ts >= 300:
             self.last_snapshot_ts = now
+            if self.learning_logger:
+                await self.learning_logger.log_snapshot(
+                    snap, self.bot.get_params(), symbol=self.symbol,
+                )
 
         if self.optimizer.should_tune(snap["trade_count"], snap.get("vs_hold_pct")):
             if now - self.last_tune_ts > config.LEARNING_CHECK_HOURS * 3600:
                 new_params, reason = self.optimizer.tune(snap["vs_hold_pct"], snap["trade_count"])
                 self.bot.update_params(new_params)
                 self.last_tune_ts = now
+                if self.learning_logger:
+                    await self.learning_logger.log_strategy_change(
+                        new_params, reason, snap["pnl_pct"], symbol=self.symbol,
+                    )
                 msgs.append({
                     "type": "strategy_update",
                     "symbol": self.symbol,
+                    "label": self.label,
                     "params": new_params,
                     "reason": reason,
                 })
@@ -123,6 +147,7 @@ class MarketSession:
             "portfolio": self.engine.snapshot(price),
             "strategy": self.bot.status(price, sma),
             "candles": self.candles.all_candles()[-100:],
+            "source": self.feed.source,
             "trades": [
                 {
                     "side": t.side,

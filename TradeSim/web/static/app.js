@@ -12,6 +12,7 @@ let marketMeta = [
 ];
 let startBalance = 10000;
 let chatHistory = [];
+let lastBrain = null;
 
 function showError(msg) {
   const el = document.getElementById("js-error");
@@ -34,10 +35,26 @@ function labelFor(sym) {
 }
 
 function priceDecimals(label) {
+  const m = marketMeta.find(x => x.label === label);
+  if (m?.price_decimals != null) return m.price_decimals;
   if (label === "BTC") return 0;
-  if (label === "PEPE") return 6;
+  if (label === "PEPE") return 8;
   if (label === "DOGE") return 4;
   return 2;
+}
+
+function smaPeriod(symbol) {
+  const d = marketsData[symbol];
+  return d?.strategy?.params?.sma_period || 20;
+}
+
+function showToast(text, ms = 5000) {
+  const el = document.getElementById("toast");
+  if (!el) return;
+  el.textContent = text;
+  el.classList.remove("hidden");
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => el.classList.add("hidden"), ms);
 }
 
 function applyMarketMeta(meta) {
@@ -74,8 +91,14 @@ function initChart() {
   return true;
 }
 
+function updateSmaLegend(period) {
+  const el = document.getElementById("sma-legend");
+  if (el) el.textContent = `SMA-${period}`;
+}
+
 function updateSMA(candles, period = 20) {
-  if (!smaSeries || !candles?.length) return;
+  if (!smaSeries || !candles?.length || period < 2) return;
+  updateSmaLegend(period);
   const smaData = [];
   for (let i = period - 1; i < candles.length; i++) {
     const slice = candles.slice(i - period + 1, i + 1);
@@ -91,6 +114,27 @@ function setLiveStatus(ok) {
   el.className = "value live-dot" + (ok ? "" : " stale");
 }
 
+function renderPortfolioGrid() {
+  const grid = document.getElementById("portfolio-grid");
+  if (!grid) return;
+  grid.innerHTML = marketMeta.map(m => {
+    const d = marketsData[m.symbol];
+    const pnl = d?.portfolio?.pnl_pct;
+    const vs = d?.portfolio?.vs_hold_pct;
+    const cls = pnl == null ? "" : (pnl >= 0 ? "up" : "down");
+    const active = m.symbol === activeSymbol ? " active" : "";
+    const vol = m.volatile ? " volatile" : "";
+    return `<button type="button" class="pf-cell${active}${vol}" data-symbol="${m.symbol}">
+      <span class="pf-label">${m.label}${m.volatile ? " ⚡" : ""}</span>
+      <span class="pf-pnl ${cls}">${pnl != null ? fmtPct(pnl) : "…"}</span>
+      <span class="pf-vs">${vs != null ? "vs hold " + fmtPct(vs) : ""}</span>
+    </button>`;
+  }).join("");
+  grid.querySelectorAll(".pf-cell").forEach(btn => {
+    btn.onclick = () => switchMarket(btn.dataset.symbol);
+  });
+}
+
 function renderTabs() {
   const nav = document.getElementById("market-tabs");
   if (!nav) return;
@@ -104,6 +148,7 @@ function renderTabs() {
   nav.querySelectorAll(".tab").forEach(btn => {
     btn.onclick = () => switchMarket(btn.dataset.symbol);
   });
+  renderPortfolioGrid();
 }
 
 function switchMarket(symbol) {
@@ -114,11 +159,10 @@ function switchMarket(symbol) {
     return;
   }
   lastCandles = d.candles || [];
-  if (candleSeries) {
-    if (lastCandles.length) {
-      candleSeries.setData(lastCandles);
-      updateSMA(lastCandles);
-    }
+  const period = smaPeriod(symbol);
+  if (candleSeries && lastCandles.length) {
+    candleSeries.setData(lastCandles);
+    updateSMA(lastCandles, period);
   }
   const title = document.getElementById("chart-title");
   if (title) title.textContent = `${d.label || labelFor(symbol)}/USDT — свечи`;
@@ -134,7 +178,7 @@ function updateLiveCandle(candle) {
     lastCandles.push(candle);
   }
   candleSeries.update(candle);
-  updateSMA(lastCandles);
+  updateSMA(lastCandles, smaPeriod(activeSymbol));
   if (marketsData[activeSymbol]) marketsData[activeSymbol].candles = lastCandles;
 }
 
@@ -194,7 +238,7 @@ async function renderAllTrades() {
   }
   ul.innerHTML = all.slice(0, 20).map(t => {
     const d = new Date(t.ts * 1000).toLocaleString("ru-RU");
-    return `<li class="${t.side}"><b>${t.label}</b> ${d} · ${t.side.toUpperCase()} @ ${fmtMoney(t.price, 4)} · ${t.reason}</li>`;
+    return `<li class="${t.side}"><b>${t.label}</b> ${d} · ${t.side.toUpperCase()} @ ${fmtMoney(t.price, priceDecimals(t.label))} · $${Number(t.amount_quote || 0).toFixed(0)} · ${t.reason}</li>`;
   }).join("");
 }
 
@@ -213,8 +257,31 @@ function escapeHtml(s) {
   return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 }
 
+function openAgentModal(key, data) {
+  const modal = document.getElementById("agent-modal");
+  const body = document.getElementById("agent-modal-body");
+  if (!modal || !body || !data) return;
+  let extra = "";
+  if (data.insights?.length) extra += data.insights.map(i => `<li>[${i.market}] ${i.rule}: ${i.text}</li>`).join("");
+  if (data.headlines?.length) extra += data.headlines.map(h => `<li>${h.title}</li>`).join("");
+  if (data.proposals?.length) extra += data.proposals.map(p => `<li>${p.scheme}: ${p.desc}</li>`).join("");
+  if (data.learned?.length) extra += data.learned.map(l => `<li>${l}</li>`).join("");
+  if (data.hot?.length) extra += data.hot.map(h => `<li>🔥 ${h}</li>`).join("");
+  if (data.spikes?.length) extra += data.spikes.map(s => `<li>📊 ${s}</li>`).join("");
+  if (data.critical?.length) extra += data.critical.map(w => `<li>🚨 ${w}</li>`).join("");
+  if (data.warnings?.length) extra += data.warnings.map(w => `<li>⚠️ ${w}</li>`).join("");
+  body.innerHTML = `
+    <h3>${data.emoji || ""} ${data.name || key}</h3>
+    <p>${escapeHtml(data.summary || "")}</p>
+    ${data.action ? `<p class="muted">${escapeHtml(data.action)}</p>` : ""}
+    ${extra ? `<ul class="agent-detail-list">${extra}</ul>` : ""}
+  `;
+  modal.classList.remove("hidden");
+}
+
 function renderBrain(brain) {
   if (!brain) return;
+  lastBrain = brain;
   const v = document.getElementById("brain-verdict");
   if (v) v.textContent = brain.verdict || "Мозг анализирует рынки...";
   [
@@ -229,6 +296,8 @@ function renderBrain(brain) {
     el.classList.add("active");
     const sm = el.querySelector("small");
     if (sm && data.summary) sm.textContent = data.summary.slice(0, 75) + (data.summary.length > 75 ? "…" : "");
+    el.onclick = () => openAgentModal(id, data);
+    el.style.cursor = "pointer";
   });
 }
 
@@ -257,6 +326,7 @@ function mergeMarket(sym, patch) {
 }
 
 function applyWsInit(msg) {
+  if (msg.market_meta) applyMarketMeta(msg.market_meta);
   if (msg.markets) {
     for (const [sym, payload] of Object.entries(msg.markets)) {
       mergeMarket(sym, payload);
@@ -298,6 +368,14 @@ function connectWs() {
         renderTabs();
         updateTotal(computeTotal());
         setLiveStatus(true);
+      }
+      if (msg.type === "strategy_update") {
+        showToast(`🔧 ${msg.label || labelFor(msg.symbol)}: ${msg.reason || "автонастройка"}`);
+        if (msg.symbol) mergeMarket(msg.symbol, { strategy: { params: msg.params, enabled: true } });
+        if (msg.symbol === activeSymbol) renderBotStatus(marketsData[msg.symbol]);
+      }
+      if (msg.type === "trade" && msg.trade) {
+        showToast(`💰 ${msg.label || labelFor(msg.symbol)}: ${msg.trade.reason}`);
       }
       if (msg.type === "trade") {
         renderAllTrades();
@@ -360,7 +438,7 @@ function renderTradesList(all) {
   }
   ul.innerHTML = all.slice(0, 20).map(t => {
     const d = new Date(t.ts * 1000).toLocaleString("ru-RU");
-    return `<li class="${t.side}"><b>${t.label}</b> ${d} · ${t.side.toUpperCase()} @ ${fmtMoney(t.price, 4)} · ${t.reason}</li>`;
+    return `<li class="${t.side}"><b>${t.label}</b> ${d} · ${t.side.toUpperCase()} @ ${fmtMoney(t.price, priceDecimals(t.label))} · $${Number(t.amount_quote || 0).toFixed(0)} · ${t.reason}</li>`;
   }).join("");
 }
 
@@ -432,11 +510,6 @@ async function loadInitial() {
   if (!marketsData[activeSymbol]?.price) {
     showError("Обнови код: git pull → Ctrl+C → python main.py → Ctrl+Shift+R");
   }
-  // DCA $100 = старая версия, должно быть $25
-  const dca = marketsData[activeSymbol]?.strategy?.params?.dca_amount;
-  if (dca && dca >= 100) {
-    showError("Старая версия бота (DCA $100). Сделай git pull и перезапусти python main.py");
-  }
 }
 
 function bindUi() {
@@ -471,6 +544,13 @@ function bindUi() {
     await fetch("/api/reset", { method: "POST" });
     location.reload();
   };
+
+  document.getElementById("agent-modal-close")?.addEventListener("click", () => {
+    document.getElementById("agent-modal")?.classList.add("hidden");
+  });
+  document.getElementById("agent-modal")?.addEventListener("click", (e) => {
+    if (e.target.id === "agent-modal") e.currentTarget.classList.add("hidden");
+  });
 }
 
 async function main() {

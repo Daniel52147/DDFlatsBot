@@ -17,63 +17,62 @@ class LearningLogger:
   def __init__(self, db_path: Path | None = None):
     self.db_path = db_path or config.DB_PATH
 
+  async def _migrate(self, db: aiosqlite.Connection):
+    for stmt in (
+      "ALTER TABLE trades ADD COLUMN symbol TEXT DEFAULT ''",
+      "ALTER TABLE snapshots ADD COLUMN symbol TEXT DEFAULT ''",
+      "ALTER TABLE strategy_versions ADD COLUMN symbol TEXT DEFAULT ''",
+    ):
+      try:
+        await db.execute(stmt)
+      except aiosqlite.OperationalError:
+        pass
+
   async def init(self):
     async with aiosqlite.connect(self.db_path) as db:
       await db.execute("""
         CREATE TABLE IF NOT EXISTS trades (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          ts REAL,
-          side TEXT,
-          price REAL,
-          amount_quote REAL,
-          amount_base REAL,
-          fee REAL,
-          reason TEXT,
-          balance_quote REAL,
-          balance_base REAL,
-          portfolio_value REAL,
+          ts REAL, symbol TEXT DEFAULT '',
+          side TEXT, price REAL, amount_quote REAL, amount_base REAL,
+          fee REAL, reason TEXT,
+          balance_quote REAL, balance_base REAL, portfolio_value REAL,
           strategy_params TEXT
         )
       """)
       await db.execute("""
         CREATE TABLE IF NOT EXISTS snapshots (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          ts REAL,
-          price REAL,
-          portfolio_value REAL,
-          pnl_pct REAL,
-          vs_hold_pct REAL,
+          ts REAL, symbol TEXT DEFAULT '',
+          price REAL, portfolio_value REAL, pnl_pct REAL, vs_hold_pct REAL,
           strategy_params TEXT
         )
       """)
       await db.execute("""
         CREATE TABLE IF NOT EXISTS strategy_versions (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          ts REAL,
-          params TEXT,
-          reason TEXT,
-          avg_pnl_pct REAL
+          ts REAL, symbol TEXT DEFAULT '',
+          params TEXT, reason TEXT, avg_pnl_pct REAL
         )
       """)
       await db.execute("""
         CREATE TABLE IF NOT EXISTS assistant_messages (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          ts REAL,
-          role TEXT,
-          content TEXT
+          ts REAL, role TEXT, content TEXT
         )
       """)
+      await self._migrate(db)
       await db.commit()
 
-  async def log_trade(self, trade: Trade, strategy_params: dict):
+  async def log_trade(self, trade: Trade, strategy_params: dict, symbol: str = ""):
     async with aiosqlite.connect(self.db_path) as db:
       await db.execute(
         """INSERT INTO trades
-           (ts, side, price, amount_quote, amount_base, fee, reason,
+           (ts, symbol, side, price, amount_quote, amount_base, fee, reason,
             balance_quote, balance_base, portfolio_value, strategy_params)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
-          trade.ts, trade.side, trade.price, trade.amount_quote,
+          trade.ts, symbol, trade.side, trade.price, trade.amount_quote,
           trade.amount_base, trade.fee, trade.reason,
           trade.balance_quote, trade.balance_base, trade.portfolio_value,
           json.dumps(strategy_params),
@@ -81,23 +80,24 @@ class LearningLogger:
       )
       await db.commit()
 
-  async def log_snapshot(self, snap: dict, strategy_params: dict):
+  async def log_snapshot(self, snap: dict, strategy_params: dict, symbol: str = ""):
     async with aiosqlite.connect(self.db_path) as db:
       await db.execute(
-        """INSERT INTO snapshots (ts, price, portfolio_value, pnl_pct, vs_hold_pct, strategy_params)
-           VALUES (?,?,?,?,?,?)""",
+        """INSERT INTO snapshots
+           (ts, symbol, price, portfolio_value, pnl_pct, vs_hold_pct, strategy_params)
+           VALUES (?,?,?,?,?,?,?)""",
         (
-          time.time(), snap["price"], snap["portfolio_value"],
-          snap["pnl_pct"], snap["vs_hold_pct"], json.dumps(strategy_params),
+          time.time(), symbol, snap["price"], snap["portfolio_value"],
+          snap["pnl_pct"], snap.get("vs_hold_pct", 0), json.dumps(strategy_params),
         ),
       )
       await db.commit()
 
-  async def log_strategy_change(self, params: dict, reason: str, avg_pnl: float):
+  async def log_strategy_change(self, params: dict, reason: str, avg_pnl: float, symbol: str = ""):
     async with aiosqlite.connect(self.db_path) as db:
       await db.execute(
-        "INSERT INTO strategy_versions (ts, params, reason, avg_pnl_pct) VALUES (?,?,?,?)",
-        (time.time(), json.dumps(params), reason, avg_pnl),
+        "INSERT INTO strategy_versions (ts, symbol, params, reason, avg_pnl_pct) VALUES (?,?,?,?,?)",
+        (time.time(), symbol, json.dumps(params), reason, avg_pnl),
       )
       await db.commit()
 
@@ -109,12 +109,16 @@ class LearningLogger:
       )
       await db.commit()
 
-  async def recent_trades(self, limit: int = 50) -> list[dict[str, Any]]:
+  async def recent_trades(self, limit: int = 50, symbol: str | None = None) -> list[dict[str, Any]]:
     async with aiosqlite.connect(self.db_path) as db:
       db.row_factory = aiosqlite.Row
-      cur = await db.execute(
-        "SELECT * FROM trades ORDER BY ts DESC LIMIT ?", (limit,)
-      )
+      if symbol:
+        cur = await db.execute(
+          "SELECT * FROM trades WHERE symbol = ? ORDER BY ts DESC LIMIT ?",
+          (symbol, limit),
+        )
+      else:
+        cur = await db.execute("SELECT * FROM trades ORDER BY ts DESC LIMIT ?", (limit,))
       rows = await cur.fetchall()
     return [dict(r) for r in rows]
 
@@ -124,16 +128,22 @@ class LearningLogger:
       cur = await db.execute("SELECT COUNT(*) as c FROM trades")
       count = (await cur.fetchone())["c"]
       cur = await db.execute(
-        "SELECT portfolio_value, pnl_pct, vs_hold_pct FROM snapshots ORDER BY ts DESC LIMIT 1"
+        """SELECT symbol, portfolio_value, pnl_pct, vs_hold_pct
+           FROM snapshots ORDER BY ts DESC LIMIT 12"""
       )
-      last = await cur.fetchone()
+      snapshots = [dict(r) for r in await cur.fetchall()]
       cur = await db.execute(
-        "SELECT params, reason, avg_pnl_pct FROM strategy_versions ORDER BY ts DESC LIMIT 5"
+        "SELECT symbol, params, reason, avg_pnl_pct FROM strategy_versions ORDER BY ts DESC LIMIT 8"
       )
       versions = [dict(r) for r in await cur.fetchall()]
+      cur = await db.execute(
+        "SELECT symbol, COUNT(*) as c FROM trades GROUP BY symbol"
+      )
+      per_market = {r["symbol"]: r["c"] for r in await cur.fetchall() if r["symbol"]}
     return {
       "trade_count": count,
-      "last_snapshot": dict(last) if last else None,
+      "per_market": per_market,
+      "recent_snapshots": snapshots,
       "strategy_versions": versions,
     }
 

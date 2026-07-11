@@ -1,4 +1,4 @@
-"""DCA + dip-buy strategy in one niche: BTC/USDT accumulation."""
+"""DCA + dip-buy strategy with one buy per tick guard."""
 
 from __future__ import annotations
 
@@ -30,41 +30,34 @@ class StrategyBot:
 
     now = time.time()
     interval = self.params["dca_interval_hours"] * 3600
-    trade = None
 
-    # Scheduled DCA
+    # One buy per tick — DCA has priority over opportunistic DIP/SPIKE
     if now - self.last_dca_ts >= interval:
-      amount = self.params["dca_amount"]
-      trade = self.engine.buy(price, amount, reason="DCA: плановая покупка")
+      trade = self.engine.buy(price, self.params["dca_amount"], reason="DCA: плановая покупка")
       if trade:
         self.last_dca_ts = now
+        return trade
 
-    # Extra buy on dip below SMA
-    if sma and price < sma:
-      dip_pct = (sma - price) / sma * 100
-      if dip_pct >= self.params["dip_threshold_pct"]:
-        extra = self.params["dip_extra_amount"]
-        t2 = self.engine.buy(
-          price,
-          extra,
-          reason=f"DIP: цена ниже SMA на {dip_pct:.1f}%",
-        )
-        if t2:
-          trade = t2
+    if not sma or price >= sma:
+      return None
 
-      # Volatile coins: extra buy on deep spike below SMA
-      spike_thr = self.params.get("spike_threshold_pct")
-      if spike_thr and dip_pct >= spike_thr:
-        spike_amt = self.params.get("spike_extra_amount", self.params["dip_extra_amount"])
-        t3 = self.engine.buy(
-          price,
-          spike_amt,
-          reason=f"SPIKE: резкая просадка {dip_pct:.1f}% — шанс на отскок",
-        )
-        if t3:
-          trade = t3
+    dip_pct = (sma - price) / sma * 100
+    spike_thr = self.params.get("spike_threshold_pct")
 
-    return trade
+    if spike_thr and dip_pct >= spike_thr:
+      amt = self.params.get("spike_extra_amount", self.params["dip_extra_amount"])
+      return self.engine.buy(
+        price, amt,
+        reason=f"SPIKE: резкая просадка {dip_pct:.1f}% — шанс на отскок",
+      )
+
+    if dip_pct >= self.params["dip_threshold_pct"]:
+      return self.engine.buy(
+        price, self.params["dip_extra_amount"],
+        reason=f"DIP: цена ниже SMA на {dip_pct:.1f}%",
+      )
+
+    return None
 
   def status(self, price: float, sma: float | None) -> dict[str, Any]:
     dip_pct = None

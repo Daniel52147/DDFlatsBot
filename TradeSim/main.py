@@ -122,43 +122,80 @@ def _market_meta() -> list[dict[str, Any]]:
         {
             "symbol": m["symbol"],
             "label": m["label"],
+            "name": m.get("name", m["label"]),
             "volatile": m.get("volatile", False),
+            "price_decimals": config.PRICE_DECIMALS.get(m["label"], 2),
         }
         for m in config.MARKETS
     ]
 
 
+def _all_trades(limit: int = 30) -> list[dict[str, Any]]:
+    all_trades = []
+    for sym, s in sessions.items():
+        for t in s.engine.trades:
+            all_trades.append({
+                "symbol": sym,
+                "label": s.label,
+                "side": t.side,
+                "price": t.price,
+                "amount_quote": t.amount_quote,
+                "reason": t.reason,
+                "ts": t.ts,
+            })
+    all_trades.sort(key=lambda x: x["ts"], reverse=True)
+    return all_trades[:limit]
+
+
+def _bootstrap_payload() -> dict[str, Any]:
+    return {
+        "version": config.APP_VERSION,
+        "market_meta": _market_meta(),
+        "markets": {sym: s.status_payload() for sym, s in sessions.items()},
+        "total": total_portfolio(),
+        "brain": _brain_public(state["brain_cycle"]) if state.get("brain_cycle") else None,
+        "trades": _all_trades(),
+        "chat": state["chat_history"][-1]["content"] if state.get("chat_history") else "",
+    }
+
+
 def _brain_public(cycle: dict) -> dict:
-    """Trim cycle for frontend."""
+    """Trim cycle for frontend with agent drill-down data."""
+
+    def _agent(report: dict) -> dict:
+        return {
+            "emoji": report["emoji"],
+            "name": report["name"],
+            "summary": report["summary"],
+            "action": report.get("action_for_brain", ""),
+            "recommendation": report.get("recommendation"),
+        }
+
+    news = cycle["news"]
     return {
         "verdict": cycle.get("verdict"),
         "decision": cycle.get("decision"),
         "summary": cycle.get("summary"),
-        "mentor": {
-            "emoji": cycle["mentor"]["emoji"],
-            "name": cycle["mentor"]["name"],
-            "summary": cycle["mentor"]["summary"],
-        },
+        "mentor": {**_agent(cycle["mentor"]), "insights": cycle["mentor"].get("insights", [])[:4]},
         "news": {
-            "emoji": cycle["news"]["emoji"],
-            "name": cycle["news"]["name"],
-            "summary": cycle["news"]["summary"],
-            "sentiment": cycle["news"].get("sentiment"),
+            **_agent(news),
+            "sentiment": news.get("sentiment"),
+            "headlines": news.get("headlines", [])[:4],
         },
         "schemer": {
-            "emoji": cycle["schemer"]["emoji"],
-            "name": cycle["schemer"]["name"],
-            "summary": cycle["schemer"]["summary"],
+            **_agent(cycle["schemer"]),
+            "proposals": cycle["schemer"].get("proposals", [])[:3],
+            "learned": cycle["schemer"].get("learned", [])[:2],
         },
         "volatility": {
-            "emoji": cycle["volatility"]["emoji"],
-            "name": cycle["volatility"]["name"],
-            "summary": cycle["volatility"]["summary"],
+            **_agent(cycle["volatility"]),
+            "hot": cycle["volatility"].get("hot", []),
+            "spikes": cycle["volatility"].get("spikes", []),
         },
         "risk": {
-            "emoji": cycle["risk"]["emoji"],
-            "name": cycle["risk"]["name"],
-            "summary": cycle["risk"]["summary"],
+            **_agent(cycle["risk"]),
+            "warnings": cycle["risk"].get("warnings", [])[:4],
+            "critical": cycle["risk"].get("critical", []),
         },
         "ts": cycle.get("ts"),
     }
@@ -167,6 +204,8 @@ def _brain_public(cycle: dict) -> dict:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await logger_db.init()
+    for session in sessions.values():
+        session.learning_logger = logger_db
     for session in sessions.values():
         await session.startup()
 
@@ -202,24 +241,7 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "web" / "static")), na
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    all_trades = []
-    for sym, s in sessions.items():
-        for t in s.engine.trades:
-            all_trades.append({
-                "symbol": sym, "label": s.label,
-                "side": t.side, "price": t.price,
-                "reason": t.reason, "ts": t.ts,
-            })
-    all_trades.sort(key=lambda x: x["ts"], reverse=True)
-    payload = {
-        "version": 4,
-        "market_meta": _market_meta(),
-        "markets": {sym: s.status_payload() for sym, s in sessions.items()},
-        "total": total_portfolio(),
-        "brain": _brain_public(state["brain_cycle"]) if state.get("brain_cycle") else None,
-        "trades": all_trades[:30],
-        "chat": state["chat_history"][-1]["content"] if state.get("chat_history") else "",
-    }
+    payload = _bootstrap_payload()
     return templates.TemplateResponse(
         request,
         "index.html",
@@ -240,31 +262,18 @@ async def api_markets():
 @app.get("/api/bootstrap")
 async def api_bootstrap():
     """Один запрос — все данные для UI."""
-    all_trades = []
-    for sym, s in sessions.items():
-        for t in s.engine.trades:
-            all_trades.append({
-                "symbol": sym, "label": s.label,
-                "side": t.side, "price": t.price,
-                "amount_quote": t.amount_quote,
-                "reason": t.reason, "ts": t.ts,
-            })
-    all_trades.sort(key=lambda x: x["ts"], reverse=True)
-    return {
-        "version": 4,
-        "market_meta": _market_meta(),
-        "markets": {sym: s.status_payload() for sym, s in sessions.items()},
-        "total": total_portfolio(),
-        "brain": _brain_public(state["brain_cycle"]) if state.get("brain_cycle") else None,
-        "trades": all_trades[:30],
-        "chat": state["chat_history"][-1]["content"] if state.get("chat_history") else "",
-    }
+    return _bootstrap_payload()
+
+
+@app.get("/api/learning/summary")
+async def api_learning_summary():
+    return await logger_db.performance_summary()
 
 
 @app.get("/api/ping")
 async def api_ping():
     return {
-        "version": 4,
+        "version": config.APP_VERSION,
         "markets": list(sessions.keys()),
         "market_meta": _market_meta(),
         "brain": state.get("brain_cycle") is not None,
@@ -318,20 +327,7 @@ async def api_chat(body: ChatRequest):
 
 @app.get("/api/trades")
 async def api_all_trades():
-    all_trades = []
-    for sym, s in sessions.items():
-        for t in s.engine.trades:
-            all_trades.append({
-                "symbol": sym,
-                "label": s.label,
-                "side": t.side,
-                "price": t.price,
-                "amount_quote": t.amount_quote,
-                "reason": t.reason,
-                "ts": t.ts,
-            })
-    all_trades.sort(key=lambda x: x["ts"], reverse=True)
-    return {"trades": all_trades[:30]}
+    return {"trades": _all_trades(50)}
 
 
 @app.post("/api/bot/toggle")
@@ -358,6 +354,8 @@ async def websocket_endpoint(ws: WebSocket):
     try:
         await ws.send_json({
             "type": "init",
+            "version": config.APP_VERSION,
+            "market_meta": _market_meta(),
             "markets": {sym: s.status_payload() for sym, s in sessions.items()},
             "total": total_portfolio(),
             "assistant": state["chat_history"][-1]["content"] if state["chat_history"] else "",

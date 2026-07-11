@@ -32,6 +32,7 @@ class CentralBrain:
         self.talker = TradingAssistant()
         self.last_cycle: dict[str, Any] = {}
         self.last_cycle_ts = 0.0
+        self.last_applied_decision: str | None = None
 
     async def think(self, contexts: list[dict], total: dict) -> dict[str, Any]:
         """Run all agents and synthesize central decision."""
@@ -125,20 +126,27 @@ class CentralBrain:
         return "\n".join(lines)
 
     def apply_decision(self, sessions: dict, decision: str):
-        """Adjust bots based on central brain decision."""
+        """Adjust bots when central decision changes (clamped, no drift)."""
+        if decision == self.last_applied_decision:
+            return
+        self.last_applied_decision = decision
+
         for session in sessions.values():
-            p = session.bot.params
+            p = dict(session.bot.get_params())
             if decision == "pause_dip":
-                p["dip_extra_amount"] = max(5.0, p["dip_extra_amount"] * 0.5)
-                p["dip_threshold_pct"] = min(15.0, p["dip_threshold_pct"] + 1.0)
+                p["dip_extra_amount"] = p.get("dip_extra_amount", 0) * 0.5
+                p["dip_threshold_pct"] = p.get("dip_threshold_pct", 3) + 1.0
                 if p.get("spike_extra_amount"):
-                    p["spike_extra_amount"] = max(5.0, p["spike_extra_amount"] * 0.5)
+                    p["spike_extra_amount"] *= 0.5
             elif decision == "reduce_aggression":
-                p["dca_amount"] = max(5.0, p["dca_amount"] * 0.8)
-                p["dip_extra_amount"] = max(5.0, p.get("dip_extra_amount", 0) * 0.85)
+                p["dca_amount"] = p.get("dca_amount", 25) * 0.85
+                p["dip_extra_amount"] = p.get("dip_extra_amount", 0) * 0.85
             elif decision == "experiment" and session.volatile:
-                p["dip_threshold_pct"] = max(3.0, p["dip_threshold_pct"] - 0.5)
-            session.bot.update_params(p)
+                p["dip_threshold_pct"] = max(3.0, p.get("dip_threshold_pct", 5) - 0.5)
+            elif decision in ("continue", "hold", "collect_data"):
+                p = dict(session.base_params)
+
+            session.set_params_bounded(p)
 
     def chat(self, user_msg: str, contexts: list[dict], total: dict) -> str:
         msg = user_msg.lower().strip()
