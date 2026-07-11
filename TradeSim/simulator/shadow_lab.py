@@ -16,7 +16,9 @@ from typing import Any
 
 import config
 from learning.optimizer import StrategyOptimizer
-from simulator.price_walk import prices_for_tick, run_strategy_prices
+from simulator.engine import SimulatorEngine
+from simulator.price_walk import prices_for_tick
+from simulator.strategy import StrategyBot
 
 logger = logging.getLogger(__name__)
 
