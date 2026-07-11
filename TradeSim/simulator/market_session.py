@@ -330,6 +330,15 @@ class MarketSession:
             "ts": trade.ts,
         } if trade else None
 
+    async def deposit(self, amount: float) -> float:
+        """Add paper USDT to this market wallet."""
+        if amount <= 0:
+            return 0.0
+        self.engine.position.quote += amount
+        self.engine.start_balance += amount
+        await self.persist()
+        return self.engine.position.quote
+
     @staticmethod
     def _volatility_pct(candles: list) -> float:
         if len(candles) < 5:

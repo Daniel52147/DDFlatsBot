@@ -513,6 +513,92 @@ footer {
 
 .chart-card { border-color: rgba(0, 229, 192, 0.18); }
 
+.version-banner {
+  background: rgba(255, 176, 32, 0.15);
+  border-bottom: 1px solid rgba(255, 176, 32, 0.4);
+  color: #ffd080;
+  padding: 0.6rem 1.75rem;
+  font-size: 0.82rem;
+  text-align: center;
+}
+.version-banner.hidden { display: none; }
+.deposit-btn { white-space: nowrap; }
+
+.tables-section {
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+}
+.tables-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.65rem;
+}
+.tbl-tab {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 0.35rem 0.65rem;
+  border-radius: 8px;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+.tbl-tab.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(0, 229, 192, 0.08);
+}
+.data-table-wrap { overflow-x: auto; max-height: 280px; overflow-y: auto; }
+.data-table-wrap.hidden { display: none; }
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.72rem;
+}
+.data-table th, .data-table td {
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+.data-table th {
+  color: var(--muted);
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  background: var(--card-solid);
+}
+.data-table .up { color: var(--green); }
+.data-table .down { color: var(--red); }
+.data-table .inactive { opacity: 0.5; }
+
+.deposit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.deposit-form label { font-size: 0.78rem; color: var(--muted); }
+.deposit-form input, .deposit-form select {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem;
+  color: var(--text);
+  font-size: 0.85rem;
+}
+.deposit-form .hidden { display: none; }
+.deposit-modal-inner { max-width: 380px; }
+
+.honesty-box {
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.honesty-box ul { margin: 0.5rem 0 0.5rem 1.2rem; }
+.honesty-box .ok { color: var(--green); }
+.honesty-box .warn { color: var(--accent2); }
+
 .shadow-lab-panel {
   max-width: 1480px;
   margin: 0 auto 1rem;

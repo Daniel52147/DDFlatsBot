@@ -4,10 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TradeSim v11 — 17 рынков</title>
-  <link rel="stylesheet" href="/static/style.css?v=11" />
+  <link rel="stylesheet" href="/static/style.css?v=12" />
   <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
+  <div id="version-banner" class="version-banner hidden"></div>
   <header>
     <div class="brand">
       <span class="logo">⚡</span>
@@ -26,6 +27,7 @@
         <span class="value" id="total-pnl">0.00%</span>
       </div>
       <div class="stat badge paper">PAPER</div>
+      <button type="button" id="btn-deposit" class="btn small deposit-btn">+ Пополнить</button>
       <div class="stat">
         <span class="label">Статус</span>
         <span class="value live-dot" id="live-status">● LIVE</span>
@@ -53,6 +55,21 @@
         </div>
         <div id="equity-chart"></div>
       </div>
+
+      <section class="tables-section">
+        <div class="tables-nav">
+          <button type="button" class="tbl-tab active" data-table="markets">📊 Все 17 рынков</button>
+          <button type="button" class="tbl-tab" data-table="analytics">📈 Аналитика</button>
+          <button type="button" class="tbl-tab" data-table="learning">🎓 Обучение</button>
+          <button type="button" class="tbl-tab" data-table="deposits">💵 Пополнения</button>
+          <button type="button" class="tbl-tab" data-table="honesty">🔍 Честный статус</button>
+        </div>
+        <div id="table-markets" class="data-table-wrap"></div>
+        <div id="table-analytics" class="data-table-wrap hidden"></div>
+        <div id="table-learning" class="data-table-wrap hidden"></div>
+        <div id="table-deposits" class="data-table-wrap hidden"></div>
+        <div id="table-honesty" class="data-table-wrap hidden"></div>
+      </section>
     </section>
 
     <aside class="sidebar">
@@ -133,6 +150,26 @@
     </div>
   </footer>
 
+  <div id="deposit-modal" class="agent-modal hidden">
+    <div class="agent-modal-inner deposit-modal-inner">
+      <button type="button" id="deposit-modal-close" class="btn ghost small">✕</button>
+      <h3>💵 Пополнить paper-счёт</h3>
+      <p class="muted">Виртуальные USDT — сразу доступны для торговли ботов.</p>
+      <form id="deposit-form" class="deposit-form">
+        <label>Сумма ($)</label>
+        <input id="deposit-amount" type="number" min="1" max="100000" value="500" step="1" />
+        <label>Куда</label>
+        <select id="deposit-target">
+          <option value="split">На все 17 рынков поровну</option>
+          <option value="symbol">На выбранную монету</option>
+        </select>
+        <label id="deposit-symbol-label" class="hidden">Монета</label>
+        <select id="deposit-symbol" class="hidden"></select>
+        <button type="submit" class="btn">Пополнить и торговать</button>
+      </form>
+    </div>
+  </div>
+
   <div id="toast" class="toast hidden"></div>
   <div id="agent-modal" class="agent-modal hidden">
     <div class="agent-modal-inner">
@@ -142,6 +179,6 @@
   </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=16"></script>
+  <script src="/static/app.js?v=17"></script>
 </body>
 </html>

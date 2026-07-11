@@ -243,6 +243,23 @@ class ShadowLab:
                 for i in range(n)
             ]
 
+    def sync_markets(self, sessions: dict):
+        """Add shadow clones for any new markets."""
+        n = config.SHADOW_CLONES_PER_MARKET
+        for sym, session in sessions.items():
+            if sym in self.clones:
+                continue
+            base = copy.deepcopy(session.base_params)
+            self.clones[sym] = [
+                ShadowClone(
+                    i, sym, session.label,
+                    self._jitter_params(base, i, session.volatile),
+                    volatile=session.volatile,
+                )
+                for i in range(n)
+            ]
+            logger.info("Shadow Lab: added %d clones for %s", n, session.label)
+
     def status(self) -> dict[str, Any]:
         markets = []
         for sym, session in self.sessions.items():

@@ -87,6 +87,13 @@ class LearningLogger:
           ts REAL, decision TEXT, verdict TEXT
         )
       """)
+      await db.execute("""
+        CREATE TABLE IF NOT EXISTS deposits (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          ts REAL, amount REAL, target TEXT, symbol TEXT DEFAULT '',
+          note TEXT, total_after REAL
+        )
+      """)
       await self._migrate(db)
       await db.commit()
 
@@ -315,3 +322,44 @@ class LearningLogger:
       )
       rows = await cur.fetchall()
     return list(reversed([dict(r) for r in rows]))
+
+  async def log_deposit(
+      self, amount: float, target: str, symbol: str, note: str, total_after: float,
+  ):
+    async with aiosqlite.connect(self.db_path) as db:
+      await db.execute(
+        "INSERT INTO deposits (ts, amount, target, symbol, note, total_after) VALUES (?,?,?,?,?,?)",
+        (time.time(), amount, target, symbol or "", note, total_after),
+      )
+      await db.commit()
+
+  async def deposit_history(self, limit: int = 20) -> list[dict[str, Any]]:
+    async with aiosqlite.connect(self.db_path) as db:
+      db.row_factory = aiosqlite.Row
+      cur = await db.execute(
+        "SELECT * FROM deposits ORDER BY ts DESC LIMIT ?", (limit,),
+      )
+      return [dict(r) for r in await cur.fetchall()]
+
+  async def learning_stats(self) -> dict[str, Any]:
+    async with aiosqlite.connect(self.db_path) as db:
+      db.row_factory = aiosqlite.Row
+      cur = await db.execute("SELECT COUNT(*) as c FROM trades")
+      trades = (await cur.fetchone())["c"]
+      cur = await db.execute("SELECT COUNT(*) as c FROM strategy_versions")
+      tunes = (await cur.fetchone())["c"]
+      cur = await db.execute(
+        "SELECT COUNT(*) as c FROM strategy_versions WHERE reason LIKE '%Shadow%'"
+      )
+      shadow = (await cur.fetchone())["c"]
+      cur = await db.execute("SELECT COUNT(*) as c FROM brain_cycles")
+      brain = (await cur.fetchone())["c"]
+      cur = await db.execute("SELECT COUNT(*) as c FROM deposits")
+      deposits = (await cur.fetchone())["c"]
+    return {
+      "trades_logged": trades,
+      "strategy_tunes": tunes,
+      "shadow_promotions": shadow,
+      "brain_cycles": brain,
+      "deposits": deposits,
+    }

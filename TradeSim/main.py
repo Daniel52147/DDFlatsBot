@@ -45,7 +45,15 @@ state: dict[str, Any] = {
     "running": False,
     "chat_history": [],
     "brain_cycle": None,
+    "background_tasks": [],
 }
+
+
+class DepositRequest(BaseModel):
+    amount: float
+    target: str = "split"  # split — на все рынки | symbol — на одну монету
+    symbol: str | None = None
+    note: str = ""
 
 
 class ChatRequest(BaseModel):
@@ -73,16 +81,90 @@ def all_contexts() -> list[dict[str, Any]]:
     return [s.context_for_assistant() for s in sessions.values()]
 
 
+def ensure_all_markets() -> list[str]:
+    """Add any markets from config that are missing (after code update without full restart)."""
+    added = []
+    for m in config.MARKETS:
+        sym = m["symbol"]
+        if sym not in sessions:
+            s = MarketSession(m)
+            s.learning_logger = logger_db
+            sessions[sym] = s
+            added.append(sym)
+            logger.info("Added new market session: %s", sym)
+    return added
+
+
 def total_portfolio() -> dict[str, Any]:
-    total = sum(s.engine.snapshot(s.feed.price)["portfolio_value"] for s in sessions.values())
-    start = config.INITIAL_BALANCE
+    total = sum(s.engine.snapshot(s.feed.price or s.demo_price)["portfolio_value"] for s in sessions.values())
+    start = sum(s.engine.start_balance for s in sessions.values())
     pnl = total - start
     return {
         "total_value": round(total, 2),
         "pnl": round(pnl, 2),
         "pnl_pct": round(pnl / start * 100, 2) if start else 0,
-        "start_balance": start,
+        "start_balance": round(start, 2),
+        "markets_count": len(sessions),
+        "markets_configured": len(config.MARKETS),
     }
+
+
+def _learning_honesty(stats: dict) -> dict[str, Any]:
+    return {
+        "version": config.APP_VERSION,
+        "markets_configured": len(config.MARKETS),
+        "markets_active": len(sessions),
+        "project_readiness": "beta — paper lab, не биржа",
+        "really_learns": True,
+        "learning_kind": "эвристики + статистика (не нейросеть)",
+        "what_is_real": [
+            "Сделки на живых ценах Binance/Bybit",
+            "Параметры DCA/DIP/TP меняются по vs_hold и сделкам",
+            "Shadow Lab: 12 клонов тестируют настройки параллельно",
+            "Всё пишется в SQLite — можно проверить",
+        ],
+        "what_is_not": [
+            "Это не настоящие деньги и не гарантия прибыли",
+            "11 агентов — правила на Python, не ChatGPT",
+            "Нет подключения к реальной бирже для ордеров",
+        ],
+        "evidence": stats,
+    }
+
+
+def _markets_table_rows() -> list[dict[str, Any]]:
+    rows = []
+    for m in config.MARKETS:
+        sym = m["symbol"]
+        s = sessions.get(sym)
+        if s:
+            price = s.feed.price or s.demo_price
+            snap = s.engine.snapshot(price)
+            st = s.bot.status(price, s.candles.sma(int(s.bot.params.get("sma_period", 20))))
+            rows.append({
+                "symbol": sym,
+                "label": m["label"],
+                "tier": m.get("tier", "major"),
+                "viral": m.get("viral", False),
+                "growth": m.get("growth", False),
+                "price": price,
+                "portfolio_value": snap["portfolio_value"],
+                "pnl_pct": snap["pnl_pct"],
+                "vs_hold_pct": snap.get("vs_hold_pct", 0),
+                "trades": snap["trade_count"],
+                "bot_enabled": st.get("enabled", True),
+                "active": True,
+            })
+        else:
+            rows.append({
+                "symbol": sym,
+                "label": m["label"],
+                "tier": m.get("tier", "major"),
+                "viral": m.get("viral", False),
+                "growth": m.get("growth", False),
+                "active": False,
+            })
+    return rows
 
 
 async def run_session_loop(session: MarketSession):
@@ -249,13 +331,18 @@ def _analytics_payload(equity: list | None = None) -> dict[str, Any]:
 
 
 async def _bootstrap_payload_async() -> dict[str, Any]:
+    ensure_all_markets()
     payload = _bootstrap_payload()
+    stats = await logger_db.learning_stats()
     payload["learning"] = await logger_db.performance_summary()
     equity = await logger_db.equity_curve(48)
     payload["equity"] = equity
     payload["brain_history"] = await logger_db.brain_history(6)
     payload["analytics"] = _analytics_payload(equity)
     payload["strategy_history"] = await logger_db.strategy_history(limit=10)
+    payload["deposits"] = await logger_db.deposit_history(15)
+    payload["learning_honesty"] = _learning_honesty(stats)
+    payload["markets_table"] = _markets_table_rows()
     if shadow_lab:
         payload["shadow_lab"] = shadow_lab.status()
     return payload
@@ -338,6 +425,7 @@ def _brain_public(cycle: dict) -> dict:
 async def lifespan(app: FastAPI):
     global shadow_lab
     await logger_db.init()
+    added = ensure_all_markets()
     shadow_lab = ShadowLab(sessions)
     for session in sessions.values():
         session.learning_logger = logger_db
@@ -347,10 +435,15 @@ async def lifespan(app: FastAPI):
         await session.startup()
 
     state["running"] = True
-    tasks = [asyncio.create_task(run_session_loop(s)) for s in sessions.values()]
+    tasks: list[asyncio.Task] = []
+    for s in sessions.values():
+        tasks.append(asyncio.create_task(run_session_loop(s)))
+    state["background_tasks"] = tasks
     tasks.append(asyncio.create_task(brain_loop()))
     tasks.append(asyncio.create_task(shadow_eval_loop()))
     tasks.append(asyncio.create_task(snapshot_loop()))
+    if added:
+        logger.info("Started %d new market sessions: %s", len(added), added)
 
     # First brain think
     cycle = await brain.think(all_contexts(), total_portfolio())
@@ -457,12 +550,86 @@ async def api_brain_history():
 
 @app.get("/api/ping")
 async def api_ping():
+    ensure_all_markets()
     return {
         "version": config.APP_VERSION,
         "markets": list(sessions.keys()),
+        "markets_count": len(config.MARKETS),
+        "sessions_active": len(sessions),
+        "markets_labels": [m["label"] for m in config.MARKETS],
         "market_meta": _market_meta(),
         "brain": state.get("brain_cycle") is not None,
+        "total": total_portfolio(),
     }
+
+
+@app.post("/api/sync-markets")
+async def api_sync_markets():
+    """Hot-add markets after update — без полного перезапуска."""
+    added = ensure_all_markets()
+    for sym in added:
+        s = sessions[sym]
+        await s.restore_from_db()
+        await s.startup()
+        if state["running"]:
+            state["background_tasks"].append(asyncio.create_task(run_session_loop(s)))
+    if shadow_lab:
+        shadow_lab.sync_markets(sessions)
+    await broadcast({
+        "type": "markets_sync",
+        "added": added,
+        "markets": {sym: s.status_payload() for sym, s in sessions.items()},
+        "market_meta": _market_meta(),
+        "total": total_portfolio(),
+    })
+    return {
+        "ok": True,
+        "added": added,
+        "markets_active": len(sessions),
+        "market_meta": _market_meta(),
+        "markets": {sym: s.status_payload() for sym, s in sessions.items()},
+        "total": total_portfolio(),
+    }
+
+
+@app.post("/api/deposit")
+async def api_deposit(body: DepositRequest):
+    """Пополнить paper-счёт в любой момент."""
+    ensure_all_markets()
+    amount = float(body.amount)
+    if amount < 1 or amount > 100_000:
+        return {"error": "Сумма от $1 до $100,000"}
+    target = (body.target or "split").lower()
+    if target == "symbol":
+        if not body.symbol or body.symbol not in sessions:
+            return {"error": "Укажи symbol, например BTCUSDT"}
+        await sessions[body.symbol].deposit(amount)
+        note = body.note or f"На {body.symbol}"
+    else:
+        per = amount / max(len(sessions), 1)
+        for s in sessions.values():
+            await s.deposit(per)
+        note = body.note or f"На все {len(sessions)} рынков"
+    total = total_portfolio()
+    await logger_db.log_deposit(amount, target, body.symbol or "", note, total["total_value"])
+    await broadcast({"type": "deposit", "amount": amount, "total": total})
+    return {
+        "ok": True,
+        "deposited": amount,
+        "total": total,
+        "deposits": await logger_db.deposit_history(10),
+    }
+
+
+@app.get("/api/deposits")
+async def api_deposits():
+    return {"deposits": await logger_db.deposit_history(30)}
+
+
+@app.get("/api/learning/honesty")
+async def api_learning_honesty():
+    stats = await logger_db.learning_stats()
+    return _learning_honesty(stats)
 
 
 @app.get("/api/status")
@@ -548,13 +715,15 @@ async def manual_trade(body: ManualTradeRequest):
 
 @app.post("/api/reset")
 async def reset_portfolio(full: bool = False):
+    ensure_all_markets()
     if full:
         await logger_db.full_reset()
     else:
         await logger_db.clear_sessions()
+    per_market = config.INITIAL_BALANCE / len(config.MARKETS)
     for s in sessions.values():
         market = next(m for m in config.MARKETS if m["symbol"] == s.symbol)
-        s.engine.reset(config.BALANCE_PER_MARKET)
+        s.engine.reset(per_market)
         s.base_params = copy.deepcopy({**config.STRATEGY, **market.get("strategy", {})})
         bounds = StrategyOptimizer.BOUNDS_VOLATILE if s.volatile else StrategyOptimizer.BOUNDS
         s.optimizer = StrategyOptimizer(s.base_params, bounds=bounds, volatile=s.volatile)
@@ -578,6 +747,7 @@ async def reset_portfolio(full: bool = False):
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
+    ensure_all_markets()
     state["connected_clients"].add(ws)
     try:
         await ws.send_json({

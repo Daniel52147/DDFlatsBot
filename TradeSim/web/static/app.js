@@ -77,6 +77,147 @@ function applyMarketMeta(meta) {
   marketMeta = meta;
 }
 
+function renderMarketsTable(rows) {
+  const el = document.getElementById("table-markets");
+  if (!el) return;
+  if (!rows?.length) {
+    el.innerHTML = "<p class='muted'>Загрузка рынков...</p>";
+    return;
+  }
+  el.innerHTML = `<table class="data-table"><thead><tr>
+    <th>Монета</th><th>Тип</th><th>Цена</th><th>Портфель</th><th>P&L</th><th>vs hold</th><th>Сделок</th><th>Бот</th>
+  </tr></thead><tbody>${rows.map(r => {
+    const cls = r.pnl_pct >= 0 ? "up" : "down";
+    const tier = r.viral ? "🔥 viral" : r.growth ? "📈 growth" : r.tier || "major";
+    if (!r.active) return `<tr class="inactive"><td>${r.label}</td><td>${tier}</td><td colspan="6">не подключён — нажми «Подключить все монеты»</td></tr>`;
+    return `<tr><td><b>${r.label}</b></td><td>${tier}</td><td>${fmtMoney(r.price, priceDecimals(r.label))}</td>
+      <td>${fmtMoney(r.portfolio_value)}</td><td class="${cls}">${fmtPct(r.pnl_pct)}</td>
+      <td>${fmtPct(r.vs_hold_pct)}</td><td>${r.trades}</td><td>${r.bot_enabled ? "✅" : "⏸"}</td></tr>`;
+  }).join("")}</tbody></table>`;
+}
+
+function renderAnalyticsTable(analytics) {
+  const el = document.getElementById("table-analytics");
+  if (!el || !analytics?.markets) return;
+  el.innerHTML = `<table class="data-table"><thead><tr>
+    <th>Монета</th><th>P&L</th><th>vs hold</th><th>Сделок</th><th>DCA</th><th>DIP</th><th>TP</th><th>STOP</th>
+  </tr></thead><tbody>${analytics.markets.map(m => {
+    const rs = m.trade_stats?.reasons || {};
+    const cls = m.pnl_pct >= 0 ? "up" : "down";
+    return `<tr><td><b>${m.label}</b></td><td class="${cls}">${fmtPct(m.pnl_pct)}</td>
+      <td>${fmtPct(m.vs_hold_pct)}</td><td>${m.trade_stats?.total || 0}</td>
+      <td>${rs.dca || 0}</td><td>${rs.dip || 0}</td><td>${rs.tp || 0}</td><td>${rs.stop || 0}</td></tr>`;
+  }).join("")}</tbody></table>
+  <p class="muted" style="margin-top:0.5rem">Max DD: ${analytics.max_drawdown_pct}% · Sharpe proxy: ${analytics.sharpe_proxy ?? "—"}</p>`;
+}
+
+function renderLearningTable(learning, history, honesty) {
+  const el = document.getElementById("table-learning");
+  if (!el) return;
+  const ev = honesty?.evidence || {};
+  let hist = "";
+  if (history?.length) {
+    hist = `<h4 style="margin:0.75rem 0 0.35rem;font-size:0.8rem">Последние автонастройки</h4>
+    <table class="data-table"><thead><tr><th>Время</th><th>Рынок</th><th>Причина</th></tr></thead><tbody>
+    ${(learning?.strategy_versions || history).slice(0, 10).map(t => {
+      const d = new Date((t.ts || 0) * 1000).toLocaleString("ru-RU");
+      return `<tr><td>${d}</td><td>${(t.symbol || "").replace("USDT", "")}</td><td>${(t.reason || "").slice(0, 60)}</td></tr>`;
+    }).join("")}</tbody></table>`;
+  }
+  el.innerHTML = `<table class="data-table"><tbody>
+    <tr><td>Сделок в БД</td><td><b>${ev.trades_logged || learning?.trade_count || 0}</b></td></tr>
+    <tr><td>Автонастроек</td><td><b>${ev.strategy_tunes || 0}</b></td></tr>
+    <tr><td>Shadow переносов</td><td><b>${ev.shadow_promotions || 0}</b></td></tr>
+    <tr><td>Циклов мозга</td><td><b>${ev.brain_cycles || 0}</b></td></tr>
+  </tbody></table>${hist}`;
+}
+
+function renderDepositsTable(deposits) {
+  const el = document.getElementById("table-deposits");
+  if (!el) return;
+  if (!deposits?.length) {
+    el.innerHTML = "<p class='muted'>Пополнений пока нет. Нажми «+ Пополнить» в шапке.</p>";
+    return;
+  }
+  el.innerHTML = `<table class="data-table"><thead><tr><th>Время</th><th>Сумма</th><th>Куда</th><th>Итого портфель</th></tr></thead><tbody>
+    ${deposits.map(d => `<tr><td>${new Date(d.ts * 1000).toLocaleString("ru-RU")}</td>
+      <td><b>$${Number(d.amount).toLocaleString()}</b></td><td>${d.note || d.target}</td>
+      <td>${fmtMoney(d.total_after)}</td></tr>`).join("")}
+  </tbody></table>`;
+}
+
+function renderHonestyTable(h) {
+  const el = document.getElementById("table-honesty");
+  if (!el || !h) return;
+  el.innerHTML = `<div class="honesty-box">
+    <p><b>Готовность проекта:</b> ${h.project_readiness}</p>
+    <p><b>Учится сам?</b> <span class="ok">${h.really_learns ? "Да — но эвристики, не ИИ" : "Нет"}</span> (${h.learning_kind})</p>
+    <p><b>Рынков:</b> ${h.markets_active} / ${h.markets_configured} активны</p>
+    <p class="warn"><b>Что реально:</b></p><ul>${(h.what_is_real || []).map(x => `<li class="ok">${x}</li>`).join("")}</ul>
+    <p class="warn"><b>Чего нет:</b></p><ul>${(h.what_is_not || []).map(x => `<li>${x}</li>`).join("")}</ul>
+  </div>`;
+}
+
+function renderAllTables(data) {
+  renderMarketsTable(data?.markets_table);
+  renderAnalyticsTable(data?.analytics || lastAnalytics);
+  renderLearningTable(data?.learning, data?.strategy_history, data?.learning_honesty);
+  renderDepositsTable(data?.deposits || []);
+  renderHonestyTable(data?.learning_honesty);
+}
+
+async function syncAllMarkets() {
+  try {
+    const res = await fetch("/api/sync-markets", { method: "POST" });
+    const data = await res.json();
+    if (data.market_meta) applyMarketMeta(data.market_meta);
+    if (data.markets) {
+      for (const [sym, payload] of Object.entries(data.markets)) {
+        mergeMarket(sym, payload);
+      }
+    }
+    if (data.total) updateTotal(data.total);
+    renderTabs();
+    switchMarket(activeSymbol);
+    const boot = await (await fetch("/api/bootstrap")).json();
+    renderAllTables(boot);
+    showToast(`✅ Рынков: ${data.markets_active} · добавлено: ${(data.added || []).join(", ") || "0"}`);
+    document.getElementById("version-banner")?.classList.add("hidden");
+  } catch (e) {
+    showToast("Ошибка синхронизации рынков");
+  }
+}
+
+function showVersionBanner(ping) {
+  const el = document.getElementById("version-banner");
+  if (!el || !ping) return;
+  const expected = ping.markets_count || 17;
+  const active = ping.sessions_active || Object.keys(marketsData).length;
+  if (active < expected || marketMeta.length < expected) {
+    el.classList.remove("hidden");
+    el.innerHTML = `⚠️ Видно ${active} из ${expected} монет (сервер v${ping.version}). 
+      <button type="button" id="btn-sync-markets" class="btn small">Подключить все ${expected}</button>
+      · или git pull → python main.py → Ctrl+Shift+R`;
+    document.getElementById("btn-sync-markets")?.addEventListener("click", syncAllMarkets);
+  } else {
+    el.classList.add("hidden");
+  }
+}
+
+async function checkServerAndSync() {
+  try {
+    const ping = await (await fetch("/api/ping")).json();
+    if (ping.market_meta?.length) applyMarketMeta(ping.market_meta);
+    if ((ping.sessions_active || 0) < (ping.markets_count || 17)) {
+      await syncAllMarkets();
+      return await (await fetch("/api/ping")).json();
+    }
+    return ping;
+  } catch (_) {
+    return null;
+  }
+}
+
 function initChart() {
   const fallback = document.getElementById("chart-fallback");
   if (typeof LightweightCharts === "undefined") {
@@ -367,7 +508,7 @@ function renderBotStatus(d) {
   }
   const avg = st.avg_entry || d.portfolio?.avg_entry;
   el.innerHTML = `
-    <p>Рынок: <strong>${lbl}</strong>${vol}${d.restored ? " · 💾 восстановлен" : ""} · ${st.enabled !== false ? "✅ активен" : "⏸ пауза"}</p>
+    <p>Рынок: <strong>${lbl}</strong>${viralTag}${vol}${d.restored ? " · 💾 восстановлен" : ""} · ${st.enabled !== false ? "✅ активен" : "⏸ пауза"}</p>
     <p>Цена: <strong>${fmtMoney(d.price, priceDecimals(lbl))}</strong>${avg ? ` · вход ~${fmtMoney(avg, priceDecimals(lbl))}` : ""}</p>
     <p>Портфель: <strong>${fmtMoney(d.portfolio?.portfolio_value)}</strong> (${fmtPct(d.portfolio?.pnl_pct)}) · vs hold ${fmtPct(d.portfolio?.vs_hold_pct)}</p>
     <p>DCA: $${p.dca_amount ?? 25} / ${p.dca_interval_hours ?? 24}ч · DIP ${p.dip_threshold_pct ?? 3}% (кд ${p.dip_cooldown_minutes ?? 30}м)</p>
@@ -557,6 +698,18 @@ function connectWs() {
     try {
       const msg = JSON.parse(ev.data);
       if (msg.type === "init") applyWsInit(msg);
+      if (msg.type === "markets_sync" && msg.markets) {
+        if (msg.market_meta) applyMarketMeta(msg.market_meta);
+        for (const [sym, payload] of Object.entries(msg.markets)) mergeMarket(sym, payload);
+        renderTabs();
+        updateTotal(msg.total || computeTotal());
+        showToast(`Подключено рынков: ${Object.keys(msg.markets).length}`);
+      }
+      if (msg.type === "deposit" && msg.total) {
+        updateTotal(msg.total);
+        showToast(`💵 Пополнено $${msg.amount} · всего ${fmtMoney(msg.total.total_value)}`);
+        loadDepositsTable();
+      }
       if (msg.type === "brain_update" && msg.cycle) {
         renderBrain(msg.cycle);
         if (msg.cycle.verdict) {
@@ -652,6 +805,7 @@ function applyBootstrap(data) {
     });
   }
   if (data.shadow_lab) renderShadowLab(data.shadow_lab);
+  renderAllTables(data);
   setLiveStatus(true);
   return Object.keys(marketsData).length > 0;
 }
@@ -729,10 +883,22 @@ async function loadBrain() {
   } catch (_) {}
 }
 
+async function loadDepositsTable() {
+  try {
+    const data = await (await fetch("/api/deposits")).json();
+    renderDepositsTable(data.deposits);
+  } catch (_) {}
+}
+
 async function loadInitial() {
+  const ping = await checkServerAndSync();
   let ok = loadEmbeddedData();
   if (!ok) ok = await fetchBootstrap();
   if (!ok) await refreshStatus();
+  if (!ok || Object.keys(marketsData).length < (ping?.markets_count || 17)) {
+    await syncAllMarkets();
+  }
+  showVersionBanner(ping);
   await loadBrain();
   if (!marketsData[activeSymbol]?.price) {
     showError("Обнови код: git pull → Ctrl+C → python main.py → Ctrl+Shift+R");
@@ -814,6 +980,64 @@ function bindUi() {
   });
   document.getElementById("agent-modal")?.addEventListener("click", (e) => {
     if (e.target.id === "agent-modal") e.currentTarget.classList.add("hidden");
+  });
+
+  document.querySelectorAll(".tbl-tab").forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll(".tbl-tab").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      const id = btn.dataset.table;
+      document.querySelectorAll(".data-table-wrap").forEach(w => w.classList.add("hidden"));
+      document.getElementById(`table-${id}`)?.classList.remove("hidden");
+    };
+  });
+
+  const depModal = document.getElementById("deposit-modal");
+  const depTarget = document.getElementById("deposit-target");
+  const depSym = document.getElementById("deposit-symbol");
+  const depSymLabel = document.getElementById("deposit-symbol-label");
+
+  function fillDepositSymbols() {
+    if (!depSym) return;
+    depSym.innerHTML = marketMeta.map(m => `<option value="${m.symbol}">${m.label}</option>`).join("");
+    depSym.value = activeSymbol;
+  }
+
+  document.getElementById("btn-deposit")?.addEventListener("click", () => {
+    fillDepositSymbols();
+    depModal?.classList.remove("hidden");
+  });
+  document.getElementById("deposit-modal-close")?.addEventListener("click", () => {
+    depModal?.classList.add("hidden");
+  });
+  depModal?.addEventListener("click", (e) => {
+    if (e.target.id === "deposit-modal") depModal.classList.add("hidden");
+  });
+  depTarget?.addEventListener("change", () => {
+    const one = depTarget.value === "symbol";
+    depSym?.classList.toggle("hidden", !one);
+    depSymLabel?.classList.toggle("hidden", !one);
+  });
+
+  document.getElementById("deposit-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const amount = Number(document.getElementById("deposit-amount")?.value);
+    const target = depTarget?.value || "split";
+    const symbol = target === "symbol" ? depSym?.value : null;
+    const res = await fetch("/api/deposit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ amount, target, symbol }),
+    });
+    const data = await res.json();
+    if (data.error) showToast("⚠ " + data.error);
+    else {
+      updateTotal(data.total);
+      depModal?.classList.add("hidden");
+      showToast(`💵 +$${amount} · портфель ${fmtMoney(data.total.total_value)}`);
+      await refreshStatus();
+      renderDepositsTable(data.deposits);
+    }
   });
 }
 
