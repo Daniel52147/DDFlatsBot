@@ -1,4 +1,4 @@
-"""Real-time BTC/USDT price feed with multi-source fallback."""
+"""Real-time crypto price feed with multi-source fallback (per symbol)."""
 
 from __future__ import annotations
 
@@ -24,10 +24,42 @@ logger = logging.getLogger(__name__)
 BINANCE_REST = "https://api.binance.com/api/v3"
 BINANCE_US_REST = "https://api.binance.us/api/v3"
 BINANCE_WS = "wss://stream.binance.com:9443/ws"
+BINANCE_US_WS = "wss://stream.binance.us:9443/ws"
 KRAKEN_REST = "https://api.kraken.com/0/public"
 KRAKEN_WS = "wss://ws.kraken.com"
 COINGECKO_REST = "https://api.coingecko.com/api/v3"
 BYBIT_REST = "https://api.bybit.com/v5/market"
+
+# Per-symbol aliases for sources that do not use Binance-style tickers.
+_ASSET: dict[str, dict[str, str]] = {
+    "BTCUSDT": {"kraken": "XBTUSDT", "kraken_ws": "XBT/USDT", "coingecko": "bitcoin"},
+    "ETHUSDT": {"kraken": "ETHUSDT", "kraken_ws": "ETH/USDT", "coingecko": "ethereum"},
+    "SOLUSDT": {"kraken": "SOLUSDT", "kraken_ws": "SOL/USDT", "coingecko": "solana"},
+    "BNBUSDT": {"kraken": "BNBUSDT", "kraken_ws": "BNB/USDT", "coingecko": "binancecoin"},
+}
+
+# api.binance.com returns HTTP 451 from some regions (e.g. Cursor Cloud VM).
+_binance_com_geo_blocked = False
+_binance_com_blocked_logged = False
+
+
+def _mark_binance_com_blocked() -> None:
+    global _binance_com_geo_blocked, _binance_com_blocked_logged
+    _binance_com_geo_blocked = True
+    if not _binance_com_blocked_logged:
+        _binance_com_blocked_logged = True
+        logger.info(
+            "api.binance.com geo-blocked (HTTP 451); skipping it — "
+            "using binance.us, bybit, kraken, coingecko"
+        )
+
+
+def _is_binance_geo_block(response: httpx.Response) -> bool:
+    return response.status_code == 451
+
+
+class BinanceGeoBlocked(Exception):
+    """api.binance.com unavailable in this region (HTTP 451)."""
 
 
 class PriceFeed:
@@ -38,6 +70,12 @@ class PriceFeed:
         self.source: str = "unknown"
         self._running = False
         self._callbacks: list[Callable[[float, float], Awaitable[None]]] = []
+
+    def _asset(self, key: str) -> str:
+        try:
+            return _ASSET[self.symbol][key]
+        except KeyError as e:
+            raise RuntimeError(f"unsupported symbol for {key}: {self.symbol}") from e
 
     def on_tick(self, cb: Callable[[float, float], Awaitable[None]]):
         self._callbacks.append(cb)
@@ -75,24 +113,49 @@ class PriceFeed:
     async def _fetch_price_once(self) -> float:
         async with self._client(timeout=15) as client:
             errors: list[str] = []
-            for name, fetcher in (
-                ("binance", self._fetch_binance),
-                ("binance.us", self._fetch_binance_us),
-                ("bybit", self._fetch_bybit),
-                ("kraken", self._fetch_kraken),
-                ("coingecko", self._fetch_coingecko),
-            ):
+            for name, fetcher in self._price_sources():
                 try:
                     price = await fetcher(client)
                     if price > 0:
                         return await self._set_price(price, name)
+                except BinanceGeoBlocked:
+                    errors.append(f"{name}: geo-blocked")
                 except Exception as e:
                     errors.append(f"{name}: {e}")
                     logger.warning("price source %s failed: %s", name, e)
         raise RuntimeError("All price sources failed: " + "; ".join(errors))
 
+    def _price_sources(self):
+        sources = [
+            ("binance", self._fetch_binance),
+            ("binance.us", self._fetch_binance_us),
+            ("bybit", self._fetch_bybit),
+            ("kraken", self._fetch_kraken),
+            ("coingecko", self._fetch_coingecko),
+        ]
+        if _binance_com_geo_blocked:
+            sources = [s for s in sources if s[0] != "binance"]
+        return sources
+
+    def _kline_sources(self):
+        sources = [
+            ("binance", self._klines_binance),
+            ("binance.us", self._klines_binance_us),
+            ("bybit", self._klines_bybit),
+            ("kraken", self._klines_kraken),
+            ("coingecko", self._klines_coingecko),
+        ]
+        if _binance_com_geo_blocked:
+            sources = [s for s in sources if s[0] != "binance"]
+        return sources
+
     async def _fetch_binance(self, client: httpx.AsyncClient) -> float:
+        if _binance_com_geo_blocked:
+            raise BinanceGeoBlocked()
         r = await client.get(f"{BINANCE_REST}/ticker/price", params={"symbol": self.symbol})
+        if _is_binance_geo_block(r):
+            _mark_binance_com_blocked()
+            raise BinanceGeoBlocked()
         r.raise_for_status()
         return float(r.json()["price"])
 
@@ -102,13 +165,14 @@ class PriceFeed:
         return float(r.json()["price"])
 
     async def _fetch_kraken(self, client: httpx.AsyncClient) -> float:
-        r = await client.get(f"{KRAKEN_REST}/Ticker", params={"pair": "XBTUSDT"})
+        pair = self._asset("kraken")
+        r = await client.get(f"{KRAKEN_REST}/Ticker", params={"pair": pair})
         r.raise_for_status()
         data = r.json()
         if data.get("error"):
             raise RuntimeError(data["error"])
-        pair = self._kraken_pair_key(data["result"])
-        return float(data["result"][pair]["c"][0])
+        pair_key = self._kraken_pair_key(data["result"])
+        return float(data["result"][pair_key]["c"][0])
 
     async def _fetch_bybit(self, client: httpx.AsyncClient) -> float:
         r = await client.get(
@@ -122,12 +186,13 @@ class PriceFeed:
         return float(data["result"]["list"][0]["lastPrice"])
 
     async def _fetch_coingecko(self, client: httpx.AsyncClient) -> float:
+        coin_id = self._asset("coingecko")
         r = await client.get(
             f"{COINGECKO_REST}/simple/price",
-            params={"ids": "bitcoin", "vs_currencies": "usd"},
+            params={"ids": coin_id, "vs_currencies": "usd"},
         )
         r.raise_for_status()
-        return float(r.json()["bitcoin"]["usd"])
+        return float(r.json()[coin_id]["usd"])
 
     @staticmethod
     def _kraken_pair_key(result: dict) -> str:
@@ -140,19 +205,15 @@ class PriceFeed:
         errors: list[str] = []
         for attempt in range(2):
             async with self._client(timeout=20) as client:
-                for name, fetcher in (
-                    ("binance", self._klines_binance),
-                    ("binance.us", self._klines_binance_us),
-                    ("bybit", self._klines_bybit),
-                    ("kraken", self._klines_kraken),
-                    ("coingecko", self._klines_coingecko),
-                ):
+                for name, fetcher in self._kline_sources():
                     try:
                         candles = await fetcher(client, interval, limit)
                         if candles:
                             self.source = name
                             logger.info("Loaded %s candles from %s", len(candles), name)
                             return candles
+                    except BinanceGeoBlocked:
+                        errors.append(f"{name}: geo-blocked")
                     except Exception as e:
                         errors.append(f"{name}: {e}")
                         logger.warning("kline source %s failed: %s", name, e)
@@ -199,10 +260,15 @@ class PriceFeed:
         return out
 
     async def _klines_binance(self, client: httpx.AsyncClient, interval: str, limit: int):
+        if _binance_com_geo_blocked:
+            raise BinanceGeoBlocked()
         r = await client.get(
             f"{BINANCE_REST}/klines",
             params={"symbol": self.symbol, "interval": interval, "limit": limit},
         )
+        if _is_binance_geo_block(r):
+            _mark_binance_com_blocked()
+            raise BinanceGeoBlocked()
         r.raise_for_status()
         return self._parse_binance_klines(r.json())
 
@@ -229,9 +295,10 @@ class PriceFeed:
 
     async def _klines_kraken(self, client: httpx.AsyncClient, interval: str, limit: int):
         kraken_interval = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}.get(interval, 1)
+        pair = self._asset("kraken")
         r = await client.get(
             f"{KRAKEN_REST}/OHLC",
-            params={"pair": "XBTUSDT", "interval": kraken_interval},
+            params={"pair": pair, "interval": kraken_interval},
         )
         r.raise_for_status()
         data = r.json()
@@ -280,9 +347,10 @@ class PriceFeed:
         return candles
 
     async def _klines_coingecko(self, client: httpx.AsyncClient, interval: str, limit: int):
+        coin_id = self._asset("coingecko")
         days = 1 if interval in ("1m", "5m") else 7
         r = await client.get(
-            f"{COINGECKO_REST}/coins/bitcoin/market_chart",
+            f"{COINGECKO_REST}/coins/{coin_id}/market_chart",
             params={"vs_currency": "usd", "days": str(days)},
         )
         r.raise_for_status()
@@ -329,7 +397,8 @@ class PriceFeed:
     async def _ws_binance(self):
         import websockets
         errors = []
-        for base in (BINANCE_WS, "wss://stream.binance.us:9443/ws"):
+        bases = [BINANCE_US_WS, BINANCE_WS] if _binance_com_geo_blocked else [BINANCE_WS, BINANCE_US_WS]
+        for base in bases:
             url = f"{base}/{self.symbol.lower()}@trade"
             try:
                 async with websockets.connect(url, ping_interval=20, ssl=ssl_context()) as ws:
@@ -341,16 +410,20 @@ class PriceFeed:
                         await self._notify(price, self.last_update)
                     return
             except Exception as e:
-                errors.append(str(e))
+                err = str(e)
+                if "451" in err or "Unavailable For Legal Reasons" in err:
+                    _mark_binance_com_blocked()
+                errors.append(err)
                 logger.debug("binance ws %s failed: %s", base, e)
         raise ConnectionError("; ".join(errors) or "binance ws unavailable")
 
     async def _ws_kraken(self):
         import websockets
+        pair = self._asset("kraken_ws")
         async with websockets.connect(KRAKEN_WS, ping_interval=20, ssl=ssl_context()) as ws:
             await ws.send(json.dumps({
                 "event": "subscribe",
-                "pair": ["XBT/USDT"],
+                "pair": [pair],
                 "subscription": {"name": "trade"},
             }))
             logger.info("Kraken WS connected")
