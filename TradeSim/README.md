@@ -14,11 +14,11 @@ Each market gets ~$1,667 virtual balance.
 ## Features
 
 - **Live data** — Binance / Bybit / CoinGecko fallback (no API key)
-- **6 parallel bots** — DCA + DIP + SPIKE (memecoins)
-- **Central brain** — 5 agents: Наставник, Новостник, Исследователь, Волатильность, Риск
-- **Learning** — SQLite logs trades, snapshots, auto-tuning
-- **Chat assistant** — Russian Q&A (`помощь`, `как дела?`, `что с DOGE?`)
-- **Web UI** — candlestick chart, portfolio grid, agent details
+- **6 parallel bots** — DCA + DIP + SPIKE + **TAKE-PROFIT** (partial sells on rallies)
+- **Persistence** — portfolio, trades, bot params survive server restart (SQLite)
+- **Central brain** — 5 agents with decision history
+- **Learning dashboard** — equity curve, per-market stats, auto-tuning log
+- **Chat assistant** — Russian Q&A
 
 ## Quick start
 
@@ -58,6 +58,8 @@ Or: `$env:TRADESIM_INSECURE_SSL="1"`
 | `GET /api/brain` | Central brain cycle |
 | `POST /api/assistant/chat` | Chat |
 | `GET /api/learning/summary` | DB learning stats |
+| `GET /api/learning/equity` | Portfolio equity curve |
+| `GET /api/brain/history` | Recent brain decisions |
 
 ## Stack
 

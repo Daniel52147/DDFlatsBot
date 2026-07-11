@@ -26,6 +26,9 @@ MARKETS = [
             "sma_period": 14,
             "spike_threshold_pct": 10.0,
             "spike_extra_amount": 35.0,
+            "take_profit_pct": 6.0,
+            "take_profit_fraction": 0.25,
+            "take_profit_cooldown_hours": 3,
         },
     },
     {
@@ -42,6 +45,9 @@ MARKETS = [
             "sma_period": 10,
             "spike_threshold_pct": 15.0,
             "spike_extra_amount": 40.0,
+            "take_profit_pct": 8.0,
+            "take_profit_fraction": 0.30,
+            "take_profit_cooldown_hours": 2,
         },
     },
 ]
@@ -61,6 +67,9 @@ STRATEGY = {
     "dip_threshold_pct": 3.0,
     "dip_extra_amount": 40.0,
     "sma_period": 20,
+    "take_profit_pct": 10.0,
+    "take_profit_fraction": 0.15,
+    "take_profit_cooldown_hours": 6,
 }
 
 CANDLE_INTERVAL = "1m"
@@ -73,4 +82,4 @@ PRICE_DECIMALS = {
     "BTC": 0, "ETH": 2, "SOL": 2, "BNB": 2, "DOGE": 4, "PEPE": 8,
 }
 
-APP_VERSION = 5
+APP_VERSION = 6

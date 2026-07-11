@@ -35,16 +35,63 @@ class MarketSession:
         self.learning_logger: LearningLogger | None = None
         self.last_tune_ts = 0.0
         self.last_snapshot_ts = 0.0
+        self._restored = False
 
     def set_params_bounded(self, updates: dict):
         merged = {**self.bot.get_params(), **updates}
         self.bot.update_params(self.optimizer.apply_params(merged))
+
+    async def restore_from_db(self) -> bool:
+        if not self.learning_logger:
+            return False
+        saved = await self.learning_logger.load_session(self.symbol)
+        if not saved:
+            return False
+        self.engine.restore(
+            quote=saved["quote"],
+            base=saved["base"],
+            trade_counter=saved["trade_counter"],
+            start_balance=saved["start_balance"],
+            start_ts=saved["start_ts"],
+            trades=saved.get("trades"),
+        )
+        self.bot.update_params(saved["bot_params"])
+        self.bot.last_dca_ts = saved.get("last_dca_ts", 0)
+        self.bot.last_take_profit_ts = saved.get("last_take_profit_ts", 0)
+        self.bot.enabled = saved.get("bot_enabled", True)
+        self.optimizer = StrategyOptimizer(
+            self.bot.get_params(),
+            bounds=StrategyOptimizer.BOUNDS_VOLATILE if self.volatile else StrategyOptimizer.BOUNDS,
+        )
+        self._restored = True
+        logger.info("[%s] restored portfolio $%.2f (%d trades)", self.symbol,
+                    self.engine.snapshot(self.feed.price or self.demo_price)["portfolio_value"],
+                    len(self.engine.trades))
+        return True
+
+    async def persist(self):
+        if not self.learning_logger:
+            return
+        price = self.feed.price or self.demo_price
+        await self.learning_logger.save_session(self.symbol, {
+            "quote": self.engine.position.quote,
+            "base": self.engine.position.base,
+            "trade_counter": len(self.engine.trades),
+            "start_balance": self.engine.start_balance,
+            "start_ts": self.engine.start_ts,
+            "bot_params": self.bot.get_params(),
+            "last_dca_ts": self.bot.last_dca_ts,
+            "last_take_profit_ts": self.bot.last_take_profit_ts,
+            "bot_enabled": self.bot.enabled,
+            "trades": self.engine.export_trades(),
+        })
 
     async def _log_trade(self, trade):
         if self.learning_logger:
             await self.learning_logger.log_trade(
                 trade, self.bot.get_params(), symbol=self.symbol,
             )
+        await self.persist()
 
     async def startup(self):
         try:
@@ -63,6 +110,9 @@ class MarketSession:
         if history:
             self.feed.price = history[-1]["close"]
             self.feed.last_update = time.time()
+
+        if self._restored:
+            return
 
         price = self.feed.price
         if price > 0:
@@ -126,6 +176,7 @@ class MarketSession:
                     await self.learning_logger.log_strategy_change(
                         new_params, reason, snap["pnl_pct"], symbol=self.symbol,
                     )
+                await self.persist()
                 msgs.append({
                     "type": "strategy_update",
                     "symbol": self.symbol,
@@ -143,6 +194,7 @@ class MarketSession:
             "label": self.label,
             "name": self.name,
             "volatile": self.volatile,
+            "restored": self._restored,
             "price": price,
             "portfolio": self.engine.snapshot(price),
             "strategy": self.bot.status(price, sma),

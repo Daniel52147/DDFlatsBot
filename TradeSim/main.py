@@ -102,7 +102,7 @@ async def run_session_loop(session: MarketSession):
 
 async def brain_loop():
     """Central brain thinks every 2 minutes — agents report, brain decides."""
-    await asyncio.sleep(15)  # wait for market data
+    await asyncio.sleep(15)
     while state["running"]:
         try:
             ctx = all_contexts()
@@ -110,11 +110,24 @@ async def brain_loop():
             cycle = await brain.think(ctx, total)
             state["brain_cycle"] = cycle
             brain.apply_decision(sessions, cycle["decision"])
+            await logger_db.log_brain_cycle(cycle["decision"], cycle["verdict"])
             await logger_db.log_assistant("brain", cycle["summary"])
             await broadcast({"type": "brain_update", "cycle": _brain_public(cycle)})
         except Exception as e:
             logger.warning("brain loop error: %s", e)
         await asyncio.sleep(120)
+
+
+async def snapshot_loop():
+    """Log total portfolio value every 5 minutes for equity curve."""
+    await asyncio.sleep(60)
+    while state["running"]:
+        try:
+            t = total_portfolio()
+            await logger_db.log_total_snapshot(t["total_value"], t["pnl_pct"])
+        except Exception as e:
+            logger.warning("snapshot loop error: %s", e)
+        await asyncio.sleep(300)
 
 
 def _market_meta() -> list[dict[str, Any]]:
@@ -157,6 +170,14 @@ def _bootstrap_payload() -> dict[str, Any]:
         "trades": _all_trades(),
         "chat": state["chat_history"][-1]["content"] if state.get("chat_history") else "",
     }
+
+
+async def _bootstrap_payload_async() -> dict[str, Any]:
+    payload = _bootstrap_payload()
+    payload["learning"] = await logger_db.performance_summary()
+    payload["equity"] = await logger_db.equity_curve(48)
+    payload["brain_history"] = await logger_db.brain_history(6)
+    return payload
 
 
 def _brain_public(cycle: dict) -> dict:
@@ -207,11 +228,14 @@ async def lifespan(app: FastAPI):
     for session in sessions.values():
         session.learning_logger = logger_db
     for session in sessions.values():
+        await session.restore_from_db()
+    for session in sessions.values():
         await session.startup()
 
     state["running"] = True
     tasks = [asyncio.create_task(run_session_loop(s)) for s in sessions.values()]
     tasks.append(asyncio.create_task(brain_loop()))
+    tasks.append(asyncio.create_task(snapshot_loop()))
 
     # First brain think
     cycle = await brain.think(all_contexts(), total_portfolio())
@@ -229,6 +253,7 @@ async def lifespan(app: FastAPI):
 
     state["running"] = False
     for s in sessions.values():
+        await s.persist()
         s.feed.stop()
     for t in tasks:
         t.cancel()
@@ -241,7 +266,7 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "web" / "static")), na
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    payload = _bootstrap_payload()
+    payload = await _bootstrap_payload_async()
     return templates.TemplateResponse(
         request,
         "index.html",
@@ -261,13 +286,22 @@ async def api_markets():
 
 @app.get("/api/bootstrap")
 async def api_bootstrap():
-    """Один запрос — все данные для UI."""
-    return _bootstrap_payload()
+    return await _bootstrap_payload_async()
 
 
 @app.get("/api/learning/summary")
 async def api_learning_summary():
     return await logger_db.performance_summary()
+
+
+@app.get("/api/learning/equity")
+async def api_equity(hours: int = 48):
+    return {"curve": await logger_db.equity_curve(hours)}
+
+
+@app.get("/api/brain/history")
+async def api_brain_history():
+    return {"history": await logger_db.brain_history(10)}
 
 
 @app.get("/api/ping")
@@ -336,14 +370,19 @@ async def toggle_bot(symbol: str = config.MARKETS[0]["symbol"]):
         return {"error": "unknown symbol"}
     s = sessions[symbol]
     s.bot.enabled = not s.bot.enabled
+    await s.persist()
     return {"symbol": symbol, "enabled": s.bot.enabled}
 
 
 @app.post("/api/reset")
 async def reset_portfolio():
+    await logger_db.clear_sessions()
     for s in sessions.values():
         s.engine.reset(config.BALANCE_PER_MARKET)
         s.bot.last_dca_ts = 0.0
+        s.bot.last_take_profit_ts = 0.0
+        s._restored = False
+        await s.persist()
     return {"total": total_portfolio()}
 
 

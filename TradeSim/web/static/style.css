@@ -77,8 +77,28 @@ header {
 
 .card h2 { font-size: 1rem; font-weight: 600; }
 
-#chart-wrap { position: relative; min-height: 420px; }
-#chart { height: 420px; width: 100%; }
+#chart-wrap { position: relative; min-height: 380px; }
+#chart { height: 380px; width: 100%; }
+.equity-section { margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--border); }
+.equity-header { margin-bottom: 0.25rem; }
+.equity-header h3 { font-size: 0.9rem; font-weight: 600; }
+.equity-header .muted { font-size: 0.75rem; color: var(--muted); }
+#equity-chart { height: 120px; width: 100%; }
+
+.learning-panel { font-size: 0.82rem; color: var(--muted); line-height: 1.5; }
+.learning-panel .lp-row { display: flex; justify-content: space-between; padding: 0.2rem 0; }
+.learning-panel .lp-label { color: var(--muted); }
+.learning-panel .lp-val { color: var(--text); font-weight: 600; }
+.learning-panel .lp-tune { margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--border); font-size: 0.78rem; }
+.learning-card { border-color: rgba(63, 185, 80, 0.35); }
+
+.brain-history { margin-top: 0.5rem; font-size: 0.75rem; color: var(--muted); }
+.brain-history li { padding: 0.2rem 0; list-style: none; }
+
+@media (max-width: 640px) {
+  #chart, #chart-wrap { min-height: 260px; height: 260px; }
+  #equity-chart { height: 100px; }
+}
 .chart-loading { color: var(--muted); padding: 2rem; text-align: center; }
 
 .js-error {
@@ -261,7 +281,6 @@ footer {
 
 @media (max-width: 640px) {
   header { position: sticky; top: 0; z-index: 100; background: var(--bg); }
-  #chart, #chart-wrap { min-height: 280px; height: 280px; }
   .portfolio-grid { grid-template-columns: repeat(3, 1fr); }
   .toast { left: 1rem; right: 1rem; max-width: none; }
 }

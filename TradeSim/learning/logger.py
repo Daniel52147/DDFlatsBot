@@ -61,6 +61,27 @@ class LearningLogger:
           ts REAL, role TEXT, content TEXT
         )
       """)
+      await db.execute("""
+        CREATE TABLE IF NOT EXISTS sessions (
+          symbol TEXT PRIMARY KEY,
+          quote REAL, base REAL, trade_counter INTEGER,
+          start_balance REAL, start_ts REAL,
+          bot_params TEXT, last_dca_ts REAL, last_take_profit_ts REAL,
+          bot_enabled INTEGER, trades_json TEXT, updated_ts REAL
+        )
+      """)
+      await db.execute("""
+        CREATE TABLE IF NOT EXISTS total_snapshots (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          ts REAL, total_value REAL, pnl_pct REAL
+        )
+      """)
+      await db.execute("""
+        CREATE TABLE IF NOT EXISTS brain_cycles (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          ts REAL, decision TEXT, verdict TEXT
+        )
+      """)
       await self._migrate(db)
       await db.commit()
 
@@ -152,6 +173,98 @@ class LearningLogger:
       db.row_factory = aiosqlite.Row
       cur = await db.execute(
         "SELECT * FROM assistant_messages ORDER BY ts DESC LIMIT ?", (limit,)
+      )
+      rows = await cur.fetchall()
+    return list(reversed([dict(r) for r in rows]))
+
+  async def save_session(self, symbol: str, data: dict[str, Any]):
+    async with aiosqlite.connect(self.db_path) as db:
+      await db.execute(
+        """INSERT INTO sessions
+           (symbol, quote, base, trade_counter, start_balance, start_ts,
+            bot_params, last_dca_ts, last_take_profit_ts, bot_enabled, trades_json, updated_ts)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+           ON CONFLICT(symbol) DO UPDATE SET
+             quote=excluded.quote, base=excluded.base, trade_counter=excluded.trade_counter,
+             start_balance=excluded.start_balance, start_ts=excluded.start_ts,
+             bot_params=excluded.bot_params, last_dca_ts=excluded.last_dca_ts,
+             last_take_profit_ts=excluded.last_take_profit_ts, bot_enabled=excluded.bot_enabled,
+             trades_json=excluded.trades_json, updated_ts=excluded.updated_ts""",
+        (
+          symbol, data["quote"], data["base"], data["trade_counter"],
+          data["start_balance"], data["start_ts"],
+          json.dumps(data["bot_params"]), data["last_dca_ts"], data["last_take_profit_ts"],
+          1 if data["bot_enabled"] else 0,
+          json.dumps(data.get("trades", [])),
+          time.time(),
+        ),
+      )
+      await db.commit()
+
+  async def load_session(self, symbol: str) -> dict[str, Any] | None:
+    async with aiosqlite.connect(self.db_path) as db:
+      db.row_factory = aiosqlite.Row
+      cur = await db.execute("SELECT * FROM sessions WHERE symbol = ?", (symbol,))
+      row = await cur.fetchone()
+    if not row:
+      return None
+    d = dict(row)
+    d["bot_params"] = json.loads(d["bot_params"] or "{}")
+    d["trades"] = json.loads(d["trades_json"] or "[]")
+    d["bot_enabled"] = bool(d["bot_enabled"])
+    return d
+
+  async def clear_sessions(self):
+    async with aiosqlite.connect(self.db_path) as db:
+      await db.execute("DELETE FROM sessions")
+      await db.commit()
+
+  async def log_total_snapshot(self, total_value: float, pnl_pct: float):
+    async with aiosqlite.connect(self.db_path) as db:
+      await db.execute(
+        "INSERT INTO total_snapshots (ts, total_value, pnl_pct) VALUES (?,?,?)",
+        (time.time(), total_value, pnl_pct),
+      )
+      await db.commit()
+
+  async def equity_curve(self, hours: int = 48) -> list[dict[str, Any]]:
+    since = time.time() - hours * 3600
+    async with aiosqlite.connect(self.db_path) as db:
+      db.row_factory = aiosqlite.Row
+      cur = await db.execute(
+        """SELECT ts, total_value, pnl_pct FROM total_snapshots
+           WHERE ts >= ? ORDER BY ts ASC""",
+        (since,),
+      )
+      rows = [dict(r) for r in await cur.fetchall()]
+    if rows:
+      return [{"time": int(r["ts"]), "value": r["total_value"], "pnl_pct": r["pnl_pct"]} for r in rows]
+    async with aiosqlite.connect(self.db_path) as db:
+      db.row_factory = aiosqlite.Row
+      cur = await db.execute(
+        """SELECT CAST(ts / 300 AS INT) * 300 as bucket,
+                  SUM(portfolio_value) as total_value
+           FROM snapshots WHERE ts >= ?
+           GROUP BY bucket ORDER BY bucket ASC""",
+        (since,),
+      )
+      rows = await cur.fetchall()
+    return [{"time": int(r["bucket"]), "value": round(r["total_value"], 2)} for r in rows]
+
+  async def log_brain_cycle(self, decision: str, verdict: str):
+    async with aiosqlite.connect(self.db_path) as db:
+      await db.execute(
+        "INSERT INTO brain_cycles (ts, decision, verdict) VALUES (?,?,?)",
+        (time.time(), decision, verdict),
+      )
+      await db.commit()
+
+  async def brain_history(self, limit: int = 8) -> list[dict[str, Any]]:
+    async with aiosqlite.connect(self.db_path) as db:
+      db.row_factory = aiosqlite.Row
+      cur = await db.execute(
+        "SELECT ts, decision, verdict FROM brain_cycles ORDER BY ts DESC LIMIT ?",
+        (limit,),
       )
       rows = await cur.fetchall()
     return list(reversed([dict(r) for r in rows]))

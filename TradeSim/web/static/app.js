@@ -1,4 +1,5 @@
 let chart, candleSeries, smaSeries;
+let equityChart, equitySeries;
 let lastCandles = [];
 let marketsData = {};
 let activeSymbol = "BTCUSDT";
@@ -89,6 +90,71 @@ function initChart() {
     if (chart && el) chart.applyOptions({ width: el.clientWidth || w });
   });
   return true;
+}
+
+function initEquityChart() {
+  const el = document.getElementById("equity-chart");
+  if (!el || typeof LightweightCharts === "undefined") return false;
+  equityChart = LightweightCharts.createChart(el, {
+    layout: { background: { color: "transparent" }, textColor: "#8b949e" },
+    grid: { vertLines: { visible: false }, horzLines: { color: "#21262d" } },
+    timeScale: { timeVisible: true, secondsVisible: false },
+    rightPriceScale: { borderVisible: false },
+    width: el.clientWidth || 400,
+    height: 120,
+  });
+  equitySeries = equityChart.addAreaSeries({
+    lineColor: "#58a6ff",
+    topColor: "rgba(88, 166, 255, 0.25)",
+    bottomColor: "rgba(88, 166, 255, 0.02)",
+    lineWidth: 2,
+  });
+  window.addEventListener("resize", () => {
+    if (equityChart && el) equityChart.applyOptions({ width: el.clientWidth || 400 });
+  });
+  return true;
+}
+
+function renderEquityCurve(points) {
+  if (!equitySeries || !points?.length) return;
+  const data = points.map(p => ({
+    time: p.time,
+    value: p.value,
+  }));
+  equitySeries.setData(data);
+  const last = points[points.length - 1];
+  const lbl = document.getElementById("equity-label");
+  if (lbl && last) {
+    lbl.textContent = `48ч · ${fmtMoney(last.value)} (${fmtPct(last.pnl_pct ?? 0)})`;
+  }
+}
+
+function renderLearningPanel(learning, brainHistory) {
+  const el = document.getElementById("learning-panel");
+  if (!el) return;
+  if (!learning) {
+    el.textContent = "Статистика появится после первых сделок.";
+    return;
+  }
+  const pm = learning.per_market || {};
+  const markets = Object.entries(pm).map(([s, c]) => `${labelFor(s)}:${c}`).join(" · ") || "—";
+  let tune = "";
+  if (learning.strategy_versions?.length) {
+    const t = learning.strategy_versions[0];
+    tune = `<div class="lp-tune">Последняя настройка [${t.symbol?.replace("USDT", "") || "?"}]: ${(t.reason || "").slice(0, 80)}…</div>`;
+  }
+  let bh = "";
+  if (brainHistory?.length) {
+    bh = `<ul class="brain-history">${brainHistory.slice(-4).map(h =>
+      `<li>${new Date(h.ts * 1000).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })} · ${h.decision}: ${(h.verdict || "").slice(0, 50)}</li>`
+    ).join("")}</ul>`;
+  }
+  el.innerHTML = `
+    <div class="lp-row"><span class="lp-label">Сделок в БД</span><span class="lp-val">${learning.trade_count || 0}</span></div>
+    <div class="lp-row"><span class="lp-label">По рынкам</span><span class="lp-val">${markets}</span></div>
+    <div class="lp-row"><span class="lp-label">Портфель</span><span class="lp-val">сохраняется ✓</span></div>
+    ${tune}${bh}
+  `;
 }
 
 function updateSmaLegend(period) {
@@ -204,13 +270,17 @@ function renderBotStatus(d) {
   if (p.spike_threshold_pct) {
     spike = `<p>SPIKE: +$${p.spike_extra_amount} при просадке ≥${p.spike_threshold_pct}%</p>`;
   }
+  let tp = "";
+  if (p.take_profit_pct) {
+    tp = `<p>TAKE-PROFIT: ${Math.round((p.take_profit_fraction || 0.15) * 100)}% позиции при +${p.take_profit_pct}% над SMA</p>`;
+  }
   el.innerHTML = `
-    <p>Рынок: <strong>${lbl}</strong>${vol} · ${st.enabled !== false ? "✅ активен" : "⏸ пауза"}</p>
+    <p>Рынок: <strong>${lbl}</strong>${vol}${d.restored ? " · 💾 восстановлен" : ""} · ${st.enabled !== false ? "✅ активен" : "⏸ пауза"}</p>
     <p>Цена: <strong>${fmtMoney(d.price, priceDecimals(lbl))}</strong></p>
     <p>Портфель: <strong>${fmtMoney(d.portfolio?.portfolio_value)}</strong> (${fmtPct(d.portfolio?.pnl_pct)})</p>
     <p>DCA: $${p.dca_amount ?? 25} / ${p.dca_interval_hours ?? 24}ч · DIP ${p.dip_threshold_pct ?? 3}%</p>
-    ${spike}
-    <p>SMA: <strong>${st.sma ? fmtMoney(st.sma, priceDecimals(lbl)) : "—"}</strong></p>
+    ${spike}${tp}
+    <p>SMA: <strong>${st.sma ? fmtMoney(st.sma, priceDecimals(lbl)) : "—"}</strong>${st.profit_pct > 0 ? ` · над SMA +${st.profit_pct}%` : st.dip_pct > 0 ? ` · ниже SMA ${st.dip_pct}%` : ""}</p>
   `;
   const btn = document.getElementById("btn-toggle");
   if (btn) btn.textContent = st.enabled !== false ? "Пауза" : "Старт";
@@ -375,7 +445,8 @@ function connectWs() {
         if (msg.symbol === activeSymbol) renderBotStatus(marketsData[msg.symbol]);
       }
       if (msg.type === "trade" && msg.trade) {
-        showToast(`💰 ${msg.label || labelFor(msg.symbol)}: ${msg.trade.reason}`);
+        const icon = msg.trade.side === "sell" ? "💵" : "💰";
+        showToast(`${icon} ${msg.label || labelFor(msg.symbol)}: ${msg.trade.reason}`);
       }
       if (msg.type === "trade") {
         renderAllTrades();
@@ -425,6 +496,8 @@ function applyBootstrap(data) {
   if (data.chat) renderChat([{ role: "assistant", content: data.chat }]);
   if (data.trades?.length) renderTradesList(data.trades);
   else renderAllTrades();
+  if (data.equity) renderEquityCurve(data.equity);
+  if (data.learning) renderLearningPanel(data.learning, data.brain_history);
   setLiveStatus(true);
   return Object.keys(marketsData).length > 0;
 }
@@ -553,14 +626,28 @@ function bindUi() {
   });
 }
 
+async function loadLearning() {
+  try {
+    const [sum, eq, bh] = await Promise.all([
+      fetch("/api/learning/summary").then(r => r.json()),
+      fetch("/api/learning/equity").then(r => r.json()),
+      fetch("/api/brain/history").then(r => r.json()),
+    ]);
+    renderLearningPanel(sum, bh.history);
+    if (eq.curve) renderEquityCurve(eq.curve);
+  } catch (_) {}
+}
+
 async function main() {
   try {
     bindUi();
     if (!initChart()) showError("График: проверь интернет, нажми Ctrl+F5");
+    initEquityChart();
     await loadInitial();
     connectWs();
     setInterval(refreshStatus, 5000);
     setInterval(loadBrain, 15000);
+    setInterval(loadLearning, 60000);
   } catch (e) {
     showError(e.message);
   }

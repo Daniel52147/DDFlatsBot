@@ -14,7 +14,7 @@ Products:
 - No build step (server-rendered Jinja2 + static JS/CSS). No lint config or automated test suite exists; use `python3 -m py_compile` for a quick syntax check.
 - SQLite DB (`TradeSim/data/tradesim.db`) is auto-created on startup; no DB server needed.
 - **Market data fallback** (`TradeSim/simulator/feed.py`): per-symbol `PriceFeed` tries sources in order — Binance REST/WS → Binance US → Bybit → Kraken → CoinGecko → REST poll → synthetic candles from last live price. No API keys.
-- **Learning**: trades, snapshots (every 5 min), and strategy changes persist to SQLite (`learning/logger.py`). `GET /api/learning/summary` for stats.
+- **Learning**: trades, snapshots (every 5 min), strategy changes, **portfolio state** (survives restart), equity curve, brain history → SQLite. `GET /api/learning/summary`, `/api/learning/equity`, `/api/brain/history`.
 - **Network gotcha (Cursor Cloud VM):** `api.binance.com` returns HTTP **451** (geo-block). The feed detects this once, logs a single info line, then skips `binance.com` for the rest of the session and prefers `api.binance.us`. This is expected and non-fatal.
 - **Windows SSL:** if `CERTIFICATE_VERIFY_FAILED`, install `certifi` (`pip install certifi`) or set `TRADESIM_INSECURE_SSL=1`. `simulator/ssl_util.py` auto-retries without verify after the first SSL failure.
 

@@ -125,3 +125,50 @@ class SimulatorEngine:
         self._trade_counter = 0
         self.start_balance = bal
         self.start_ts = time.time()
+
+    def restore(
+        self,
+        quote: float,
+        base: float,
+        trade_counter: int,
+        start_balance: float,
+        start_ts: float,
+        trades: list[dict] | None = None,
+    ):
+        self.position = Position(quote=quote, base=base)
+        self.start_balance = start_balance
+        self.start_ts = start_ts
+        self._trade_counter = trade_counter
+        self.trades.clear()
+        for row in trades or []:
+            self.trades.append(Trade(
+                id=row.get("id"),
+                ts=row["ts"],
+                side=row["side"],
+                price=row["price"],
+                amount_quote=row["amount_quote"],
+                amount_base=row["amount_base"],
+                fee=row.get("fee", 0),
+                reason=row["reason"],
+                balance_quote=row.get("balance_quote", 0),
+                balance_base=row.get("balance_base", 0),
+                portfolio_value=row.get("portfolio_value", 0),
+            ))
+
+    def export_trades(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "id": t.id,
+                "ts": t.ts,
+                "side": t.side,
+                "price": t.price,
+                "amount_quote": t.amount_quote,
+                "amount_base": t.amount_base,
+                "fee": t.fee,
+                "reason": t.reason,
+                "balance_quote": t.balance_quote,
+                "balance_base": t.balance_base,
+                "portfolio_value": t.portfolio_value,
+            }
+            for t in self.trades[-50:]
+        ]

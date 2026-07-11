@@ -143,8 +143,34 @@ class TradingAssistant:
         if any(w in msg for w in ("sma", "сма", "скользящ")):
             return (
                 "📘 SMA (Simple Moving Average) — средняя цена за N свечей.\n"
-                "Бот сравнивает текущую цену с SMA-20 (или 10–14 на волатильных).\n"
-                "Ниже SMA → возможен DIP. Сильно ниже → SPIKE на DOGE/PEPE."
+                "Бот сравнивает текущую цену с SMA.\n"
+                "Ниже SMA → DIP/SPIKE покупка. Выше SMA → TAKE-PROFIT (фиксация части прибыли)."
+            )
+
+        if any(w in msg for w in ("take", "profit", "фикса", "продаж", "продаёт")):
+            return (
+                "📘 TAKE-PROFIT — бот продаёт часть монет, когда цена сильно выше SMA.\n"
+                "Majors: ~10% над SMA, продаёт 15% позиции.\n"
+                "DOGE/PEPE: быстрее (6–8%), продаёт 25–30% — фиксирует прибыль на скачках.\n"
+                "Это paper trading — учимся входить и выходить."
+            )
+
+        if any(w in msg for w in ("кривая", "equity", "график портф", "история портф")):
+            return (
+                "📈 Кривая капитала — график общего портфеля во времени (панель «Обучение»).\n"
+                "Данные из SQLite каждые 5 минут. Спроси «статистика обучения» для цифр."
+            )
+
+        if any(w in msg for w in ("статистик", "база данных", "sqlite", "лог")):
+            total_trades = sum(c["trade_count"] for c in contexts)
+            sells = sum(1 for c in contexts for t in c.get("recent_trades", []) if t.get("side") == "sell")
+            return (
+                f"📊 Статистика обучения:\n"
+                f"• Сделок в памяти: {total_trades}\n"
+                f"• Рынков: {len(contexts)}\n"
+                f"• Портфель сохраняется в SQLite — перезапуск не сбрасывает прогресс\n"
+                f"• Автонастройка после 5+ сделок если отстаём от «держать»\n"
+                f"Сброс только кнопкой «Сбросить всё»."
             )
 
         if any(w in msg for w in ("как дела", "как идут", "статус", "обстановка", "сводка")):
@@ -231,6 +257,13 @@ class TradingAssistant:
                     f"SPIKE: +${st['params'].get('spike_extra_amount', 0)} "
                     f"при просадке ≥{st['params']['spike_threshold_pct']}%"
                 )
+            if st["params"].get("take_profit_pct"):
+                lines.append(
+                    f"TAKE-PROFIT: продажа {int(st['params'].get('take_profit_fraction', 0.15) * 100)}% "
+                    f"при +{st['params']['take_profit_pct']}% над SMA"
+                )
+            if st.get("profit_pct") is not None and st["profit_pct"] > 0:
+                lines.append(f"Сейчас над SMA: +{st['profit_pct']}%")
             lines.append(f"Сделок: {coin['trade_count']} · источник: {coin.get('feed_source', '?')}")
             if st.get("next_dca_in_hours") is not None:
                 lines.append(f"След. DCA: ~{st['next_dca_in_hours']} ч.")

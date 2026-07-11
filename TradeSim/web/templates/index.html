@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TradeSim — 6 рынков</title>
-  <link rel="stylesheet" href="/static/style.css?v=5" />
+  <link rel="stylesheet" href="/static/style.css?v=6" />
   <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -46,6 +46,13 @@
         <p id="chart-fallback" class="chart-loading">Загрузка графика...</p>
         <div id="chart"></div>
       </div>
+      <div class="equity-section">
+        <div class="card-header equity-header">
+          <h3>📈 Кривая капитала</h3>
+          <span class="muted" id="equity-label">48ч · paper $10k</span>
+        </div>
+        <div id="equity-chart"></div>
+      </div>
     </section>
 
     <aside class="sidebar">
@@ -61,9 +68,14 @@
         </div>
       </section>
 
+      <section class="card learning-card">
+        <div class="card-header"><h2>🎓 Обучение</h2></div>
+        <div id="learning-panel" class="learning-panel">Загрузка статистики...</div>
+      </section>
+
       <section class="card">
         <div class="card-header">
-          <h2>🤖 Бот DCA + DIP</h2>
+          <h2>🤖 Бот DCA + DIP + TP</h2>
           <button id="btn-toggle" class="btn small">Пауза</button>
         </div>
         <div id="bot-status" class="bot-status"><p>Загрузка...</p></div>
@@ -103,6 +115,6 @@
   </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=10"></script>
+  <script src="/static/app.js?v=11"></script>
 </body>
 </html>
