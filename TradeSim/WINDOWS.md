@@ -19,7 +19,15 @@ python -m pip install -r requirements.txt
 ## 3. API ключи Binance TESTNET
 
 1. Зайди на https://testnet.binance.vision/ → Log In → **Generate HMAC_SHA256 Key**
-2. Двойной клик **setup-env.bat** (или `copy .env.example .env` → `notepad .env`)
+2. В PowerShell из папки TradeSim:
+
+```powershell
+.\setup-env.bat
+```
+
+(В PowerShell обязательно `.\` перед именем файла — иначе «не распознано».)
+
+Или вручную: `copy .env.example .env` → `notepad .env`
 3. Вставь ключи:
 
 ```env

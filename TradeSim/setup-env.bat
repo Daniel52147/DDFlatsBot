@@ -18,4 +18,5 @@ echo   EXCHANGE_TESTNET=true
 echo.
 notepad .env
 echo.
-echo Готово. Запусти start.bat
+echo Готово. Запусти:  .\start.bat
+echo (в PowerShell всегда .\ перед .bat файлами)
