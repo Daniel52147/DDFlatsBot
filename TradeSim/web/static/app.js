@@ -503,7 +503,7 @@ async function checkServerAndSync() {
     if (ping.market_meta?.length) applyMarketMeta(ping.market_meta);
     seedMarketsFromMeta();
     if (ping.total) updateTotal(ping.total);
-    const expectedVer = 28;
+    const expectedVer = 29;
     if (ping.version && ping.version < expectedVer) {
       showError(`Старый сервер v${ping.version} на порту 8765. Ctrl+C → python main.py → Ctrl+Shift+R`);
     }
@@ -904,16 +904,31 @@ function renderTabs() {
   renderPortfolioGrid();
 }
 
-async function loadCandlesForSymbol(symbol) {
+async function loadCandlesForSymbol(symbol, force = false) {
   try {
-    const res = await fetch(`/api/candles?symbol=${symbol}&limit=200`);
+    const d = marketsData[symbol];
+    const lag = d?.candle_lag_sec ?? 0;
+    const refresh = force || lag > 120 || !(d?.candles?.length >= 40);
+    const url = `/api/candles?symbol=${symbol}&limit=200${refresh ? "&refresh=1" : ""}`;
+    const res = await fetch(url);
     const data = await res.json();
     if (data.candles?.length) {
-      if (marketsData[symbol]) marketsData[symbol].candles = data.candles;
+      if (marketsData[symbol]) {
+        marketsData[symbol].candles = data.candles;
+        marketsData[symbol].candle_lag_sec = data.candle_lag_sec;
+        marketsData[symbol].candles_ready = data.candles_ready;
+      }
       return data.candles;
     }
   } catch (_) {}
   return marketsData[symbol]?.candles || [];
+}
+
+function formatCandleLag(sec) {
+  if (sec == null || sec > 3600) return "";
+  if (sec <= 90) return " · свечи актуальны";
+  const mins = Math.round(sec / 60);
+  return ` · ⚠️ отставание ~${mins} мин`;
 }
 
 async function switchMarket(symbol) {
@@ -923,10 +938,7 @@ async function switchMarket(symbol) {
     document.getElementById("bot-status").innerHTML = "<p>Загрузка данных с сервера...</p>";
     return;
   }
-  lastCandles = d.candles || [];
-  if (lastCandles.length < 40) {
-    lastCandles = await loadCandlesForSymbol(symbol);
-  }
+  lastCandles = await loadCandlesForSymbol(symbol, true);
   const period = smaPeriod(symbol);
   if (candleSeries && lastCandles.length) {
     candleSeries.setData(lastCandles);
@@ -940,7 +952,7 @@ async function switchMarket(symbol) {
     if (chart) chart.timeScale().fitContent();
   }
   const title = document.getElementById("chart-title");
-  if (title) title.textContent = `${d.label || labelFor(symbol)}/USDT — свечи (${lastCandles.length})`;
+  if (title) title.textContent = `${d.label || labelFor(symbol)}/USDT — свечи (${lastCandles.length})${formatCandleLag(marketsData[symbol]?.candle_lag_sec)}`;
   renderBotStatus(d);
   renderTabs();
   loadExchangePanel();
@@ -1273,6 +1285,18 @@ function connectWs() {
         if (msg.cycle.verdict) {
           pushActivity(`Мозг: ${msg.cycle.verdict.slice(0, 80)}`);
         }
+      }
+      if (msg.type === "candles_refreshed" && msg.symbols?.length) {
+        if (msg.symbols.includes(activeSymbol)) {
+          loadCandlesForSymbol(activeSymbol, true).then(c => {
+            if (candleSeries && c?.length) {
+              lastCandles = c;
+              candleSeries.setData(c);
+              updateSMA(c, smaPeriod(activeSymbol));
+            }
+          });
+        }
+        showToast(`📊 Свечи обновлены (${msg.symbols.length} рынков)`);
       }
       if (msg.type === "tick" && msg.symbol) {
         mergeMarket(msg.symbol, {

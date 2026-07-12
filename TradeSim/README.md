@@ -1,6 +1,21 @@
-# TradeSim v28
+# TradeSim v29
 
-**Paper + testnet** with **PnL dashboard**, **strategy switch tracking**, and **dynamic capital allocation**.
+**Smart candle sync** — charts stay current after server restart; gap-fill from Binance.
+
+## v29 — Candle sync (fix lag after restart)
+
+- **Parallel klines load** — all 17 markets fetch candles in parallel on startup (not sequential)
+- **Gap-fill** — if last candle is >2 min behind clock, fetches missing candles via `startTime` API
+- **Candle health loop** — every 60s detects stale charts and auto-refreshes
+- **Tick timestamps** — live ticks use wall-clock time (not stale `last_update`)
+- **UI** — always refreshes chart on market switch; shows lag warning in title
+- **`GET /api/candles?refresh=1`** — force backfill + returns `candle_lag_sec`
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `CANDLE_MAX_LAG_SEC` | 120 | Trigger gap-fill if older |
+| `CANDLE_STARTUP_LIMIT` | 500 | Candles loaded on startup |
+| `CANDLE_HEALTH_SEC` | 60 | Stale check interval |
 
 ## v28 — Allocator & testnet PnL
 

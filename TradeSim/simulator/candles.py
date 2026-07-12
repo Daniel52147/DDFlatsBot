@@ -6,6 +6,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from simulator.candle_sync import candle_lag_sec, merge_candles, normalize_candles
+
 INTERVAL_SECONDS = {
   "1m": 60,
   "5m": 300,
@@ -70,6 +72,7 @@ class CandleBuilder:
     return None
 
   def load_history(self, candles: list[dict]):
+    rows = normalize_candles(candles)
     self.candles = [
       Candle(
         time=c["time"],
@@ -79,10 +82,10 @@ class CandleBuilder:
         close=c["close"],
         volume=c.get("volume", 0),
       )
-      for c in candles
+      for c in rows
     ]
     if self.candles:
-      last = self.candles.pop()  # last bucket is "open", keep in _current only
+      last = self.candles.pop()
       self._current = Candle(
         time=last.time,
         open=last.open,
@@ -91,6 +94,25 @@ class CandleBuilder:
         close=last.close,
         volume=last.volume,
       )
+    else:
+      self._current = None
+
+  def merge_history(self, candles: list[dict]) -> int:
+    """Append/replace candles from API backfill. Returns rows merged."""
+    existing = [c.to_dict() for c in self.candles]
+    if self._current:
+      existing.append(self._current.to_dict())
+    merged = merge_candles(existing, candles)
+    before = len(self.all_candles())
+    self.load_history(merged)
+    return max(0, len(self.all_candles()) - before)
+
+  def lag_sec(self) -> float:
+    return candle_lag_sec(self.all_candles(), self.interval)
+
+  def last_time(self) -> int | None:
+    all_c = self.all_candles()
+    return int(all_c[-1]["time"]) if all_c else None
 
   def current_candle(self) -> dict[str, Any] | None:
     return self._current.to_dict() if self._current else None

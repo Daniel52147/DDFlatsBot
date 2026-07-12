@@ -98,7 +98,7 @@ class FeedHub:
         feed = feeds[0] if feeds else None
         if feed:
             await feed._set_price(price, source)
-            await feed._notify(price, feed.last_update)
+            await feed._notify(price, time.time())
 
     async def _rest_poll_all(self) -> None:
         """Poll each symbol via PriceFeed REST chain (bybit/kraken/coingecko fallback)."""
@@ -167,13 +167,49 @@ async def cached_klines(
     feed,
     interval: str = "1m",
     limit: int = 200,
+    *,
+    force: bool = False,
 ) -> list[dict]:
     """Shared klines cache — avoids 17 parallel identical REST storms on startup."""
     key = (feed.symbol.upper(), interval, limit)
     now = time.time()
     hit = _klines_cache.get(key)
-    if hit and now - hit[0] < _KLINES_TTL:
+    if not force and hit and now - hit[0] < _KLINES_TTL:
         return hit[1]
     candles = await feed.fetch_klines(interval=interval, limit=limit)
     _klines_cache[key] = (now, candles)
     return candles
+
+
+def invalidate_klines_cache(symbol: str | None = None) -> None:
+    if symbol is None:
+        _klines_cache.clear()
+        return
+    sym = symbol.upper()
+    for key in list(_klines_cache):
+        if key[0] == sym:
+            del _klines_cache[key]
+
+
+async def fetch_all_klines_parallel(
+    sessions: dict,
+    interval: str = "1m",
+    limit: int = 200,
+) -> dict[str, list[dict]]:
+    """Warm klines for every market in parallel (startup)."""
+    invalidate_klines_cache()
+
+    async def one(sym: str, session) -> tuple[str, list[dict]]:
+        try:
+            rows = await cached_klines(session.feed, interval=interval, limit=limit, force=True)
+            return sym, rows
+        except Exception as e:
+            logger.warning("[%s] parallel klines failed: %s", sym, e)
+            price = session.feed.price or session.demo_price
+            return sym, session.feed._synthetic_candles(price, limit)
+
+    results = await asyncio.gather(
+        *[one(sym, s) for sym, s in sessions.items()],
+        return_exceptions=False,
+    )
+    return dict(results)

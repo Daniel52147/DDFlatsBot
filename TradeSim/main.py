@@ -185,7 +185,7 @@ def _learning_honesty(stats: dict) -> dict[str, Any]:
         "version": config.APP_VERSION,
         "markets_configured": len(config.MARKETS),
         "markets_active": len(sessions),
-        "project_readiness": "v28 — testnet PnL, исходы смен стратегий, аллокатор капитала",
+        "project_readiness": "v29 — синхронизация свечей после рестарта, gap-fill, умный feed",
         "really_learns": True,
         "learning_kind": "эвристики + статистика (не нейросеть)",
         "what_is_real": [
@@ -263,8 +263,9 @@ async def run_session_loop(session: MarketSession):
 
     session.feed.on_tick(on_tick)
     try:
-        await session.feed.fetch_price()
-        session.candles.add_tick(session.feed.price, session.feed.last_update)
+        if session._candles_ready:
+            await session.feed.fetch_price()
+            await on_tick(session.feed.price, time.time())
     except Exception as e:
         logger.warning("[%s] initial price: %s", session.symbol, e)
 
@@ -278,7 +279,7 @@ async def run_session_loop(session: MarketSession):
             if not feed_hub and time.time() - session.feed.last_update > 2:
                 try:
                     p = await session.feed.fetch_price()
-                    await on_tick(p, session.feed.last_update)
+                    await on_tick(p, time.time())
                 except Exception as e:
                     logger.warning("[%s] poll failed: %s", session.symbol, e)
     finally:
@@ -380,6 +381,31 @@ async def shadow_eval_loop():
         except Exception as e:
             logger.warning("shadow eval error: %s", e)
         await asyncio.sleep(config.SHADOW_EVAL_SEC)
+
+
+async def candle_health_loop():
+    """Detect stale candles and backfill gaps (e.g. after long downtime)."""
+    await asyncio.sleep(90)
+    while state["running"]:
+        try:
+            stale = []
+            for sym, session in sessions.items():
+                lag = session.candles.lag_sec()
+                if not session._candles_ready or lag > config.CANDLE_MAX_LAG_SEC:
+                    stale.append((sym, lag))
+            if stale:
+                logger.info("Candle health: refreshing %d markets (max lag %.0fs)", len(stale), max(l for _, l in stale))
+                await asyncio.gather(
+                    *[sessions[sym].refresh_candles(force=True) for sym, _ in stale],
+                    return_exceptions=True,
+                )
+                await broadcast({
+                    "type": "candles_refreshed",
+                    "symbols": [s for s, _ in stale],
+                })
+        except Exception as e:
+            logger.warning("candle health error: %s", e)
+        await asyncio.sleep(config.CANDLE_HEALTH_SEC)
 
 
 async def snapshot_loop():
@@ -666,6 +692,23 @@ async def lifespan(app: FastAPI):
         await session.restore_from_db()
 
     state["running"] = True
+
+    async def parallel_market_startup():
+        from simulator.feed_hub import fetch_all_klines_parallel
+
+        try:
+            await fetch_all_klines_parallel(sessions, config.CANDLE_INTERVAL, config.CANDLE_STARTUP_LIMIT)
+        except Exception as e:
+            logger.warning("parallel klines warmup: %s", e)
+        await asyncio.gather(
+            *[s.startup() for s in sessions.values()],
+            return_exceptions=True,
+        )
+        ready = sum(1 for s in sessions.values() if s._candles_ready)
+        logger.info("Candles ready: %d/%d markets", ready, len(sessions))
+
+    asyncio.create_task(parallel_market_startup())
+
     tasks: list[asyncio.Task] = []
     tasks.append(feed_hub.start())
     for s in sessions.values():
@@ -674,15 +717,8 @@ async def lifespan(app: FastAPI):
     tasks.append(asyncio.create_task(brain_loop()))
     tasks.append(asyncio.create_task(shadow_eval_loop()))
     tasks.append(asyncio.create_task(snapshot_loop()))
+    tasks.append(asyncio.create_task(candle_health_loop()))
 
-    async def deferred_market_startup():
-        for session in sessions.values():
-            try:
-                await session.startup()
-            except Exception:
-                logger.exception("[%s] startup failed", session.symbol)
-
-    tasks.append(asyncio.create_task(deferred_market_startup()))
     logger.info(
         "TradeSim v%s HTTP ready — загрузка свечей в фоне — http://127.0.0.1:8765",
         config.APP_VERSION,
@@ -1060,18 +1096,37 @@ async def api_all_trades(symbol: str | None = None, limit: int = 200):
 
 
 @app.get("/api/candles")
-async def api_candles(symbol: str, limit: int = 200):
-    """Historical OHLC for chart — refreshes sparse markets."""
+async def api_candles(symbol: str, limit: int = 200, refresh: bool = False):
+    """Historical OHLC for chart — auto backfill if lagging."""
     if symbol not in sessions:
         return {"error": "unknown symbol"}
     s = sessions[symbol]
-    lim = min(max(limit, 10), 500)
-    try:
-        candles = await s.feed.fetch_klines(interval=config.CANDLE_INTERVAL, limit=lim)
-    except Exception as e:
-        logger.warning("[%s] candles fetch: %s", symbol, e)
-        candles = s.candles.all_candles()[-lim:]
-    return {"symbol": symbol, "label": s.label, "candles": candles, "count": len(candles)}
+    lim = min(max(limit, 10), config.CANDLE_STARTUP_LIMIT)
+    lag = s.candles.lag_sec()
+    if refresh or not s._candles_ready or lag > config.CANDLE_MAX_LAG_SEC:
+        try:
+            info = await s.refresh_candles(force=refresh or lag > config.CANDLE_MAX_LAG_SEC)
+            lag = info.get("lag_sec", lag)
+        except Exception as e:
+            logger.warning("[%s] candle refresh: %s", symbol, e)
+    candles = s.candles.all_candles()[-lim:]
+    if len(candles) < 30:
+        try:
+            fetched = await s.feed.fetch_klines(interval=config.CANDLE_INTERVAL, limit=lim)
+            s.candles.load_history(fetched)
+            candles = s.candles.all_candles()[-lim:]
+            lag = s.candles.lag_sec()
+        except Exception as e:
+            logger.warning("[%s] candles fetch fallback: %s", symbol, e)
+    return {
+        "symbol": symbol,
+        "label": s.label,
+        "candles": candles,
+        "count": len(candles),
+        "candle_lag_sec": round(lag, 1),
+        "candles_ready": s._candles_ready,
+        "server_time": int(time.time()),
+    }
 
 
 @app.post("/api/backtest")

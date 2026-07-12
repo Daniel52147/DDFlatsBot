@@ -48,6 +48,7 @@ class MarketSession:
         self.last_snapshot_ts = 0.0
         self._trades_at_last_tune = 0
         self._restored = False
+        self._candles_ready = False
         self.on_after_trade = None
 
     def set_params_bounded(self, updates: dict):
@@ -174,12 +175,58 @@ class MarketSession:
             except Exception:
                 logger.exception("[%s] on_after_trade failed", self.symbol)
 
+    async def refresh_candles(self, force: bool = False) -> dict[str, Any]:
+        """Reload klines from exchange; backfill gap if chart lags behind clock."""
+        from simulator.candle_sync import gap_start_ts, needs_backfill
+        from simulator.feed_hub import cached_klines, invalidate_klines_cache
+
+        try:
+            price = await self.feed.fetch_price()
+        except Exception:
+            price = self.feed.price or self.demo_price
+
+        max_lag = config.CANDLE_MAX_LAG_SEC
+        existing = self.candles.all_candles()
+        lag = self.candles.lag_sec()
+
+        if force or not existing or needs_backfill(existing, config.CANDLE_INTERVAL, max_lag):
+            invalidate_klines_cache(self.symbol)
+            limit = config.CANDLE_STARTUP_LIMIT
+            history = await cached_klines(
+                self.feed, interval=config.CANDLE_INTERVAL, limit=limit, force=True,
+            )
+            self.candles.load_history(history)
+            lag = self.candles.lag_sec()
+
+        if needs_backfill(self.candles.all_candles(), config.CANDLE_INTERVAL, max_lag):
+            since = gap_start_ts(self.candles.all_candles(), config.CANDLE_INTERVAL)
+            if since:
+                gap_rows = await self.feed.fetch_klines_since(
+                    interval=config.CANDLE_INTERVAL,
+                    since_ts=since,
+                    limit=config.CANDLE_GAP_FETCH_LIMIT,
+                )
+                if gap_rows:
+                    merged = self.candles.merge_history(gap_rows)
+                    logger.info("[%s] candle gap fill: +%d rows since %s", self.label, merged, since)
+            lag = self.candles.lag_sec()
+
+        if price > 0:
+            self.feed.price = price
+            self.feed.last_update = time.time()
+            self.engine.note_price(price)
+            self.candles.add_tick(price, time.time())
+
+        self._candles_ready = True
+        if lag > max_lag:
+            logger.warning("[%s] candles still lag %.0fs (last %s)", self.label, lag, self.candles.last_time())
+        return {"lag_sec": round(lag, 1), "count": len(self.candles.all_candles()), "ready": True}
+
     async def startup(self):
         try:
-            from simulator.feed_hub import cached_klines
-            history = await cached_klines(self.feed, interval=config.CANDLE_INTERVAL, limit=200)
+            await self.refresh_candles(force=True)
         except Exception as e:
-            logger.error("[%s] klines failed: %s", self.symbol, e)
+            logger.error("[%s] candle refresh failed: %s", self.symbol, e)
             try:
                 price = await self.feed.fetch_price()
             except Exception:
@@ -187,12 +234,10 @@ class MarketSession:
                 self.feed.price = price
                 self.feed.last_update = time.time()
                 self.feed.source = "demo-fallback"
-            history = self.feed._synthetic_candles(price, 100)
-        self.candles.load_history(history)
-        if history:
-            self.feed.price = history[-1]["close"]
-            self.feed.last_update = time.time()
-            self.engine.note_price(self.feed.price)
+            self.candles.load_history(self.feed._synthetic_candles(price, 100))
+            self._candles_ready = True
+            if price > 0:
+                self.engine.note_price(price)
 
         if self._restored:
             return
@@ -223,8 +268,11 @@ class MarketSession:
 
     async def on_tick(self, price: float, ts: float) -> list[dict[str, Any]]:
         msgs: list[dict[str, Any]] = []
+        if not self._candles_ready:
+            return msgs
+        tick_ts = time.time()
         self.engine.note_price(price)
-        closed = self.candles.add_tick(price, ts)
+        closed = self.candles.add_tick(price, tick_ts)
         sma_period = int(self.bot.params.get("sma_period", 20))
         sma = self.candles.sma(sma_period)
 
@@ -314,6 +362,8 @@ class MarketSession:
             "portfolio": self.engine.snapshot(price),
             "strategy": self.bot.status(price, sma),
             "candles": self.candles.all_candles()[-200:],
+            "candle_lag_sec": round(self.candles.lag_sec(), 1),
+            "candles_ready": self._candles_ready,
             "source": self.feed.source,
             "trades": [
                 {

@@ -256,6 +256,67 @@ class PriceFeed:
         except Exception as e:
             raise RuntimeError("All kline sources failed: " + "; ".join(errors)) from e
 
+    async def fetch_klines_since(
+        self,
+        interval: str = "1m",
+        since_ts: int | None = None,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        """Fetch candles from since_ts (seconds) — fills gaps after downtime."""
+        if since_ts is None:
+            return await self.fetch_klines(interval=interval, limit=limit)
+        errors: list[str] = []
+        since_ms = int(since_ts) * 1000
+        for attempt in range(2):
+            async with self._client(timeout=25) as client:
+                if not _binance_com_geo_blocked:
+                    try:
+                        r = await client.get(
+                            f"{BINANCE_REST}/klines",
+                            params={
+                                "symbol": self.symbol,
+                                "interval": interval,
+                                "startTime": since_ms,
+                                "limit": min(limit, 1000),
+                            },
+                        )
+                        if _is_binance_geo_block(r):
+                            _mark_binance_com_blocked()
+                        else:
+                            r.raise_for_status()
+                            candles = self._parse_binance_klines(r.json())
+                            if candles:
+                                self.source = "binance-gap"
+                                return candles
+                    except BinanceGeoBlocked:
+                        errors.append("binance: geo-blocked")
+                    except Exception as e:
+                        errors.append(f"binance: {e}")
+                try:
+                    r = await client.get(
+                        f"{BINANCE_US_REST}/klines",
+                        params={
+                            "symbol": self.symbol,
+                            "interval": interval,
+                            "startTime": since_ms,
+                            "limit": min(limit, 1000),
+                        },
+                    )
+                    r.raise_for_status()
+                    candles = self._parse_binance_klines(r.json())
+                    if candles:
+                        self.source = "binance.us-gap"
+                        return candles
+                except Exception as e:
+                    errors.append(f"binance.us: {e}")
+            if attempt == 0 and not use_insecure_ssl() and is_ssl_verify_error("; ".join(errors)):
+                enable_insecure_ssl()
+                errors.clear()
+                continue
+            break
+        full = await self.fetch_klines(interval=interval, limit=limit)
+        return [c for c in full if c["time"] >= since_ts]
+
     def _synthetic_candles(self, price: float, limit: int) -> list[dict[str, Any]]:
         now = int(time.time())
         step = 60
