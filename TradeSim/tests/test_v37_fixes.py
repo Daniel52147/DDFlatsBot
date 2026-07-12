@@ -9,7 +9,7 @@ from simulator.portfolio_benchmark import hold_anchor_price, portfolio_benchmark
 
 
 class TestPortfolioBenchmark(unittest.TestCase):
-    def test_candle_anchor_when_no_trades(self):
+    def test_lifetime_anchor_when_no_trades(self):
         session = MagicMock()
         session.feed.price = 100.0
         session.demo_price = 100.0
@@ -17,8 +17,8 @@ class TestPortfolioBenchmark(unittest.TestCase):
         session.engine.start_price = 200.0
         session.candles.all_candles.return_value = [{"close": 90.0, "time": 1}]
         price, anchor = hold_anchor_price(session)
-        self.assertEqual(anchor, "candle_anchor")
-        self.assertEqual(price, 90.0)
+        self.assertEqual(anchor, "lifetime_anchor")
+        self.assertEqual(price, 200.0)
 
     def test_misleading_flag_when_cash_and_high_vs_hold(self):
         sessions = {}

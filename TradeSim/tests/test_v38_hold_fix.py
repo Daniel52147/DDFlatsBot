@@ -1,4 +1,4 @@
-"""v38 — candle-based hold anchor fixes inflated vs Hold."""
+"""v38 — lifetime hold anchor (updated v41)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from simulator.portfolio_benchmark import hold_anchor_price, portfolio_benchmark
 
 
 class TestHoldAnchorV38(unittest.TestCase):
-    def test_prefers_candle_over_stale_start_price(self):
+    def test_prefers_lifetime_start_over_candle(self):
         session = MagicMock()
         session.feed.price = 100.0
         session.demo_price = 100.0
@@ -19,15 +19,15 @@ class TestHoldAnchorV38(unittest.TestCase):
         session.engine.trades.append(MagicMock(side="buy", price=95.0, ts=1.0))
         session.candles.all_candles.return_value = [{"close": 98.0, "time": 1}]
         price, anchor = hold_anchor_price(session)
-        self.assertEqual(anchor, "candle_anchor")
-        self.assertEqual(price, 98.0)
+        self.assertEqual(anchor, "first_buy_anchor")
+        self.assertEqual(price, 95.0)
 
     def test_sync_updates_engine_snapshot(self):
         session = MagicMock()
         session.feed.price = 100.0
         session.demo_price = 100.0
         session.engine = SimulatorEngine(initial_balance=1000)
-        session.engine.start_price = 250.0
+        session.engine.start_price = 100.0
         session.engine.trades = []
         session.candles.all_candles.return_value = [{"close": 100.0, "time": 1}]
         sync_session_hold_benchmark(session)
@@ -41,7 +41,7 @@ class TestHoldAnchorV38(unittest.TestCase):
             session.feed.price = 100.0
             session.demo_price = 100.0
             session.engine = SimulatorEngine(initial_balance=5000)
-            session.engine.start_price = 500.0
+            session.engine.start_price = 100.0
             session.engine.trades = []
             session.candles.all_candles.return_value = [{"close": 100.0, "time": 1}]
             sessions[symbol] = session

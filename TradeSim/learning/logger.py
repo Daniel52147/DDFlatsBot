@@ -42,6 +42,8 @@ class LearningLogger:
       "ALTER TABLE sessions ADD COLUMN bot_state TEXT DEFAULT '{}'",
       "ALTER TABLE total_snapshots ADD COLUMN hold_value REAL DEFAULT 0",
       "ALTER TABLE total_snapshots ADD COLUMN hold_pnl_pct REAL DEFAULT 0",
+      "ALTER TABLE sessions ADD COLUMN benchmark_hold_price REAL DEFAULT 0",
+      "ALTER TABLE sessions ADD COLUMN benchmark_hold_anchor TEXT DEFAULT ''",
     ):
       try:
         await db.execute(stmt)
@@ -256,8 +258,8 @@ class LearningLogger:
            (symbol, quote, base, trade_counter, start_balance, start_ts,
             bot_params, last_dca_ts, last_take_profit_ts, bot_enabled, trades_json, updated_ts,
             cost_basis, last_dip_ts, last_spike_ts, last_stop_loss_ts, start_price, strategy_type,
-            bot_state)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            bot_state, benchmark_hold_price, benchmark_hold_anchor)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(symbol) DO UPDATE SET
              quote=excluded.quote, base=excluded.base, trade_counter=excluded.trade_counter,
              start_balance=excluded.start_balance, start_ts=excluded.start_ts,
@@ -267,7 +269,9 @@ class LearningLogger:
              cost_basis=excluded.cost_basis, last_dip_ts=excluded.last_dip_ts,
              last_spike_ts=excluded.last_spike_ts, last_stop_loss_ts=excluded.last_stop_loss_ts,
              start_price=excluded.start_price, strategy_type=excluded.strategy_type,
-             bot_state=excluded.bot_state""",
+             bot_state=excluded.bot_state,
+             benchmark_hold_price=excluded.benchmark_hold_price,
+             benchmark_hold_anchor=excluded.benchmark_hold_anchor""",
         (
           symbol, data["quote"], data["base"], data["trade_counter"],
           data["start_balance"], data["start_ts"],
@@ -282,6 +286,8 @@ class LearningLogger:
           data.get("start_price", 0),
           data.get("strategy_type", "dca"),
           json.dumps(data.get("bot_state", {})),
+          data.get("benchmark_hold_price", 0),
+          data.get("benchmark_hold_anchor", ""),
         ),
       )
       await db.commit()

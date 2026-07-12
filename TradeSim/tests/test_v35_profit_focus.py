@@ -46,6 +46,13 @@ class TestProfitFocusEngine(unittest.TestCase):
     def setUp(self):
         self.engine = ProfitFocusEngine()
         self.engine.last_run_ts = 0
+        self._paper_patch = patch(
+            "learning.paper_learn_mode.is_paper_learn_mode", return_value=False,
+        )
+        self._paper_patch.start()
+
+    def tearDown(self):
+        self._paper_patch.stop()
 
     def test_pauses_laggard(self):
         s = _session("SOLUSDT", "SOL", vs_hold=-3.0, pnl_pct=-2.0, trades=3)

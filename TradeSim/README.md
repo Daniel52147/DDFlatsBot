@@ -1,6 +1,16 @@
-# TradeSim v40
+# TradeSim v41
 
-**Security & audit fixes** — Live gate, honest drawdown, sync integrity, API consistency.
+**Complete audit closure** — lifetime vs Hold, WS auth, exposure guard, UI polish.
+
+## v41 — Remaining audit fixes
+
+- **vs Hold** — anchor с момента старта сессии / первой покупки (не ~8ч свечей)
+- **`benchmark_hold_price`** — сохраняется в SQLite, переживает перезапуск
+- **WebSocket `/ws`** — токен в query `?token=` когда `TRADESIM_API_TOKEN` задан
+- **`0.0.0.0` без токена** — сервер **не стартует** (SystemExit)
+- **`LIVE_BYPASS_READINESS`** — работает только вместе с `LIVE_ALLOW_FORCE=true`
+- **UI** — `formatUnixTs` везде, двусторонняя проверка версии
+- **Auth e2e** — тесты middleware + trading-mode с токеном
 
 ## v40 — Security & audit fixes
 

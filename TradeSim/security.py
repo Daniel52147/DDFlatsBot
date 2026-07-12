@@ -66,6 +66,29 @@ def auth_required() -> bool:
     return bool(API_TOKEN)
 
 
+def token_valid(token: str | None) -> bool:
+    if not API_TOKEN:
+        return True
+    return bool(token) and token == API_TOKEN
+
+
+def ws_token_from_scope(scope: dict) -> str | None:
+    query = scope.get("query_string", b"").decode()
+    for part in query.split("&"):
+        if part.startswith("token="):
+            return part[6:]
+    return None
+
+
+def require_exposure_auth(bind_host: str) -> None:
+    """Refuse public bind without API token."""
+    if bind_host == "0.0.0.0" and not API_TOKEN:
+        raise SystemExit(
+            "TRADESIM_API_TOKEN обязателен при TRADESIM_BIND_HOST=0.0.0.0 — "
+            "задай токен в .env или слушай 127.0.0.1"
+        )
+
+
 def require_write_auth(x_api_token: str | None = Header(None, alias="X-API-Token")) -> None:
     if not API_TOKEN:
         return

@@ -1559,6 +1559,7 @@ async def api_ping():
         "brain": state.get("brain_cycle") is not None,
         "total": total_portfolio(),
         "auth_required": auth_required(),
+        "ws_auth_required": auth_required(),
         "risk_gate": risk_status(),
         "correlation_risk": state.get("correlation_risk", {}),
     }
@@ -1779,6 +1780,13 @@ async def reset_portfolio(full: bool = False):
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
+    from security import API_TOKEN, token_valid
+
+    if API_TOKEN:
+        qs_token = ws.query_params.get("token")
+        if not token_valid(qs_token):
+            await ws.close(code=1008, reason="auth required")
+            return
     await ws.accept()
     ensure_all_markets()
     state["connected_clients"].add(ws)
@@ -1802,10 +1810,16 @@ async def websocket_endpoint(ws: WebSocket):
 
 if __name__ == "__main__":
     import uvicorn
+    from security import require_exposure_auth
 
     host = config.BIND_HOST
-    if host == "0.0.0.0" and not config.API_TOKEN:
+    require_exposure_auth(host)
+    if not config.API_TOKEN and config.EXCHANGE_ENABLED:
         logger.warning(
-            "TRADESIM_API_TOKEN не задан — не открывай 0.0.0.0 без токена в интернет"
+            "BINANCE_API_KEY задан — если ключи светились в чате, ротируй на testnet.binance.vision"
+        )
+    if not config.API_TOKEN and host == "127.0.0.1":
+        logger.info(
+            "Локальный режим без TRADESIM_API_TOKEN — для облака задай токен в .env"
         )
     uvicorn.run("main:app", host=host, port=8765, reload=False)

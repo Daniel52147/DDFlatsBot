@@ -512,10 +512,13 @@ async function checkServerAndSync() {
     if (ping.market_meta?.length) applyMarketMeta(ping.market_meta);
     seedMarketsFromMeta();
     if (ping.total) updateTotal(ping.total);
-    const expectedVer = 40;
-    if (ping.version && ping.version < expectedVer) {
-      const msg = `СТАРЫЙ СЕРВЕР v${ping.version}! Обнови: git pull origin cursor/tradesim-v40-fixes-2631 → .\\start.bat → Ctrl+Shift+R`;
-      showError(msg);
+    const expectedVer = 41;
+    const branch = "cursor/tradesim-v41-remaining-2631";
+    if (ping.version && ping.version !== expectedVer) {
+      const msg = ping.version < expectedVer
+        ? `СТАРЫЙ СЕРВЕР v${ping.version}! Обнови: git pull origin ${branch} → .\\start.bat → Ctrl+Shift+R`
+        : `Новый сервер v${ping.version}, а UI v${expectedVer} — Ctrl+Shift+R для обновления кэша`;
+      if (ping.version < expectedVer) showError(msg);
       showToast("⚠️ " + msg, 15000);
     }
     return ping;
@@ -1469,7 +1472,9 @@ function applyWsInit(msg) {
 
 function connectWs() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  const ws = new WebSocket(`${proto}//${location.host}/ws`);
+  const tok = localStorage.getItem("tradesim_token");
+  const qs = tok ? `?token=${encodeURIComponent(tok)}` : "";
+  const ws = new WebSocket(`${proto}//${location.host}/ws${qs}`);
   ws.onmessage = (ev) => {
     try {
       const msg = JSON.parse(ev.data);

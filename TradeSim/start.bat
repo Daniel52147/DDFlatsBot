@@ -6,9 +6,9 @@ cd /d "%~dp0"
 echo.
 echo [1/4] Обновление кода...
 git fetch origin
-git pull origin cursor/tradesim-v40-fixes-2631 2>nul
+git pull origin cursor/tradesim-v41-remaining-2631 2>nul
 if errorlevel 1 (
-  git pull origin cursor/tradesim-v39-paper-learn-2631 2>nul
+  git pull origin cursor/tradesim-v40-fixes-2631 2>nul
 )
 if errorlevel 1 (
   git pull origin main 2>nul || git pull
@@ -23,10 +23,11 @@ echo [3/4] Файл .env...
 if not exist ".env" (
   if exist ".env.example" (
     copy /Y .env.example .env >nul
-    echo Создан .env — открой блокнотом и вставь BINANCE ключи:
+    echo Создан .env — открой блокнотом:
     echo   notepad .env
+    echo Задай TRADESIM_API_TOKEN и BINANCE ключи (testnet)
   ) else (
-    echo ВНИМАНИЕ: нет .env.example — сделай git pull ещё раз
+    echo ВНИМАНИЕ: нет .env.example
   )
 ) else (
   echo .env уже есть
@@ -35,10 +36,9 @@ if not exist ".env" (
 echo.
 echo [4/4] Запуск сервера...
 echo.
-echo   ЛОКАЛЬНО открой:  http://127.0.0.1:8765
-echo   Должна быть версия v40 в заголовке
-echo   Ctrl+Shift+R в браузере если старая версия
-echo   НЕ закрывай это окно — иначе сайт не откроется
+echo   Открой:  http://127.0.0.1:8765
+echo   Версия v41 в заголовке
+echo   Ctrl+Shift+R если старый кэш
 echo.
 set TRADESIM_BIND_HOST=127.0.0.1
 python main.py

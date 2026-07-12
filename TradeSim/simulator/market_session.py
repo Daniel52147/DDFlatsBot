@@ -101,6 +101,8 @@ class MarketSession:
             trades=saved.get("trades"),
             cost_basis=saved.get("cost_basis", 0),
             start_price=saved.get("start_price", 0),
+            benchmark_hold_price=saved.get("benchmark_hold_price", 0),
+            benchmark_hold_anchor=saved.get("benchmark_hold_anchor", ""),
         )
         self.strategy_type = saved.get("strategy_type", self.strategy_type)
         self.bot = create_bot(self.engine, self.strategy_type, params=saved["bot_params"])
@@ -125,6 +127,8 @@ class MarketSession:
                 trades=db_trades,
                 cost_basis=saved.get("cost_basis", 0),
                 start_price=saved.get("start_price", 0),
+                benchmark_hold_price=saved.get("benchmark_hold_price", 0),
+                benchmark_hold_anchor=saved.get("benchmark_hold_anchor", ""),
             )
         self.sync_base_params()
         self._restored = True
@@ -166,6 +170,8 @@ class MarketSession:
             "bot_enabled": last.get("enabled", self.bot.enabled),
             "bot_state": bot_state,
             "trades": self.engine.export_trades(limit=200),
+            "benchmark_hold_price": self.engine.benchmark_hold_price,
+            "benchmark_hold_anchor": self.engine.benchmark_hold_anchor,
         })
 
     async def _log_trade(self, trade):

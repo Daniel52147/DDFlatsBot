@@ -222,13 +222,15 @@ class SimulatorEngine:
         trades: list[dict] | None = None,
         cost_basis: float = 0.0,
         start_price: float = 0.0,
+        benchmark_hold_price: float = 0.0,
+        benchmark_hold_anchor: str = "",
     ):
         self.position = Position(quote=quote, base=base, cost_basis=cost_basis or 0.0)
         self.start_balance = start_balance
         self.start_ts = start_ts
         self.start_price = start_price or 0.0
-        self.benchmark_hold_price = 0.0
-        self.benchmark_hold_anchor = ""
+        self.benchmark_hold_price = float(benchmark_hold_price or 0)
+        self.benchmark_hold_anchor = str(benchmark_hold_anchor or "")
         self._trade_counter = trade_counter
         self.trades.clear()
         for row in trades or []:
