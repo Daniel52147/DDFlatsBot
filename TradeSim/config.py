@@ -294,7 +294,7 @@ ACTIVE_TRADE_RESET_TIMERS = _env_bool("ACTIVE_TRADE_RESET_TIMERS", False)
 # Trading mode default: paper | testnet | live (runtime override in data/trading_mode.json)
 TRADING_MODE_DEFAULT = os.environ.get("TRADING_MODE_DEFAULT", "paper").lower()
 
-APP_VERSION = 33
+APP_VERSION = 34
 
 # Security — default localhost; cloud preview needs TRADESIM_BIND_HOST=0.0.0.0
 def _default_bind_host() -> str:

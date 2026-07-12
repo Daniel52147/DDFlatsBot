@@ -126,8 +126,48 @@ class BinanceLiveExchange:
                 r = await client.get(url, params=params, headers=headers)
             else:
                 r = await client.post(url, headers=headers)
+            if r.status_code == 451:
+                raise RuntimeError(
+                    "Binance geo-block (HTTP 451) — с твоего IP testnet недоступен. "
+                    "Запускай сервер на Windows дома, не через VPN в заблокированный регион."
+                )
+            if r.status_code in (401, 403):
+                raise RuntimeError(
+                    f"Binance отклонил ключ (HTTP {r.status_code}) — проверь API Key/Secret и "
+                    f"что ключ создан на {'testnet.binance.vision' if self.testnet else 'binance.com'}"
+                )
             r.raise_for_status()
             return r.json()
+
+    async def verify_connection(self) -> dict[str, Any]:
+        """Ping signed API — for startup / UI diagnostics."""
+        if not self.enabled:
+            return {
+                "ok": False,
+                "enabled": False,
+                "note": "Задай BINANCE_API_KEY + BINANCE_API_SECRET + EXCHANGE_ENABLED=true в .env",
+            }
+        try:
+            acct = await self.account_balances()
+            usdt = next((b for b in acct.get("balances", []) if b["asset"] == "USDT"), None)
+            return {
+                "ok": True,
+                "enabled": True,
+                "testnet": self.testnet,
+                "base_url": self.base_url,
+                "assets": len(acct.get("balances", [])),
+                "usdt_free": round(usdt["free"], 2) if usdt else 0,
+                "note": "Testnet подключён" if self.testnet else "⚠️ LIVE биржа подключена",
+            }
+        except Exception as e:
+            logger.warning("exchange verify failed: %s", e)
+            return {
+                "ok": False,
+                "enabled": True,
+                "testnet": self.testnet,
+                "error": str(e),
+                "note": "Проверь ключи и EXCHANGE_TESTNET=true для testnet",
+            }
 
     async def _load_symbol_rules(self, symbol: str) -> dict[str, Any]:
         if time.time() - self._rules_ts < 3600 and symbol in self._symbol_rules:
@@ -168,7 +208,7 @@ class BinanceLiveExchange:
             for b in data.get("balances", [])
             if float(b["free"]) + float(b["locked"]) > 0
         ]
-        return {"mode": "live", "balances": balances[:30]}
+        return {"mode": "testnet" if self.testnet else "live", "balances": balances[:30]}
 
     async def get_order(self, symbol: str, order_id: int) -> dict[str, Any]:
         if not self.enabled:

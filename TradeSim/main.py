@@ -734,6 +734,18 @@ async def lifespan(app: FastAPI):
             await s.persist()
         logger.info("Active trade mode applied to %d markets", len(sessions))
 
+    if live_exchange.enabled:
+        verify = await live_exchange.verify_connection()
+        if verify.get("ok"):
+            logger.info(
+                "Binance %s OK — USDT %.2f · %d assets",
+                "testnet" if live_exchange.testnet else "LIVE",
+                verify.get("usdt_free", 0),
+                verify.get("assets", 0),
+            )
+        else:
+            logger.warning("Binance verify failed: %s", verify.get("error") or verify.get("note"))
+
     state["running"] = True
 
     async def parallel_market_startup():
@@ -1251,6 +1263,12 @@ async def api_backtest_compare(body: BacktestCompareRequest):
         "results": results,
         "winner": results[0]["strategy_type"] if results else None,
     }
+
+
+@app.get("/api/exchange/verify")
+async def api_exchange_verify():
+    """Check API keys — call after pasting .env."""
+    return await live_exchange.verify_connection()
 
 
 @app.get("/api/exchange/pnl")

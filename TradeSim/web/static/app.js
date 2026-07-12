@@ -504,7 +504,7 @@ async function checkServerAndSync() {
     if (ping.market_meta?.length) applyMarketMeta(ping.market_meta);
     seedMarketsFromMeta();
     if (ping.total) updateTotal(ping.total);
-    const expectedVer = 33;
+    const expectedVer = 34;
     if (ping.version && ping.version < expectedVer) {
       const msg = `СТАРЫЙ СЕРВЕР v${ping.version}! Свечи не синхронизируются. Закрой сервер → запусти start.bat или: git pull origin cursor/tradesim-v30-candle-fix-2631 → python main.py → Ctrl+Shift+R`;
       showError(msg);

@@ -1,34 +1,38 @@
 # Запуск на Windows (PowerShell)
 
-## 1. Обновить код (важно — у тебя была старая версия с 4 монетами)
+## 1. Обновить код (ветка v33+)
 
 ```powershell
-cd C:\Users\de381\DDFlatsBot
-git pull origin cursor/trade-sim-paper-trading-2631
-cd TradeSim
+cd C:\Users\de381\DDFlatsBot\TradeSim
+git fetch origin
+git pull origin cursor/tradesim-v33-chart-exchange-2631
 ```
 
-## 2. Зависимости (pip через python)
+Или двойной клик **start.bat** — он сам подтянет последнюю ветку.
+
+## 2. Зависимости
 
 ```powershell
 python -m pip install -r requirements.txt
 ```
 
-> Если `python` не найден — установи Python с https://python.org (галочка "Add to PATH")
+## 3. API ключи Binance TESTNET
 
-## 3. Файл .env с Binance ключами
+1. Зайди на https://testnet.binance.vision/ → Log In → **Generate HMAC_SHA256 Key**
+2. Двойной клик **setup-env.bat** (или `copy .env.example .env` → `notepad .env`)
+3. Вставь ключи:
 
-```powershell
-copy .env.example .env
-notepad .env
-```
-
-Вставь:
 ```env
 BINANCE_API_KEY=твой_ключ
 BINANCE_API_SECRET=твой_секрет
 EXCHANGE_ENABLED=true
+EXCHANGE_TESTNET=true
+EXCHANGE_SYNC_TO_PAPER=true
+EXCHANGE_SYNC_FROM_PAPER=true
+TRADING_MODE_DEFAULT=testnet
 ```
+
+⚠️ **Никогда не публикуй ключи в чат/GitHub.** Если засветил — перевыпусти на testnet.
 
 ## 4. Запуск
 
@@ -36,42 +40,24 @@ EXCHANGE_ENABLED=true
 python main.py
 ```
 
-**Не закрывай окно PowerShell** — пока оно открыто, сервер работает.
-
-## 5. Открыть в браузере
-
-**Локально на твоём ПК (скопируй точно):**
+В логах должно быть:
 ```
-http://127.0.0.1:8765
+Binance testnet OK — USDT ...
 ```
 
-**Важно:**
-- Используй **`127.0.0.1`**, не `localhost` — на Windows `localhost` иногда идёт через IPv6 и не открывается
-- Только **`http://`**, не `https://`
-- **НЕ** используй `agent.cvm.dev` — это облако Cursor, не твой ПК
-- Если видишь **502** — окно PowerShell закрыто или сервер упал
+В браузере: http://127.0.0.1:8765 → **Ctrl+Shift+R** → меню **🧪 Testnet**
 
-### Сайт не открывается?
+## 5. Проверка ключей
 
-1. Дождись в логе: `Application startup complete` и `Uvicorn running`
-2. Открой **вручную**: http://127.0.0.1:8765/health — должна быть зелёная страница «TradeSim OK»
-3. Потом: http://127.0.0.1:8765
-4. Проверка в PowerShell (второе окно):
-   ```powershell
-   curl http://127.0.0.1:8765/api/ping
-   ```
-5. Разреши Python в брандмауэре Windows, если спросит
-6. Не используй `localhost` — только `127.0.0.1`
+Открой: http://127.0.0.1:8765/api/exchange/verify
 
-## Быстрый способ
+`"ok": true` — ключи работают.
 
-Двойной клик по `start.bat` в папке TradeSim.
+## Частые ошибки
 
-## Проверка
-
-В логе должно быть **17 рынков**, не 4. И:
-```
-Uvicorn running on http://127.0.0.1:8765
-Application startup complete.
-```
-Без строки `Shutting down` сразу после старта.
+| Ошибка | Решение |
+|--------|---------|
+| Старый UI v28/v31 | `git pull` + Ctrl+Shift+R |
+| HTTP 401/403 | Ключ не от testnet или опечатка в Secret |
+| HTTP 451 | Регион блокирует Binance — запускай дома на Windows |
+| Testnet режим не включается | `EXCHANGE_TESTNET=true` в .env |
