@@ -44,6 +44,29 @@ class StrategyOptimizer:
     "stop_loss_fraction": (0.10, 0.45),
   }
 
+  # Paper learn — allow sub-4h DCA and short cooldowns for more round-trips.
+  BOUNDS_PAPER_OVERRIDES = {
+    "dca_interval_hours": (0.5, 48),
+    "dip_cooldown_minutes": (1, 120),
+    "spike_cooldown_minutes": (2, 180),
+    "take_profit_cooldown_hours": (0.25, 12),
+    "stop_loss_cooldown_hours": (0.25, 12),
+  }
+
+  BOUNDS_PAPER_VOLATILE_OVERRIDES = {
+    "dca_interval_hours": (0.5, 24),
+    "dip_cooldown_minutes": (1, 60),
+    "spike_cooldown_minutes": (2, 90),
+    "take_profit_cooldown_hours": (0.25, 6),
+    "stop_loss_cooldown_hours": (0.25, 6),
+  }
+
+  @classmethod
+  def bounds_for_paper_learn(cls, volatile: bool = False) -> dict:
+    base = cls.BOUNDS_VOLATILE if volatile else cls.BOUNDS
+    overrides = cls.BOUNDS_PAPER_VOLATILE_OVERRIDES if volatile else cls.BOUNDS_PAPER_OVERRIDES
+    return {**base, **overrides}
+
   def __init__(self, params: dict | None = None, bounds: dict | None = None, volatile: bool = False):
     self.params = copy.deepcopy(params or config.STRATEGY)
     self.bounds = bounds or self.BOUNDS
@@ -56,7 +79,8 @@ class StrategyOptimizer:
     return config.LEARNING_CHECK_VOLATILE_SEC if self.volatile else config.LEARNING_CHECK_SEC
 
   def min_trades(self) -> int:
-    return config.MIN_TRADES_VOLATILE if self.volatile else config.MIN_TRADES_FOR_TUNING
+    from learning.paper_learn_mode import effective_min_trades_for_tuning
+    return effective_min_trades_for_tuning(self.volatile)
 
   def should_tune(
       self,
@@ -70,8 +94,10 @@ class StrategyOptimizer:
     if vs_hold_pct is None:
       return False
     # Fast path: losing badly — retune every N trades without waiting for timer
+    from learning.paper_learn_mode import effective_fast_learn_every_n
+    fast_every_n = effective_fast_learn_every_n()
     if (
-        trades_since_tune >= config.FAST_LEARN_EVERY_N_TRADES
+        trades_since_tune >= fast_every_n
         and vs_hold_pct < -0.8
     ):
       return True

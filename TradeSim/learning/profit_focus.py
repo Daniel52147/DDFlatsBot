@@ -33,7 +33,12 @@ class ProfitFocusEngine:
         return time.time() - self.last_run_ts >= config.PROFIT_FOCUS_INTERVAL_SEC
 
     def review(self, sessions: dict) -> list[dict[str, Any]]:
-        if not config.PROFIT_FOCUS_ENABLED or not self._should_run():
+        from learning.paper_learn_mode import is_paper_learn_mode
+        if (
+            not config.PROFIT_FOCUS_ENABLED
+            or (is_paper_learn_mode() and config.PAPER_LEARN_DISABLE_PROFIT_PAUSE)
+            or not self._should_run()
+        ):
             return []
         self.last_run_ts = time.time()
         actions: list[dict[str, Any]] = []

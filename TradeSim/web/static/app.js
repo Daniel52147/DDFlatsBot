@@ -506,9 +506,9 @@ async function checkServerAndSync() {
     if (ping.market_meta?.length) applyMarketMeta(ping.market_meta);
     seedMarketsFromMeta();
     if (ping.total) updateTotal(ping.total);
-    const expectedVer = 38;
+    const expectedVer = 39;
     if (ping.version && ping.version < expectedVer) {
-      const msg = `СТАРЫЙ СЕРВЕР v${ping.version}! Обнови: git pull origin cursor/tradesim-v38-hold-fix-2631 → .\\start.bat → Ctrl+Shift+R`;
+      const msg = `СТАРЫЙ СЕРВЕР v${ping.version}! Обнови: git pull origin cursor/tradesim-v39-paper-learn-2631 → .\\start.bat → Ctrl+Shift+R`;
       showError(msg);
       showToast("⚠️ " + msg, 15000);
     }
@@ -1644,6 +1644,9 @@ function applyBootstrap(data) {
   if (data.chat) renderChat([{ role: "assistant", content: data.chat }]);
   if (data.trades?.length) renderTradesList(data.trades);
   else renderAllTrades();
+  if (data.paper_learn) {
+    showToast("📚 Paper Learn: максимум сделок для обучения");
+  }
   if (data.trading_mode) renderTradingMode(data.trading_mode);
   if (data.equity) renderEquityCurve(data.equity);
   if (data.learning) renderLearningPanel(data.learning, data.brain_history, data.analytics);
@@ -1947,6 +1950,23 @@ function bindUi() {
   });
   document.querySelectorAll(".mode-btn").forEach(btn => {
     btn.addEventListener("click", () => setTradingMode(btn.dataset.mode));
+  });
+
+  document.getElementById("btn-paper-learn")?.addEventListener("click", async () => {
+    try {
+      const res = await apiFetch("/api/strategy/paper-learn", {
+        method: "POST",
+        body: JSON.stringify({ reset_timers: true }),
+      });
+      const data = await res.json();
+      if (data.error) showToast("⚠ " + data.error);
+      else {
+        showToast(`📚 Paper учёба: ${data.count || 1} рынков — DCA ~1.5ч, scalp 20с`);
+        await refreshStatus();
+      }
+    } catch (_) {
+      showToast("Ошибка Paper учёбы");
+    }
   });
 
   document.getElementById("btn-active-trades")?.addEventListener("click", async () => {

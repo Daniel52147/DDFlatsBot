@@ -1,8 +1,24 @@
-# TradeSim v38
+# TradeSim v39
 
-**Hold Fix** — vs Hold now uses loaded candle window (~8h), not ancient first-tick prices.
+**Paper Learn** — on 📄 Paper mode: max trades, faster optimizer, no profit-focus pause.
 
-## v38 — vs Hold fix + 1970 dates
+## v39 — Paper Learn (faster training)
+
+- **Paper only** — DCA ≤1.5h, scalp cooldown 20s, grid 3min
+- **Auto on boot** when mode is Paper (`PAPER_LEARN_ON_START=true`)
+- **`POST /api/strategy/paper-learn`** + UI **📚 Paper учёба**
+- **Learning** — tune after 2 trades (was 5), fast retune every 2 trades
+- **No blocks in Paper** — correlation block off, profit-focus pause off
+- **Testnet/Live** — unchanged (safer limits)
+
+| Setting | Paper | Testnet/Live |
+|---------|-------|--------------|
+| DCA interval | ≤1.5h | 8h+ active |
+| Scalp cooldown | 20s | 45s+ |
+| Min trades to tune | 2 | 5 |
+| Profit focus pause | off | on |
+
+## v38 — vs Hold fix
 
 - **Candle anchor** — hold baseline = oldest loaded 1m candle (~8h), not `start_price` from months ago
 - **Per-market vs Hold** — ETH +46% / WIF +92% artifacts fixed via `benchmark_hold_price`

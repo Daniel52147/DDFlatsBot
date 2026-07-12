@@ -10,6 +10,7 @@ from typing import Any
 import config
 from learning.logger import LearningLogger
 from learning.optimizer import StrategyOptimizer
+from learning.paper_learn_mode import effective_fast_learn_every_n
 from simulator.candles import CandleBuilder
 from simulator.engine import SimulatorEngine, Trade
 from simulator.feed import PriceFeed
@@ -349,7 +350,7 @@ class MarketSession:
         ):
             interval = self.optimizer.tune_interval_sec()
             losing_fast = (
-                snap["trade_count"] - self._trades_at_last_tune >= config.FAST_LEARN_EVERY_N_TRADES
+                snap["trade_count"] - self._trades_at_last_tune >= effective_fast_learn_every_n()
                 and snap.get("vs_hold_pct", 0) < -0.5
             )
             if losing_fast or (now - self.last_tune_ts >= interval):

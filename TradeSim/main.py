@@ -33,6 +33,12 @@ from learning.capital_allocator import CapitalAllocator
 from learning.strategy_outcomes import evaluate_pending, log_switch
 from learning.strategy_presets import apply_strategy_preset
 from learning.profit_focus import ProfitFocusEngine, apply_profit_max_startup
+from learning.paper_learn_mode import (
+    apply_paper_learn_all,
+    apply_paper_learn_on_boot,
+    apply_paper_learn_trading,
+    is_paper_learn_mode,
+)
 from learning.trade_mode import apply_active_all, apply_active_trading
 from learning.logger import LearningLogger
 from learning.optimizer import StrategyOptimizer
@@ -309,7 +315,12 @@ async def brain_loop():
         try:
             ctx = all_contexts()
             total = total_portfolio()
-            if total["pnl_pct"] <= -config.PORTFOLIO_MAX_DRAWDOWN_PCT:
+            from learning.paper_learn_mode import (
+                effective_portfolio_max_drawdown_pct,
+                is_paper_learn_mode,
+            )
+            max_drawdown = effective_portfolio_max_drawdown_pct()
+            if total["pnl_pct"] <= -max_drawdown:
                 set_portfolio_halt(
                     True,
                     f"portfolio {total['pnl_pct']:+.1f}%",
@@ -318,7 +329,10 @@ async def brain_loop():
                 set_portfolio_halt(False)
 
             corr = assess_correlation_risk(ctx)
-            set_correlation_block(corr.get("block_buys", False), corr.get("reason", ""))
+            if is_paper_learn_mode() and config.PAPER_LEARN_IGNORE_CORRELATION_BLOCK:
+                set_correlation_block(False)
+            else:
+                set_correlation_block(corr.get("block_buys", False), corr.get("reason", ""))
             state["correlation_risk"] = corr
 
             cycle = await brain.think(ctx, total)
@@ -545,6 +559,7 @@ def _bootstrap_payload() -> dict[str, Any]:
         "chat": state["chat_history"][-1]["content"] if state.get("chat_history") else "",
         "trading_mode": trading_mode.status(live_exchange),
         "profit_focus": profit_focus.status(sessions) if profit_focus else None,
+        "paper_learn": is_paper_learn_mode(),
     }
 
 
@@ -743,6 +758,11 @@ async def lifespan(app: FastAPI):
         for s in sessions.values():
             await s.persist()
         logger.info("Active trade mode applied to %d markets", len(sessions))
+
+    paper_learn_count = apply_paper_learn_on_boot(sessions)
+    if paper_learn_count:
+        for s in sessions.values():
+            await s.persist()
 
     if live_exchange.enabled:
         verify = await live_exchange.verify_connection()
@@ -1042,6 +1062,31 @@ async def api_analytics():
     equity = await logger_db.equity_curve(48)
     return await _analytics_payload_db(equity)
 
+
+
+@app.post("/api/strategy/paper-learn")
+async def api_strategy_paper_learn(body: ActiveTradeRequest | None = None):
+    """Max trades on Paper — faster SQLite learning (only in paper mode)."""
+    if trading_mode.mode != "paper":
+        return {
+            "ok": False,
+            "error": "Paper learn только в режиме 📄 Paper",
+            "mode": trading_mode.mode,
+        }
+    body = body or ActiveTradeRequest()
+    if body.symbol:
+        if body.symbol not in sessions:
+            return {"error": "unknown symbol"}
+        info = apply_paper_learn_trading(
+            sessions[body.symbol], reset_timers=body.reset_timers,
+        )
+        await sessions[body.symbol].persist()
+        return {"ok": True, "markets": [info], "mode": "paper_learn"}
+    results = apply_paper_learn_all(sessions, reset_timers=body.reset_timers)
+    for session in sessions.values():
+        await session.persist()
+    await broadcast({"type": "paper_learn", "count": len(results)})
+    return {"ok": True, "markets": results, "count": len(results), "mode": "paper_learn"}
 
 
 @app.post("/api/strategy/active")
@@ -1367,6 +1412,11 @@ async def api_trading_mode_set(body: TradingModeRequest):
     )
     if result.get("ok"):
         await broadcast({"type": "trading_mode", **result})
+        if body.mode == "paper" and config.PAPER_LEARN_ENABLED:
+            apply_paper_learn_all(sessions, reset_timers=True)
+            for session in sessions.values():
+                await session.persist()
+            result["paper_learn"] = True
     return result
 
 

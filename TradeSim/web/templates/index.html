@@ -17,8 +17,8 @@
     <div class="brand">
       <span class="logo">◆</span>
       <div>
-        <h1>TradeSim <span class="ver-badge">v38 Hold Fix</span></h1>
-        <p class="tagline">vs Hold по свечам (~8ч) · даты автонастроек · Testnet</p>
+        <h1>TradeSim <span class="ver-badge">v39 Paper Learn</span></h1>
+        <p class="tagline">Paper = больше сделок · быстрее обучение · Testnet осторожнее</p>
       </div>
     </div>
     <div class="header-stats">
@@ -172,6 +172,7 @@
           </select>
           <button type="button" id="btn-strategy-apply" class="btn ghost small">Применить</button>
           <span class="auto-tactics-badge" id="auto-tactics-badge" title="Авто-выбор тактики">🤖 AUTO</span>
+          <button type="button" id="btn-paper-learn" class="btn small paper-learn-btn" title="Paper: максимум сделок для обучения">📚 Paper учёба</button>
           <button type="button" id="btn-active-trades" class="btn small" title="Короче паузы — больше сделок на всех рынках">📈 Больше сделок</button>
           <button type="button" class="btn ghost small preset-btn" data-preset="aggressive">🔥</button>
           <button type="button" class="btn ghost small preset-btn" data-preset="balanced">⚖️</button>
@@ -270,6 +271,6 @@
   </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=38"></script>
+  <script src="/static/app.js?v=39"></script>
 </body>
 </html>
