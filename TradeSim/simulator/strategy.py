@@ -28,6 +28,28 @@ class StrategyBot:
     def get_params(self) -> dict:
         return dict(self.params)
 
+    def export_state(self) -> dict[str, Any]:
+        return {
+            "last_dca_ts": self.last_dca_ts,
+            "last_take_profit_ts": self.last_take_profit_ts,
+            "last_dip_ts": self.last_dip_ts,
+            "last_spike_ts": self.last_spike_ts,
+            "last_stop_loss_ts": self.last_stop_loss_ts,
+            "enabled": self.enabled,
+            "strategy": {},
+        }
+
+    def import_state(self, state: dict[str, Any] | None) -> None:
+        if not state:
+            return
+        self.last_dca_ts = float(state.get("last_dca_ts", self.last_dca_ts))
+        self.last_take_profit_ts = float(state.get("last_take_profit_ts", self.last_take_profit_ts))
+        self.last_dip_ts = float(state.get("last_dip_ts", self.last_dip_ts))
+        self.last_spike_ts = float(state.get("last_spike_ts", self.last_spike_ts))
+        self.last_stop_loss_ts = float(state.get("last_stop_loss_ts", self.last_stop_loss_ts))
+        if "enabled" in state:
+            self.enabled = bool(state["enabled"])
+
     def _cooldown_ok(self, last_ts: float, minutes: float) -> bool:
         return time.time() - last_ts >= minutes * 60
 

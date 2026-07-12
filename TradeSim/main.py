@@ -31,7 +31,7 @@ from simulator.backtest import Backtester, compare_strategies
 from simulator.market_session import MarketSession
 from simulator.feed_hub import FeedHub
 from simulator.shadow_lab import ShadowLab
-from simulator.strategies import STRATEGY_META
+from simulator.strategies import STRATEGY_META, create_bot
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("tradesim")
@@ -176,15 +176,16 @@ def _learning_honesty(stats: dict) -> dict[str, Any]:
         "version": config.APP_VERSION,
         "markets_configured": len(config.MARKETS),
         "markets_active": len(sessions),
-        "project_readiness": "v17 Mega ~92% — 5 стратегий, FeedHub, hold benchmark, daily report",
+        "project_readiness": "v18 Complete ~95% paper · state persist · exchange panel",
         "really_learns": True,
         "learning_kind": "эвристики + статистика (не нейросеть)",
         "what_is_real": [
             "Сделки на живых ценах Binance/Bybit",
-            "4 стратегии: DCA, Grid, Momentum, RSI",
+            "5 стратегий: DCA, Grid, Momentum, RSI, Scalper",
+            "Состояние стратегий сохраняется в SQLite (grid/RSI/scalper)",
             "vs hold benchmark с реальной start_price",
-            "Shadow Lab: применить лучший клон вручную",
-            "Бэктест: сравнение стратегий на одних свечах",
+            "Shadow Lab: promote по типу стратегии + ручное применение",
+            "Бэктест: сравнение 5 стратегий на одних свечах",
         ],
         "what_is_not": [
             "Это не настоящие деньги и не гарантия прибыли",
@@ -653,8 +654,26 @@ async def health_page():
         <h1>✅ TradeSim v{config.APP_VERSION} работает</h1>
         <p>Рынков: {len(sessions)} · Портфель: ${t['total_value']:,.2f}</p>
         <p><a href="/" style="color:#00e5a8">→ Открыть панель управления</a></p>
+        <p><a href="/api/health" style="color:#7eb8ff">→ JSON health</a></p>
         </body></html>"""
     )
+
+
+@app.get("/api/health")
+async def api_health():
+    t = total_portfolio()
+    return {
+        "ok": True,
+        "version": config.APP_VERSION,
+        "markets_active": len(sessions),
+        "markets_configured": len(config.MARKETS),
+        "running": state.get("running", False),
+        "feed_hub": feed_hub is not None,
+        "shadow_lab": shadow_lab is not None and config.SHADOW_LAB_ENABLED,
+        "exchange_enabled": live_exchange.enabled,
+        "total_value": t["total_value"],
+        "pnl_pct": t["pnl_pct"],
+    }
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -987,12 +1006,46 @@ async def api_ping():
     }
 
 
+@app.post("/api/market/sync-strategy")
+async def api_market_sync_strategy(symbol: str):
+    """Re-apply config strategy + refresh price feed for one market."""
+    market = next((m for m in config.MARKETS if m["symbol"] == symbol), None)
+    if not market or symbol not in sessions:
+        return {"error": "unknown symbol"}
+    s = sessions[symbol]
+    stype = market.get("strategy_type", "dca")
+    params = market.get("strategy") or {}
+    s.strategy_type = stype
+    s.bot = create_bot(s.engine, stype, params=params)
+    s.sync_base_params()
+    if feed_hub:
+        await feed_hub.add_symbol(symbol, s.feed)
+    try:
+        await s.feed.fetch_price()
+    except Exception as e:
+        logger.warning("[%s] sync-strategy price fetch: %s", symbol, e)
+    await s.persist()
+    price = s.feed.price or s.demo_price
+    return {
+        "ok": True,
+        "symbol": symbol,
+        "label": s.label,
+        "strategy_type": stype,
+        "params": s.bot.get_params(),
+        "price": price,
+        "source": s.feed.source,
+    }
+
+
 @app.post("/api/sync-markets")
 async def api_sync_markets():
     """Hot-add markets after update — без полного перезапуска."""
     added = ensure_all_markets()
     for sym in added:
         s = sessions[sym]
+        s.learning_logger = logger_db
+        if feed_hub:
+            await feed_hub.add_symbol(sym, s.feed)
         await s.restore_from_db()
         await s.startup()
         if state["running"]:

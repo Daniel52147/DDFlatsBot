@@ -91,12 +91,16 @@ class MarketSession:
         )
         self.strategy_type = saved.get("strategy_type", self.strategy_type)
         self.bot = create_bot(self.engine, self.strategy_type, params=saved["bot_params"])
-        self.bot.last_dca_ts = saved.get("last_dca_ts", 0)
-        self.bot.last_take_profit_ts = saved.get("last_take_profit_ts", 0)
-        self.bot.last_dip_ts = saved.get("last_dip_ts", 0)
-        self.bot.last_spike_ts = saved.get("last_spike_ts", 0)
-        self.bot.last_stop_loss_ts = saved.get("last_stop_loss_ts", 0)
-        self.bot.enabled = saved.get("bot_enabled", True)
+        bot_state = saved.get("bot_state") or {}
+        if bot_state and hasattr(self.bot, "import_state"):
+            self.bot.import_state(bot_state)
+        else:
+            self.bot.last_dca_ts = saved.get("last_dca_ts", 0)
+            self.bot.last_take_profit_ts = saved.get("last_take_profit_ts", 0)
+            self.bot.last_dip_ts = saved.get("last_dip_ts", 0)
+            self.bot.last_spike_ts = saved.get("last_spike_ts", 0)
+            self.bot.last_stop_loss_ts = saved.get("last_stop_loss_ts", 0)
+            self.bot.enabled = saved.get("bot_enabled", True)
         db_trades = await self.learning_logger.all_trades_for_symbol(self.symbol)
         if len(db_trades) > len(self.engine.trades):
             self.engine.restore(
@@ -120,6 +124,15 @@ class MarketSession:
         if not self.learning_logger:
             return
         price = self.feed.price or self.demo_price
+        bot_state = self.bot.export_state() if hasattr(self.bot, "export_state") else {}
+        last = bot_state if bot_state else {
+            "last_dca_ts": self.bot.last_dca_ts,
+            "last_take_profit_ts": self.bot.last_take_profit_ts,
+            "last_dip_ts": self.bot.last_dip_ts,
+            "last_spike_ts": self.bot.last_spike_ts,
+            "last_stop_loss_ts": self.bot.last_stop_loss_ts,
+            "enabled": self.bot.enabled,
+        }
         await self.learning_logger.save_session(self.symbol, {
             "quote": self.engine.position.quote,
             "base": self.engine.position.base,
@@ -130,12 +143,13 @@ class MarketSession:
             "start_price": self.engine.start_price,
             "strategy_type": self.strategy_type,
             "bot_params": self.bot.get_params(),
-            "last_dca_ts": self.bot.last_dca_ts,
-            "last_take_profit_ts": self.bot.last_take_profit_ts,
-            "last_dip_ts": self.bot.last_dip_ts,
-            "last_spike_ts": self.bot.last_spike_ts,
-            "last_stop_loss_ts": self.bot.last_stop_loss_ts,
-            "bot_enabled": self.bot.enabled,
+            "last_dca_ts": last.get("last_dca_ts", self.bot.last_dca_ts),
+            "last_take_profit_ts": last.get("last_take_profit_ts", self.bot.last_take_profit_ts),
+            "last_dip_ts": last.get("last_dip_ts", self.bot.last_dip_ts),
+            "last_spike_ts": last.get("last_spike_ts", self.bot.last_spike_ts),
+            "last_stop_loss_ts": last.get("last_stop_loss_ts", self.bot.last_stop_loss_ts),
+            "bot_enabled": last.get("enabled", self.bot.enabled),
+            "bot_state": bot_state,
             "trades": self.engine.export_trades(limit=200),
         })
 

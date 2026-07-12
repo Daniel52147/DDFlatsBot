@@ -153,6 +153,23 @@ function renderMarketsTable(rows) {
       renderMarketsTable((await (await fetch("/api/bootstrap")).json()).markets_table);
     };
   });
+  el.querySelectorAll("[data-action=sync-strat]").forEach(btn => {
+    btn.onclick = async () => {
+      const sym = btn.dataset.sym;
+      try {
+        const res = await apiFetch(`/api/market/sync-strategy?symbol=${sym}`, { method: "POST" });
+        const data = await res.json();
+        if (data.error) showToast("⚠ " + data.error);
+        else {
+          showToast(`🔄 ${data.label || sym}: ${data.strategy_type} · ${data.source || "live"}`);
+          await refreshStatus();
+          renderMarketsTable((await (await fetch("/api/bootstrap")).json()).markets_table);
+        }
+      } catch (_) {
+        showToast("Ошибка синхронизации стратегии");
+      }
+    };
+  });
 }
 
 async function loadTradesTable(symbol) {
@@ -280,7 +297,7 @@ async function runBacktestCompare() {
   const el = document.getElementById("table-backtest");
   if (!el) return;
   const sym = document.getElementById("backtest-symbol")?.value || activeSymbol;
-  el.innerHTML = "<p class='muted'>⏱ Сравнение 4 стратегий на одних свечах...</p>";
+  el.innerHTML = "<p class='muted'>⏱ Сравнение 5 стратегий на одних свечах...</p>";
   try {
     const res = await apiFetch("/api/backtest/compare", {
       method: "POST",
@@ -306,7 +323,7 @@ async function runBacktestCompare() {
     </tr></thead><tbody>${rows}</tbody></table>
     <div class="backtest-controls" style="margin-top:0.75rem">
       <button type="button" id="btn-backtest-run" class="btn small">Один прогон</button>
-      <button type="button" id="btn-backtest-compare" class="btn small ghost">Сравнить 4 стратегии</button>
+      <button type="button" id="btn-backtest-compare" class="btn small ghost">Сравнить 5 стратегий</button>
     </div>`;
     document.getElementById("btn-backtest-run")?.addEventListener("click", runBacktestTable);
     document.getElementById("btn-backtest-compare")?.addEventListener("click", runBacktestCompare);
@@ -794,6 +811,7 @@ async function switchMarket(symbol) {
   if (title) title.textContent = `${d.label || labelFor(symbol)}/USDT — свечи (${lastCandles.length})`;
   renderBotStatus(d);
   renderTabs();
+  loadExchangePanel();
 }
 
 function updateLiveCandle(candle) {
@@ -1389,6 +1407,19 @@ function bindUi() {
   document.getElementById("btn-backtest-run")?.addEventListener("click", runBacktestTable);
   document.getElementById("btn-backtest-compare")?.addEventListener("click", runBacktestCompare);
   document.getElementById("btn-strategy-apply")?.addEventListener("click", applyStrategy);
+  document.getElementById("btn-exchange-refresh")?.addEventListener("click", loadExchangePanel);
+  document.getElementById("btn-shadow-reset")?.addEventListener("click", async () => {
+    if (!confirm("Сбросить все shadow-клоны? Текущие эксперименты начнутся заново.")) return;
+    try {
+      const res = await apiFetch("/api/shadow-lab/reset", { method: "POST" });
+      const data = await res.json();
+      if (data.status) renderShadowLab(data.status);
+      showToast("♻️ Shadow Lab сброшен");
+      await loadShadowLab();
+    } catch (_) {
+      showToast("Ошибка сброса Shadow Lab");
+    }
+  });
   document.querySelectorAll(".preset-btn").forEach(btn => {
     btn.onclick = async () => {
       const res = await apiFetch("/api/strategy/preset", {
@@ -1463,6 +1494,35 @@ async function loadLearning() {
   } catch (_) {}
 }
 
+async function loadExchangePanel() {
+  const el = document.getElementById("exchange-panel-body");
+  if (!el) return;
+  try {
+    const [st, bal, rec] = await Promise.all([
+      fetch("/api/exchange/status").then(r => r.json()),
+      fetch("/api/exchange/balances").then(r => r.json()),
+      fetch(`/api/exchange/reconcile?symbol=${activeSymbol}`).then(r => r.json()),
+    ]);
+    if (!st.enabled) {
+      el.innerHTML = `<p>Paper режим. Задай <code>BINANCE_API_KEY</code> + <code>EXCHANGE_ENABLED=true</code> для testnet.</p>`;
+      return;
+    }
+    const rows = (bal.balances || []).slice(0, 8).map(b =>
+      `<tr><td><b>${b.asset}</b></td><td>${Number(b.free).toFixed(6)}</td><td>${Number(b.locked).toFixed(6)}</td></tr>`
+    ).join("") || "<tr><td colspan=3>Нет балансов</td></tr>";
+    const syncCls = rec.base_synced || rec.synced ? "up" : "down";
+    el.innerHTML = `
+      <p><b>${st.testnet ? "TESTNET" : "LIVE"}</b> · ордер до $${st.max_order_usd} · сегодня ${st.orders_today || 0}</p>
+      <table class="data-table compact"><thead><tr><th>Asset</th><th>Free</th><th>Locked</th></tr></thead><tbody>${rows}</tbody></table>
+      <p class="muted" style="margin-top:0.5rem">Reconcile <b>${labelFor(activeSymbol)}</b>:</p>
+      <p>Base paper <b>${rec.paper_base ?? "—"}</b> · exchange <b>${rec.exchange_base ?? "—"}</b>
+        <span class="${syncCls}">Δ ${rec.base_diff ?? "—"}</span></p>
+      <p class="muted">${rec.note || ""}</p>`;
+  } catch (_) {
+    el.textContent = "Не удалось загрузить данные биржи";
+  }
+}
+
 async function loadExchangeBadge() {
   try {
     const st = await (await fetch("/api/exchange/status")).json();
@@ -1487,6 +1547,7 @@ async function main() {
     initEquityChart();
     await loadInitial();
     await loadExchangeBadge();
+    await loadExchangePanel();
     await loadAlerts();
     await loadFees();
     await renderHeatmap();

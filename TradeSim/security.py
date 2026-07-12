@@ -25,6 +25,7 @@ WRITE_PREFIXES = (
     "/api/strategy/switch",
     "/api/strategy/preset",
     "/api/sync-markets",
+    "/api/market/sync-strategy",
     "/api/bot/toggle",
     "/api/backtest",
     "/api/assistant/chat",

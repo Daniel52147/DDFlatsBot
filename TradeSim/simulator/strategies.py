@@ -130,6 +130,35 @@ class _StrategyMixin:
             self.last_dca_ts = now
         return trade
 
+    def export_state(self) -> dict[str, Any]:
+        return {
+            "last_dca_ts": self.last_dca_ts,
+            "last_take_profit_ts": self.last_take_profit_ts,
+            "last_dip_ts": self.last_dip_ts,
+            "last_spike_ts": self.last_spike_ts,
+            "last_stop_loss_ts": self.last_stop_loss_ts,
+            "enabled": self.enabled,
+            "strategy": self._export_strategy_state(),
+        }
+
+    def _export_strategy_state(self) -> dict[str, Any]:
+        return {}
+
+    def import_state(self, state: dict[str, Any] | None) -> None:
+        if not state:
+            return
+        self.last_dca_ts = float(state.get("last_dca_ts", self.last_dca_ts))
+        self.last_take_profit_ts = float(state.get("last_take_profit_ts", self.last_take_profit_ts))
+        self.last_dip_ts = float(state.get("last_dip_ts", self.last_dip_ts))
+        self.last_spike_ts = float(state.get("last_spike_ts", self.last_spike_ts))
+        self.last_stop_loss_ts = float(state.get("last_stop_loss_ts", self.last_stop_loss_ts))
+        if "enabled" in state:
+            self.enabled = bool(state["enabled"])
+        self._import_strategy_state(state.get("strategy") or {})
+
+    def _import_strategy_state(self, data: dict[str, Any]) -> None:
+        pass
+
     def _status_common(self, price: float, sma: float | None, extra: dict | None = None) -> dict[str, Any]:
         dip_pct = None
         if sma and price:
@@ -205,6 +234,16 @@ class GridStrategyBot(_StrategyMixin):
                             return trade
         return self._maybe_scheduled_dca(price)
 
+    def _export_strategy_state(self) -> dict[str, Any]:
+        return {
+            "last_buy_level": self._last_buy_level,
+            "last_sell_level": self._last_sell_level,
+        }
+
+    def _import_strategy_state(self, data: dict[str, Any]) -> None:
+        self._last_buy_level = int(data.get("last_buy_level", self._last_buy_level))
+        self._last_sell_level = int(data.get("last_sell_level", self._last_sell_level))
+
     def status(self, price: float, sma: float | None) -> dict[str, Any]:
         return self._status_common(price, sma, {
             "grid_levels_buy": self._last_buy_level,
@@ -264,6 +303,13 @@ class MomentumStrategyBot(_StrategyMixin):
                             self.last_take_profit_ts = time.time()
                             return trade
         return self._maybe_scheduled_dca(price)
+
+    def _export_strategy_state(self) -> dict[str, Any]:
+        return {"high_water": self.high_water, "in_trend": self.in_trend}
+
+    def _import_strategy_state(self, data: dict[str, Any]) -> None:
+        self.high_water = float(data.get("high_water", self.high_water))
+        self.in_trend = bool(data.get("in_trend", self.in_trend))
 
     def status(self, price: float, sma: float | None) -> dict[str, Any]:
         return self._status_common(price, sma, {
@@ -331,6 +377,14 @@ class RSIStrategyBot(_StrategyMixin):
                             return trade
         return self._maybe_scheduled_dca(price)
 
+    def _export_strategy_state(self) -> dict[str, Any]:
+        return {"prices": list(self._prices[-80:])}
+
+    def _import_strategy_state(self, data: dict[str, Any]) -> None:
+        prices = data.get("prices")
+        if isinstance(prices, list):
+            self._prices = [float(p) for p in prices[-80:]]
+
     def status(self, price: float, sma: float | None) -> dict[str, Any]:
         rsi = self._rsi()
         return self._status_common(price, sma, {"rsi": round(rsi, 1) if rsi else None})
@@ -383,6 +437,13 @@ class ScalperStrategyBot(_StrategyMixin):
         if self._ticks % 40 == 0:
             return self._maybe_scheduled_dca(price)
         return None
+
+    def _export_strategy_state(self) -> dict[str, Any]:
+        return {"last_price": self._last_price, "ticks": self._ticks}
+
+    def _import_strategy_state(self, data: dict[str, Any]) -> None:
+        self._last_price = float(data.get("last_price", self._last_price))
+        self._ticks = int(data.get("ticks", self._ticks))
 
     def status(self, price: float, sma: float | None) -> dict[str, Any]:
         move = None

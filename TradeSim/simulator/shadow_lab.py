@@ -22,7 +22,6 @@ from simulator.strategies import create_bot
 
 logger = logging.getLogger(__name__)
 
-# Deterministic seeds per clone index for reproducible jitter
 _JITTER_PROFILES = [
     {"dca_amount": 1.0, "dip_threshold_pct": 1.0, "take_profit_pct": 1.0, "sma_period": 0},
     {"dca_amount": 0.85, "dip_threshold_pct": 1.1, "take_profit_pct": 0.9, "sma_period": -2},
@@ -37,6 +36,32 @@ _JITTER_PROFILES = [
     {"dip_threshold_pct": 0.8, "spike_threshold_pct": 1.1, "spike_extra_amount": 0.85},
     {"sma_period": -6, "take_profit_pct": 1.2, "stop_loss_pct": 1.15, "dca_amount": 0.95},
 ]
+
+_COMMON_PROMOTE_KEYS = (
+    "sma_period", "stop_loss_pct", "stop_loss_fraction", "dca_amount", "dca_interval_hours",
+)
+_PROMOTE_KEYS: dict[str, tuple[str, ...]] = {
+    "dca": (
+        "dca_amount", "dip_threshold_pct", "dip_extra_amount", "take_profit_pct",
+        "take_profit_fraction", "spike_threshold_pct", "spike_extra_amount",
+        "dip_cooldown_minutes",
+    ),
+    "grid": (
+        "grid_spacing_pct", "grid_buy_amount", "grid_sell_fraction", "grid_cooldown_minutes",
+    ),
+    "momentum": (
+        "breakout_pct", "trailing_stop_pct", "momentum_buy_amount", "trail_sell_fraction",
+        "entry_cooldown_minutes",
+    ),
+    "rsi": (
+        "rsi_oversold", "rsi_overbought", "rsi_buy_amount", "rsi_sell_fraction",
+        "rsi_buy_cooldown_minutes", "rsi_sell_cooldown_minutes", "rsi_period",
+    ),
+    "scalper": (
+        "scalp_move_pct", "scalp_tp_pct", "scalp_buy_amount", "scalp_sell_fraction",
+        "scalp_cooldown_seconds",
+    ),
+}
 
 
 class ShadowClone:
@@ -199,10 +224,10 @@ class ShadowLab:
             promoted_keys = []
             live_params = session.bot.get_params()
             winner_params = winner.bot.get_params()
+            stype = getattr(session, "strategy_type", "dca")
+            keys = _PROMOTE_KEYS.get(stype, _PROMOTE_KEYS["dca"]) + _COMMON_PROMOTE_KEYS
 
-            for key in ("dca_amount", "dip_threshold_pct", "dip_extra_amount",
-                        "take_profit_pct", "take_profit_fraction", "sma_period",
-                        "stop_loss_pct", "dip_cooldown_minutes"):
+            for key in keys:
                 if key not in live_params or key not in winner_params:
                     continue
                 old = live_params[key]

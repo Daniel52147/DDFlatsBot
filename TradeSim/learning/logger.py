@@ -39,6 +39,7 @@ class LearningLogger:
       "ALTER TABLE sessions ADD COLUMN last_stop_loss_ts REAL DEFAULT 0",
       "ALTER TABLE sessions ADD COLUMN start_price REAL DEFAULT 0",
       "ALTER TABLE sessions ADD COLUMN strategy_type TEXT DEFAULT 'dca'",
+      "ALTER TABLE sessions ADD COLUMN bot_state TEXT DEFAULT '{}'",
       "ALTER TABLE total_snapshots ADD COLUMN hold_value REAL DEFAULT 0",
       "ALTER TABLE total_snapshots ADD COLUMN hold_pnl_pct REAL DEFAULT 0",
     ):
@@ -87,13 +88,15 @@ class LearningLogger:
           quote REAL, base REAL, trade_counter INTEGER,
           start_balance REAL, start_ts REAL,
           bot_params TEXT, last_dca_ts REAL, last_take_profit_ts REAL,
-          bot_enabled INTEGER, trades_json TEXT, updated_ts REAL
+          bot_enabled INTEGER, trades_json TEXT, updated_ts REAL,
+          bot_state TEXT DEFAULT '{}'
         )
       """)
       await db.execute("""
         CREATE TABLE IF NOT EXISTS total_snapshots (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          ts REAL, total_value REAL, pnl_pct REAL
+          ts REAL, total_value REAL, pnl_pct REAL,
+          hold_value REAL DEFAULT 0, hold_pnl_pct REAL DEFAULT 0
         )
       """)
       await db.execute("""
@@ -232,8 +235,9 @@ class LearningLogger:
         """INSERT INTO sessions
            (symbol, quote, base, trade_counter, start_balance, start_ts,
             bot_params, last_dca_ts, last_take_profit_ts, bot_enabled, trades_json, updated_ts,
-            cost_basis, last_dip_ts, last_spike_ts, last_stop_loss_ts, start_price, strategy_type)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            cost_basis, last_dip_ts, last_spike_ts, last_stop_loss_ts, start_price, strategy_type,
+            bot_state)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(symbol) DO UPDATE SET
              quote=excluded.quote, base=excluded.base, trade_counter=excluded.trade_counter,
              start_balance=excluded.start_balance, start_ts=excluded.start_ts,
@@ -242,7 +246,8 @@ class LearningLogger:
              trades_json=excluded.trades_json, updated_ts=excluded.updated_ts,
              cost_basis=excluded.cost_basis, last_dip_ts=excluded.last_dip_ts,
              last_spike_ts=excluded.last_spike_ts, last_stop_loss_ts=excluded.last_stop_loss_ts,
-             start_price=excluded.start_price, strategy_type=excluded.strategy_type""",
+             start_price=excluded.start_price, strategy_type=excluded.strategy_type,
+             bot_state=excluded.bot_state""",
         (
           symbol, data["quote"], data["base"], data["trade_counter"],
           data["start_balance"], data["start_ts"],
@@ -256,6 +261,7 @@ class LearningLogger:
           data.get("last_stop_loss_ts", 0),
           data.get("start_price", 0),
           data.get("strategy_type", "dca"),
+          json.dumps(data.get("bot_state", {})),
         ),
       )
       await db.commit()
@@ -271,6 +277,10 @@ class LearningLogger:
     d["bot_params"] = json.loads(d["bot_params"] or "{}")
     d["trades"] = json.loads(d["trades_json"] or "[]")
     d["bot_enabled"] = bool(d["bot_enabled"])
+    try:
+        d["bot_state"] = json.loads(d.get("bot_state") or "{}")
+    except json.JSONDecodeError:
+        d["bot_state"] = {}
     return d
 
   async def clear_sessions(self):

@@ -37,17 +37,24 @@ class TraderWatcherAgent:
     async def _fetch_binance_ticker_momentum(self) -> dict[str, float]:
         """24h price change % per USDT pair from public API."""
         out: dict[str, float] = {}
-        try:
-            async with httpx.AsyncClient(timeout=12) as client:
-                r = await client.get("https://api.binance.com/api/v3/ticker/24hr")
-                r.raise_for_status()
-                for row in r.json():
-                    sym = row.get("symbol", "")
-                    if sym.endswith("USDT"):
-                        label = sym.replace("USDT", "")
-                        out[label] = float(row.get("priceChangePercent", 0))
-        except Exception as e:
-            logger.warning("trader watcher ticker: %s", e)
+        urls = (
+            "https://api.binance.com/api/v3/ticker/24hr",
+            "https://api.binance.us/api/v3/ticker/24hr",
+        )
+        for url in urls:
+            try:
+                async with httpx.AsyncClient(timeout=12) as client:
+                    r = await client.get(url)
+                    r.raise_for_status()
+                    for row in r.json():
+                        sym = row.get("symbol", "")
+                        if sym.endswith("USDT"):
+                            label = sym.replace("USDT", "")
+                            out[label] = float(row.get("priceChangePercent", 0))
+                if out:
+                    return out
+            except Exception as e:
+                logger.warning("trader watcher ticker %s: %s", url, e)
         return out
 
     def _signal_for_trader(self, trader: dict, momentum: dict[str, float], contexts: list[dict]) -> dict:

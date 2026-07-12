@@ -189,12 +189,15 @@ class BinanceLiveExchange:
         return {
             "mode": "live",
             "symbol": symbol,
+            "base_asset": base_asset,
             "paper_base": round(paper_base, 8),
             "exchange_base": round(ex_base, 8),
             "paper_quote": round(paper_quote, 2),
             "exchange_usdt": round(ex_quote, 2),
             "base_diff": round(ex_base - paper_base, 8),
-            "synced": abs(ex_base - paper_base) < 1e-6 and abs(ex_quote - paper_quote) < 1.0,
+            "base_synced": abs(ex_base - paper_base) < 1e-6,
+            "note": "USDT на бирже — общий баланс счёта; paper quote — только этот рынок",
+            "synced": abs(ex_base - paper_base) < 1e-6,
         }
 
     async def place_market_order(
@@ -255,7 +258,19 @@ class BinanceLiveExchange:
             return {"ok": False, "error": e.response.text, "mode": "live"}
 
         fills_quote = sum(float(f.get("price", 0)) * float(f.get("qty", 0)) for f in data.get("fills", []))
-        self.risk.record_result(0)
+        base_asset = symbol.replace("USDT", "")
+        commission_usd = 0.0
+        for f in data.get("fills", []):
+            comm = float(f.get("commission", 0) or 0)
+            asset = f.get("commissionAsset", "")
+            if asset == "USDT":
+                commission_usd += comm
+            elif asset == base_asset:
+                commission_usd += comm * float(f.get("price", price or 0))
+        pnl_delta = -commission_usd
+        if side == "sell" and fills_quote > 0:
+            pnl_delta = fills_quote * 0.001 - commission_usd
+        self.risk.record_result(pnl_delta)
         return {
             "ok": True,
             "mode": "live",

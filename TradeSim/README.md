@@ -1,34 +1,55 @@
-# TradeSim
+# TradeSim v18
 
 **Paper trading** simulator: **17 crypto markets**, virtual $10,000, live prices, self-learning bots.
 
 ## Markets (17)
 
-| Tier | Coins | Strategy |
-|------|-------|----------|
-| **Majors** | BTC, ETH, SOL, BNB | DCA $25 / 24h + DIP |
-| **Growth** | XRP, ADA, AVAX, LINK, ARB, SUI, NEAR, DOT, INJ, TON | Faster DCA + SPIKE + TP |
-| **Meme** | DOGE, PEPE | Aggressive volatile params |
-| **Viral** | WIF (dogwifhat) | Ultra-fast trending slot |
+| Tier | Coins | Default strategy |
+|------|-------|------------------|
+| **Majors** | BTC, ETH, SOL, BNB | DCA |
+| **Growth** | XRP, ADA, AVAX, LINK, ARB, SUI, NEAR, DOT, INJ, TON | DCA / Grid / Momentum |
+| **Meme** | DOGE, PEPE | Aggressive DCA |
+| **Viral** | WIF | Scalper |
 
-## Features
+## Strategies (5)
 
-- **17 parallel bots** + **12 brain agents** + Shadow Lab (12 clones × 17 markets)
-- **Persistence** — SQLite WAL, full trade history, restore after restart
-- **Backtest** — OHLC replay in minutes (`POST /api/backtest`)
-- **Security** — `TRADESIM_API_TOKEN` for write APIs; default bind `127.0.0.1`
-- **Optional Binance testnet** — `BINANCE_API_KEY` + `EXCHANGE_ENABLED=true`
-- **13+ unit tests** + GitHub Actions CI
+| Type | Description |
+|------|-------------|
+| **DCA** | Planned buys + DIP below SMA + SPIKE + take-profit |
+| **Grid** | Buy/sell on grid levels vs SMA |
+| **Momentum** | Breakout entry + trailing stop |
+| **RSI** | Mean-reversion on RSI oversold/overbought |
+| **Scalper** | Micro-moves with tight TP (DOT, NEAR, WIF) |
+
+Runtime state (grid levels, RSI buffer, scalper ticks) is **persisted in SQLite** across restarts.
+
+## Features (v18)
+
+- **17 parallel bots** + **12 brain agents** + Shadow Lab (promote keys per strategy type)
+- **FeedHub** — one multiplexed Binance WebSocket; hot-add via `POST /api/sync-markets`
+- **Persistence** — SQLite WAL, `bot_state` column, full trade history
+- **Backtest** — compare all 5 strategies on same candles
+- **Exchange panel** — balances + per-market base reconcile in UI
+- **JSON health** — `GET /api/health`
+- **Docker** — `docker compose up`
+- **30+ unit/API tests** + GitHub Actions CI
 
 ## Quick start
 
 ```bash
 cd TradeSim
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 python main.py
 ```
 
 Open http://127.0.0.1:8765
+
+### Docker
+
+```bash
+cd TradeSim
+docker compose up --build
+```
 
 ### Remote / production
 
@@ -54,21 +75,19 @@ Paper bot and exchange are **separate** — testnet orders via 🏦 button or `P
 
 | Endpoint | Auth | Description |
 |----------|------|-------------|
+| `GET /api/health` | — | JSON status (version, markets, portfolio) |
+| `GET /health` | — | HTML health page |
 | `GET /api/ping` | — | Version, markets, `auth_required` |
 | `GET /api/bootstrap` | — | Full UI payload |
 | `GET /api/trades` | — | SQLite trade history |
-| `GET /api/export/trades` | — | Export up to 5000 trades |
-| `GET /api/candles` | — | OHLC for charts |
 | `POST /api/backtest` | token* | Historical strategy run |
+| `POST /api/backtest/compare` | token* | Compare 5 strategies |
 | `POST /api/deposit` | token* | Paper top-up |
-| `POST /api/trade` | token* | Manual paper trade |
-| `POST /api/reset` | token* | Portfolio / full DB reset |
-| `POST /api/sync-markets` | token* | Hot-add new markets |
-| `POST /api/assistant/chat` | token* | Chat |
-| `GET /api/exchange/status` | — | Paper / testnet mode |
-| `POST /api/exchange/order` | token* | Testnet market order |
-| `GET /api/exchange/reconcile` | — | Paper vs exchange balance |
-| `GET /api/learning/honesty` | — | What really learns |
+| `POST /api/sync-markets` | token* | Hot-add new markets + FeedHub |
+| `POST /api/market/sync-strategy` | token* | Re-apply config strategy + refresh feed |
+| `POST /api/shadow-lab/reset` | token* | Reset shadow clones |
+| `GET /api/exchange/balances` | — | Exchange wallet balances |
+| `GET /api/exchange/reconcile` | — | Paper base vs exchange (per symbol) |
 | `GET /api/shadow-lab` | — | Shadow Lab status |
 
 \* Required when `TRADESIM_API_TOKEN` is set (header `X-API-Token`).
@@ -79,6 +98,6 @@ Paper bot and exchange are **separate** — testnet orders via 🏦 button or `P
 cd TradeSim && python3 -m pytest tests/ -v
 ```
 
-## Stack
+## Windows
 
-Python · FastAPI · SQLite WAL · Lightweight Charts · Binance/Bybit feeds
+See [WINDOWS.md](WINDOWS.md) for setup notes.

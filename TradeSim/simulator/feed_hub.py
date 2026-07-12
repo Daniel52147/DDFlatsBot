@@ -38,6 +38,27 @@ class FeedHub:
         sym = symbol.upper()
         self._feeds.setdefault(sym, []).append(feed)
 
+    async def add_symbol(self, symbol: str, feed) -> None:
+        """Register feed and hot-add symbol to multiplex WS."""
+        sym = symbol.upper()
+        if sym not in self.symbols:
+            self.symbols.append(sym)
+        self.register(sym, feed)
+        if self._running:
+            await self._restart_multiplex()
+
+    register_symbol = add_symbol  # alias for sync-markets callers
+
+    async def _restart_multiplex(self) -> None:
+        if self._task and not self._task.done():
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+        if self._running:
+            self._task = asyncio.create_task(self._run_multiplex())
+
     def client(self) -> httpx.AsyncClient:
         if self._shared_client is None or self._shared_client.is_closed:
             self._shared_client = httpx.AsyncClient(timeout=15.0)

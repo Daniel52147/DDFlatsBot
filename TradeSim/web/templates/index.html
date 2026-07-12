@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TradeSim v17 Mega — 17 рынков · 5 стратегий</title>
-  <link rel="stylesheet" href="/static/style.css?v=17" />
+  <title>TradeSim v18 — 17 рынков · 5 стратегий</title>
+  <link rel="stylesheet" href="/static/style.css?v=18" />
   <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
 </head>
-<body class="v17">
+<body class="v18">
   <div id="version-banner" class="version-banner hidden"></div>
   <div id="alerts-ticker" class="alerts-ticker" aria-live="polite">
     <span class="alerts-label">📡 Сканер</span>
@@ -17,8 +17,8 @@
     <div class="brand">
       <span class="logo">◆</span>
       <div>
-        <h1>TradeSim <span class="ver-badge">v17 Mega</span></h1>
-        <p class="tagline">17 рынков · DCA · Grid · Momentum · RSI · Scalper · FeedHub · Hold benchmark</p>
+        <h1>TradeSim <span class="ver-badge">v18</span></h1>
+        <p class="tagline">17 рынков · 5 стратегий · state persist · FeedHub · exchange panel</p>
       </div>
     </div>
     <div class="header-stats">
@@ -95,7 +95,7 @@
             <label class="muted">Рынок:</label>
             <select id="backtest-symbol" class="backtest-select"></select>
             <button type="button" id="btn-backtest-run" class="btn small">Один прогон</button>
-            <button type="button" id="btn-backtest-compare" class="btn small ghost">Сравнить 4 стратегии</button>
+            <button type="button" id="btn-backtest-compare" class="btn small ghost">Сравнить 5 стратегий</button>
           </div>
         </div>
         <div id="table-trades" class="data-table-wrap hidden"></div>
@@ -161,10 +161,18 @@
         </div>
       </section>
 
+      <section class="card v16-card" id="exchange-panel">
+        <div class="card-header">
+          <h2>🏦 Биржа</h2>
+          <button type="button" id="btn-exchange-refresh" class="btn ghost small">Обновить</button>
+        </div>
+        <div id="exchange-panel-body" class="exchange-panel-body muted">Загрузка балансов...</div>
+      </section>
+
       <section class="card assistant-card v16-card">
         <div class="card-header"><h2>💬 Помощник</h2></div>
         <div id="chat-messages" class="chat-messages">
-          <div class="chat-bubble chat-bot">TradeSim v16: спроси <b>стратегии</b> · <b>бэктест</b> · <b>shadow</b> · <b>vs hold</b></div>
+          <div class="chat-bubble chat-bot">TradeSim v18: спроси <b>стратегии</b> · <b>бэктест</b> · <b>shadow</b> · <b>vs hold</b></div>
         </div>
         <form id="chat-form" class="chat-form">
           <input id="chat-input" type="text" placeholder="тренд / grid / momentum / DOGE?" autocomplete="off" />
@@ -184,14 +192,15 @@
   <details class="shadow-lab-panel v16-shadow" id="shadow-lab-panel" open>
     <summary>🔬 Shadow Lab — <span id="shadow-lab-summary">204 клона</span></summary>
     <div class="shadow-lab-inner">
-      <p class="muted">12 клонов × 17 рынков. Лучшие параметры переносятся в живой бот. Нажми «Применить» в таблице Shadow TOP.</p>
+      <p class="muted">12 клонов × 17 рынков. Лучшие параметры переносятся в живой бот.</p>
+      <button type="button" id="btn-shadow-reset" class="btn ghost small">♻️ Сбросить клоны</button>
       <div id="shadow-lab-grid" class="shadow-lab-grid">Загрузка...</div>
       <ul id="shadow-promotions" class="shadow-promotions"></ul>
     </div>
   </details>
 
   <footer class="v16-footer">
-    <span>Binance FeedHub · v17 Mega · 5 стратегий · hold benchmark · daily report</span>
+    <span>TradeSim v18 · 5 стратегий · state persist · JSON /api/health</span>
     <div class="footer-actions">
       <input id="api-token-input" type="password" placeholder="API-токен" class="token-input" />
       <button id="btn-save-token" class="btn ghost small">🔐</button>

@@ -1,0 +1,16 @@
+services:
+  tradesim:
+    build: .
+    ports:
+      - "8765:8765"
+    volumes:
+      - tradesim-data:/app/data
+    environment:
+      - TRADESIM_BIND_HOST=0.0.0.0
+      # - TRADESIM_API_TOKEN=change-me
+      # - BINANCE_API_KEY=
+      # - BINANCE_API_SECRET=
+      # - EXCHANGE_ENABLED=false
+
+volumes:
+  tradesim-data:

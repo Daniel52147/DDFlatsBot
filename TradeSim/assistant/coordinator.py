@@ -196,6 +196,9 @@ class CentralBrain:
             return
         self.last_applied_decision = decision
 
+        if decision in ("continue", "hold", "collect_data"):
+            return
+
         for session in sessions.values():
             p = dict(session.bot.get_params())
             if decision == "pause_dip":
@@ -214,9 +217,6 @@ class CentralBrain:
                 p["dca_amount"] = p.get("dca_amount", 25) * 0.7
             elif decision == "experiment" and session.volatile:
                 p["dip_threshold_pct"] = max(3.0, p.get("dip_threshold_pct", 5) - 0.5)
-            elif decision in ("continue", "hold", "collect_data"):
-                # Keep tuned params — base_params synced after every tune
-                p = dict(session.base_params)
 
             session.set_params_bounded(p)
 
