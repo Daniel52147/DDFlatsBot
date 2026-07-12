@@ -25,6 +25,14 @@ from assistant.coordinator import CentralBrain
 from exchange.binance_live import BinanceLiveExchange
 from exchange.paper_sync import mirror_base_from_exchange, sync_order_to_paper, sync_trade_to_exchange
 from exchange.trading_mode import trading_mode
+from exchange.wallet_service import (
+    deposit_info,
+    exchange_withdraw_usdt,
+    mirror_usdt_to_paper,
+    paper_withdraw,
+    refresh_wallet_bridge,
+    wallet_summary,
+)
 from exchange.live_readiness import assess_live_readiness
 from exchange.pnl_tracker import snapshot_exchange_portfolio
 from learning.analytics import build_portfolio_analytics
@@ -87,6 +95,17 @@ class DepositRequest(BaseModel):
     target: str = "split"  # split — на все рынки | symbol — на одну монету
     symbol: str | None = None
     note: str = ""
+
+
+class WithdrawRequest(BaseModel):
+    amount: float
+    target: str = "split"
+    symbol: str | None = None
+    note: str = ""
+    wallet: str = "paper"  # paper | exchange
+    address: str = ""
+    network: str | None = None
+    confirm_live: bool = False
 
 
 class ChatRequest(BaseModel):
@@ -766,6 +785,17 @@ async def after_paper_trade(session, trade):
         logger.warning("[%s] paper→exchange sync failed: %s", session.label, result.get("error"))
 
 
+async def wallet_bridge_loop():
+    """Keep exchange USDT available to bots on testnet/live."""
+    await asyncio.sleep(10)
+    while state["running"]:
+        try:
+            await refresh_wallet_bridge(sessions, live_exchange, trading_mode)
+        except Exception as e:
+            logger.warning("wallet bridge: %s", e)
+        await asyncio.sleep(config.WALLET_BRIDGE_INTERVAL_SEC)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global shadow_lab, feed_hub, auto_tactics, capital_allocator, profit_focus
@@ -813,6 +843,7 @@ async def lifespan(app: FastAPI):
             )
         else:
             logger.warning("Binance verify failed: %s", verify.get("error") or verify.get("note"))
+    await refresh_wallet_bridge(sessions, live_exchange, trading_mode)
 
     if config.AUTO_APPLY_TRADING_MODE_ON_START and live_exchange.enabled:
         desired_mode = config.TRADING_MODE_DEFAULT
@@ -864,6 +895,8 @@ async def lifespan(app: FastAPI):
         tasks.append(asyncio.create_task(run_session_loop(s)))
     state["background_tasks"] = tasks
     tasks.append(asyncio.create_task(brain_loop()))
+    if config.WALLET_BRIDGE_ENABLED:
+        tasks.append(asyncio.create_task(wallet_bridge_loop()))
     tasks.append(asyncio.create_task(shadow_eval_loop()))
     tasks.append(asyncio.create_task(snapshot_loop()))
     tasks.append(asyncio.create_task(candle_health_loop()))
@@ -1466,11 +1499,14 @@ async def api_trading_mode_set(body: TradingModeRequest):
                 for session in sessions.values():
                     await session.persist()
                 result["testnet_discipline"] = True
+            await refresh_wallet_bridge(sessions, live_exchange, trading_mode)
     return result
 
 
 @app.post("/api/exchange/order")
 async def api_exchange_order(body: ManualTradeRequest):
+    if trading_mode.mode == "paper":
+        return api_fail("Биржевые ордера только в режиме 🧪 Testnet или 🏦 Live")
     if body.symbol not in sessions:
         return api_fail("unknown symbol")
     s = sessions[body.symbol]
@@ -1690,6 +1726,110 @@ async def api_deposit(body: DepositRequest):
 @app.get("/api/deposits")
 async def api_deposits():
     return {"deposits": await logger_db.deposit_history(30)}
+
+
+@app.post("/api/withdraw")
+async def api_withdraw(body: WithdrawRequest):
+    """Вывод USDT с paper или с биржи (testnet/live)."""
+    ensure_all_markets()
+    amount = float(body.amount)
+    wallet = (body.wallet or "paper").lower()
+
+    if wallet == "exchange":
+        if trading_mode.mode == "paper":
+            return api_fail("Вывод с биржи — переключись на Testnet или Live")
+        result = await exchange_withdraw_usdt(
+            live_exchange,
+            address=body.address,
+            amount=amount,
+            network=body.network,
+            confirm_live=body.confirm_live,
+        )
+        if not result.get("ok"):
+            return result
+        total = total_portfolio()
+        note = body.note or f"Биржа → {body.address[:8]}…"
+        await logger_db.log_withdrawal(
+            amount, "exchange", "", note, total["total_value"], wallet="exchange",
+        )
+        await broadcast({"type": "withdraw", "amount": amount, "wallet": "exchange", "total": total})
+        return {
+            **result,
+            "withdrawn": amount,
+            "total": total,
+            "withdrawals": await logger_db.withdrawal_history(10),
+            "movements": await logger_db.wallet_movements(15),
+        }
+
+    result = await paper_withdraw(
+        sessions, amount, target=body.target, symbol=body.symbol,
+    )
+    if not result.get("ok"):
+        return result
+    total = total_portfolio()
+    target = (body.target or "split").lower()
+    note = body.note or result.get("note", "Paper вывод")
+    await logger_db.log_withdrawal(
+        result["withdrawn"], target, body.symbol or "", note, total["total_value"], wallet="paper",
+    )
+    await refresh_wallet_bridge(sessions, live_exchange, trading_mode)
+    await broadcast({"type": "withdraw", "amount": result["withdrawn"], "wallet": "paper", "total": total})
+    return {
+        "ok": True,
+        "withdrawn": result["withdrawn"],
+        "total": total,
+        "withdrawals": await logger_db.withdrawal_history(10),
+        "movements": await logger_db.wallet_movements(15),
+    }
+
+
+@app.get("/api/withdrawals")
+async def api_withdrawals():
+    return {"withdrawals": await logger_db.withdrawal_history(30)}
+
+
+@app.get("/api/wallet/movements")
+async def api_wallet_movements():
+    return {"movements": await logger_db.wallet_movements(40)}
+
+
+@app.get("/api/wallet/summary")
+async def api_wallet_summary():
+    return await wallet_summary(sessions, live_exchange, trading_mode)
+
+
+@app.get("/api/wallet/deposit-info")
+async def api_wallet_deposit_info():
+    return await deposit_info(live_exchange)
+
+
+@app.post("/api/wallet/sync-usdt")
+async def api_wallet_sync_usdt(amount: float | None = None):
+    """Подтянуть USDT с биржи в paper-кошельки ботов."""
+    if trading_mode.mode == "paper":
+        return api_fail("Синхр. USDT — переключись на Testnet или Live")
+    result = await mirror_usdt_to_paper(sessions, live_exchange, amount=amount)
+    if result.get("ok"):
+        total = total_portfolio()
+        await logger_db.log_deposit(
+            result.get("mirrored_usdt", 0),
+            "exchange_sync",
+            "",
+            "USDT биржа → paper",
+            total["total_value"],
+        )
+        await refresh_wallet_bridge(sessions, live_exchange, trading_mode)
+        await broadcast({"type": "deposit", "amount": result.get("mirrored_usdt", 0), "total": total})
+        result["total"] = total
+        result["movements"] = await logger_db.wallet_movements(15)
+    return result
+
+
+@app.post("/api/wallet/bridge")
+async def api_wallet_bridge():
+    bridge = await refresh_wallet_bridge(sessions, live_exchange, trading_mode)
+    summary = await wallet_summary(sessions, live_exchange, trading_mode)
+    return {"ok": True, "bridge": bridge, "summary": summary}
 
 
 @app.get("/api/learning/honesty")

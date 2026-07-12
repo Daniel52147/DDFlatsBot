@@ -561,6 +561,7 @@ footer {
 }
 .version-banner.hidden { display: none; }
 .deposit-btn { white-space: nowrap; }
+.withdraw-btn { white-space: nowrap; }
 
 .tables-section {
   margin-top: 1rem;

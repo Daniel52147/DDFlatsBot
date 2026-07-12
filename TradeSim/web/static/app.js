@@ -260,6 +260,24 @@ function renderDepositsTable(deposits) {
   </tbody></table>`;
 }
 
+function renderMovementsTable(movements) {
+  const el = document.getElementById("table-movements");
+  if (!el) return;
+  if (!movements?.length) {
+    el.innerHTML = "<p class='muted'>Движений пока нет. Пополнение и вывод — кнопки в шапке.</p>";
+    return;
+  }
+  el.innerHTML = `<table class="data-table"><thead><tr><th>Время</th><th>Тип</th><th>Сумма</th><th>Кошелёк</th><th>Примечание</th></tr></thead><tbody>
+    ${movements.map(m => `<tr>
+      <td>${formatUnixTs(m.ts)}</td>
+      <td>${m.kind === "deposit" ? "➕" : "➖"} ${m.kind}</td>
+      <td><b>$${Number(m.amount).toLocaleString()}</b></td>
+      <td>${m.wallet || "paper"}</td>
+      <td>${m.note || m.target || m.symbol || "—"}</td>
+    </tr>`).join("")}
+  </tbody></table>`;
+}
+
 function renderHonestyTable(h) {
   const el = document.getElementById("table-honesty");
   if (!el || !h) return;
@@ -1522,6 +1540,13 @@ function connectWs() {
         if (msg.total.start_balance) startBalance = msg.total.start_balance;
         showToast(`💵 Пополнено $${msg.amount} · всего ${fmtMoney(msg.total.total_value)}`);
         loadDepositsTable();
+        loadMovementsTable();
+      }
+      if (msg.type === "withdraw" && msg.total) {
+        updateTotal(msg.total);
+        showToast(`💸 Выведено $${msg.amount} (${msg.wallet || "paper"})`);
+        loadMovementsTable();
+        loadExchangePanel();
       }
       if (msg.type === "brain_update" && msg.cycle) {
         renderBrain(msg.cycle);
@@ -1793,6 +1818,13 @@ async function loadDepositsTable() {
   } catch (_) {}
 }
 
+async function loadMovementsTable() {
+  try {
+    const data = await (await fetch("/api/wallet/movements")).json();
+    renderMovementsTable(data.movements);
+  } catch (_) {}
+}
+
 async function loadInitial() {
   const ping = await checkServerAndSync();
   let ok = loadEmbeddedData();
@@ -1951,6 +1983,8 @@ function bindUi() {
       if (id === "report") renderDailyReport();
       if (id === "strategies") renderStrategyReport();
       if (id === "brain-timeline") renderBrainTimeline();
+      if (id === "movements") loadMovementsTable();
+      if (id === "deposits") loadDepositsTable();
     };
   });
 
@@ -2086,6 +2120,77 @@ function bindUi() {
       showToast(`💵 +$${amount} · портфель ${fmtMoney(data.total.total_value)}`);
       await refreshStatus();
       renderDepositsTable(data.deposits);
+      loadMovementsTable();
+    }
+  });
+
+  const wdModal = document.getElementById("withdraw-modal");
+  const wdWallet = document.getElementById("withdraw-wallet");
+  const wdTarget = document.getElementById("withdraw-target");
+  const wdSym = document.getElementById("withdraw-symbol");
+  const wdSymLabel = document.getElementById("withdraw-symbol-label");
+  const wdPaperFields = document.getElementById("withdraw-paper-fields");
+  const wdExchangeFields = document.getElementById("withdraw-exchange-fields");
+
+  function fillWithdrawSymbols() {
+    if (!wdSym) return;
+    wdSym.innerHTML = Object.keys(marketsMeta).map(s =>
+      `<option value="${s}">${labelFor(s)}</option>`
+    ).join("");
+    if (activeSymbol) wdSym.value = activeSymbol;
+  }
+
+  function toggleWithdrawFields() {
+    const ex = wdWallet?.value === "exchange";
+    wdPaperFields?.classList.toggle("hidden", ex);
+    wdExchangeFields?.classList.toggle("hidden", !ex);
+  }
+
+  document.getElementById("btn-withdraw")?.addEventListener("click", () => {
+    fillWithdrawSymbols();
+    toggleWithdrawFields();
+    wdModal?.classList.remove("hidden");
+  });
+  document.getElementById("withdraw-modal-close")?.addEventListener("click", () => {
+    wdModal?.classList.add("hidden");
+  });
+  wdModal?.addEventListener("click", (e) => {
+    if (e.target.id === "withdraw-modal") wdModal.classList.add("hidden");
+  });
+  wdWallet?.addEventListener("change", toggleWithdrawFields);
+  wdTarget?.addEventListener("change", () => {
+    const one = wdTarget.value === "symbol";
+    wdSym?.classList.toggle("hidden", !one);
+    wdSymLabel?.classList.toggle("hidden", !one);
+  });
+
+  document.getElementById("withdraw-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const amount = Number(document.getElementById("withdraw-amount")?.value);
+    const wallet = wdWallet?.value || "paper";
+    const body = { amount, wallet };
+    if (wallet === "exchange") {
+      body.address = document.getElementById("withdraw-address")?.value?.trim() || "";
+      body.network = document.getElementById("withdraw-network")?.value || "TRC20";
+      body.confirm_live = !!document.getElementById("withdraw-confirm-live")?.checked;
+      if (!confirm(`Вывести $${amount} USDT на биржу? Проверь адрес!`)) return;
+    } else {
+      body.target = wdTarget?.value || "split";
+      body.symbol = body.target === "symbol" ? wdSym?.value : null;
+    }
+    const res = await apiFetch("/api/withdraw", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (data.error) showToast("⚠ " + data.error);
+    else {
+      if (data.total) updateTotal(data.total);
+      wdModal?.classList.add("hidden");
+      showToast(`💸 −$${data.withdrawn || amount} · ${wallet}`);
+      await refreshStatus();
+      loadMovementsTable();
+      loadExchangePanel();
     }
   });
 }
@@ -2111,17 +2216,35 @@ async function loadExchangePanel() {
   const el = document.getElementById("exchange-panel-body");
   if (!el) return;
   try {
-    const [st, bal, rec, pnl] = await Promise.all([
+    const [st, bal, rec, pnl, wallet, depInfo] = await Promise.all([
       fetch("/api/exchange/status").then(r => r.json()),
       fetch("/api/exchange/balances").then(r => r.json()),
       fetch(`/api/exchange/reconcile?symbol=${activeSymbol}`).then(r => r.json()),
       fetch("/api/exchange/pnl").then(r => r.json()),
+      fetch("/api/wallet/summary").then(r => r.json()),
+      fetch("/api/wallet/deposit-info").then(r => r.json()),
     ]);
+    const walletBlock = `
+      <div class="honesty-box ok" style="margin-bottom:0.5rem">
+        <p><b>💳 Кошелёк бота</b> · режим <b>${wallet.mode?.toUpperCase() || "PAPER"}</b></p>
+        <p>Paper USDT <b>${fmtMoney(wallet.paper_quote_usd)}</b> · кредит биржи <b>${fmtMoney(wallet.wallet_credit_usd)}</b></p>
+        <p class="muted">Доступно боту: <b>${fmtMoney(wallet.bot_available_usd)}</b> · биржа USDT ${fmtMoney(wallet.exchange_usdt || 0)}</p>
+        <div style="margin-top:0.4rem;display:flex;gap:0.35rem;flex-wrap:wrap">
+          <button type="button" id="btn-wallet-sync-usdt" class="btn ghost small">↔️ Синхр. USDT → paper</button>
+          <button type="button" id="btn-wallet-bridge" class="btn ghost small">🔗 Обновить мост</button>
+        </div>
+      </div>`;
+    const depBlock = depInfo.ok && depInfo.address
+      ? `<p class="muted">Депозит USDT (${depInfo.network || "TRC20"}): <code style="word-break:break-all">${depInfo.address}</code>${depInfo.tag ? ` · tag: ${depInfo.tag}` : ""}</p>`
+      : depInfo.faucet_url
+        ? `<p class="muted">Testnet faucet: <a href="${depInfo.faucet_url}" target="_blank" rel="noopener">${depInfo.faucet_url}</a></p>`
+        : `<p class="muted">${depInfo.note || depInfo.error || ""}</p>`;
     if (!st.enabled) {
       const paperLine = pnl.paper_total_usd
         ? `<p>Paper: <b>${fmtMoney(pnl.paper_total_usd)}</b> · vs hold <b>${fmtPct(pnl.paper_vs_hold_pct || 0)}</b></p>`
         : "";
-      el.innerHTML = `<p>Paper режим. Задай <code>BINANCE_API_KEY</code> + <code>EXCHANGE_ENABLED=true</code> для testnet.</p>${paperLine}`;
+      el.innerHTML = `${walletBlock}<p>Paper режим. Задай <code>BINANCE_API_KEY</code> + <code>EXCHANGE_ENABLED=true</code> для testnet.</p>${paperLine}`;
+      wireWalletPanelButtons();
       return;
     }
     const syncParts = [];
@@ -2144,6 +2267,8 @@ async function loadExchangePanel() {
     ).join("") || "<tr><td colspan=3>Нет балансов</td></tr>";
     const syncCls = (rec.base_synced ?? rec.synced) ? "up" : "down";
     el.innerHTML = `
+      ${walletBlock}
+      ${depBlock}
       ${pnlBlock}
       ${syncNote}
       <p><b>${st.testnet ? "TESTNET" : "LIVE"}</b> · лимит $${st.max_order_usd} · daily loss ${st.max_daily_loss_pct}%</p>
@@ -2152,9 +2277,33 @@ async function loadExchangePanel() {
       <p>Base paper <b>${rec.paper_base ?? "—"}</b> · exchange <b>${rec.exchange_base ?? "—"}</b>
         <span class="${syncCls}">Δ ${rec.base_diff ?? "—"}</span></p>
       <p class="muted">${rec.note || ""}</p>`;
+    wireWalletPanelButtons();
   } catch (_) {
     el.textContent = "Не удалось загрузить данные биржи";
   }
+}
+
+function wireWalletPanelButtons() {
+  document.getElementById("btn-wallet-sync-usdt")?.addEventListener("click", async () => {
+    if (!confirm("Подтянуть USDT с биржи в paper-кошельки ботов?")) return;
+    const res = await apiFetch("/api/wallet/sync-usdt", { method: "POST", body: "{}" });
+    const data = await res.json();
+    if (data.error) showToast("⚠ " + data.error);
+    else {
+      showToast(`↔️ Синхр. $${data.mirrored_usdt || 0} USDT → paper`);
+      await refreshStatus();
+      loadExchangePanel();
+      loadMovementsTable();
+    }
+  }, { once: true });
+  document.getElementById("btn-wallet-bridge")?.addEventListener("click", async () => {
+    const res = await apiFetch("/api/wallet/bridge", { method: "POST", body: "{}" });
+    const data = await res.json();
+    if (data.summary) {
+      showToast(`🔗 Мост: +$${data.summary.wallet_credit_usd || 0} кредит боту`);
+      loadExchangePanel();
+    }
+  }, { once: true });
 }
 
 async function loadScorecard() {

@@ -537,6 +537,13 @@ class MarketSession:
         await self.persist()
         return self.engine.position.quote
 
+    async def withdraw(self, amount: float) -> float:
+        """Remove free USDT from this market paper wallet."""
+        taken = self.engine.withdraw_quote(amount)
+        if taken > 0:
+            await self.persist()
+        return taken
+
     @staticmethod
     def _volatility_pct(candles: list) -> float:
         if len(candles) < 5:

@@ -92,7 +92,7 @@ class _StrategyMixin:
 
     def _cap_buy_amount(self, amount: float) -> float:
         max_pct = self.params.get("max_buy_pct_of_cash", 0.5)
-        cap = self.engine.position.quote * max_pct
+        cap = self.engine.available_quote * max_pct
         return min(amount, cap) if cap > 0 else amount
 
     def _regime_blocks_buy(self, price: float, sma: float | None) -> bool:

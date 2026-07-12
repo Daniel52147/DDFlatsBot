@@ -45,6 +45,11 @@ class SimulatorEngine:
         self.start_price: float = 0.0
         self.benchmark_hold_price: float = 0.0
         self.benchmark_hold_anchor: str = ""
+        self.wallet_credit: float = 0.0
+
+    @property
+    def available_quote(self) -> float:
+        return self.position.quote + self.wallet_credit
 
     def note_price(self, price: float) -> None:
         """Record benchmark price for buy-and-hold comparison."""
@@ -69,13 +74,16 @@ class SimulatorEngine:
         from simulator.risk_gate import blocks_new_buys
         if blocks_new_buys():
             return None
-        if amount_quote <= 0 or self.position.quote < amount_quote:
+        if amount_quote <= 0 or self.available_quote < amount_quote:
             return None
         fill = self._apply_slippage(price, "buy")
         fee = amount_quote * config.FEE_RATE
         net = amount_quote - fee
         base_got = net / fill
-        self.position.quote -= amount_quote
+        from_quote = min(amount_quote, self.position.quote)
+        from_credit = amount_quote - from_quote
+        self.position.quote -= from_quote
+        self.wallet_credit = max(0.0, self.wallet_credit - from_credit)
         self.position.base += base_got
         # Economic cost = net quote that bought the base (after fee)
         self.position.cost_basis += net
@@ -187,6 +195,8 @@ class SimulatorEngine:
         avg = self.avg_entry_price()
         return {
             "quote": round(self.position.quote, 2),
+            "wallet_credit": round(self.wallet_credit, 2),
+            "available_quote": round(self.available_quote, 2),
             "base": round(self.position.base, 8),
             "price": price,
             "portfolio_value": round(pv, 2),
@@ -201,6 +211,15 @@ class SimulatorEngine:
             "cost_profit_pct": round((price - avg) / avg * 100, 2) if avg and price else None,
         }
 
+    def withdraw_quote(self, amount: float) -> float:
+        """Remove free USDT from paper wallet (not wallet_credit)."""
+        if amount <= 0:
+            return 0.0
+        take = min(amount, self.position.quote)
+        self.position.quote -= take
+        self.start_balance = max(0.0, self.start_balance - take)
+        return take
+
     def reset(self, initial_balance: float | None = None):
         bal = initial_balance if initial_balance is not None else config.INITIAL_BALANCE
         self.position = Position(quote=bal, base=0.0, cost_basis=0.0)
@@ -211,6 +230,7 @@ class SimulatorEngine:
         self.start_price = 0.0
         self.benchmark_hold_price = 0.0
         self.benchmark_hold_anchor = ""
+        self.wallet_credit = 0.0
 
     def restore(
         self,

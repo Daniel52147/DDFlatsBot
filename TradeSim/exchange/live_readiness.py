@@ -218,6 +218,11 @@ async def assess_live_readiness(
             if ready
             else "Доработай пункты ниже перед реальными деньгами"
         ),
+        "limits_if_live": {
+            "max_order_usd": config.LIVE_MAX_ORDER_USD,
+            "max_daily_loss_pct": config.LIVE_MAX_DAILY_LOSS_PCT,
+            "max_position_pct": config.LIVE_MAX_POSITION_PCT * 100,
+        },
     }
 
 

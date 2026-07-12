@@ -134,6 +134,13 @@ class LearningLogger:
           paper_vs_hold_pct REAL
         )
       """)
+      await db.execute("""
+        CREATE TABLE IF NOT EXISTS withdrawals (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          ts REAL, amount REAL, target TEXT, symbol TEXT DEFAULT '',
+          note TEXT, total_after REAL, wallet TEXT DEFAULT 'paper'
+        )
+      """)
       await self._migrate(db)
       await db.commit()
 
@@ -427,6 +434,52 @@ class LearningLogger:
         "SELECT * FROM deposits ORDER BY ts DESC LIMIT ?", (limit,),
       )
       return [dict(r) for r in await cur.fetchall()]
+
+  async def log_withdrawal(
+      self, amount: float, target: str, symbol: str, note: str, total_after: float,
+      wallet: str = "paper",
+  ):
+    async with self._connect() as db:
+      await db.execute(
+        "INSERT INTO withdrawals (ts, amount, target, symbol, note, total_after, wallet) VALUES (?,?,?,?,?,?,?)",
+        (time.time(), amount, target, symbol or "", note, total_after, wallet),
+      )
+      await db.commit()
+
+  async def withdrawal_history(self, limit: int = 20) -> list[dict[str, Any]]:
+    async with self._connect() as db:
+      db.row_factory = aiosqlite.Row
+      cur = await db.execute(
+        "SELECT * FROM withdrawals ORDER BY ts DESC LIMIT ?", (limit,),
+      )
+      return [dict(r) for r in await cur.fetchall()]
+
+  async def wallet_movements(self, limit: int = 30) -> list[dict[str, Any]]:
+    deposits = await self.deposit_history(limit)
+    withdrawals = await self.withdrawal_history(limit)
+    rows: list[dict[str, Any]] = []
+    for d in deposits:
+      rows.append({
+        "ts": d["ts"],
+        "kind": "deposit",
+        "amount": d["amount"],
+        "target": d.get("target", ""),
+        "symbol": d.get("symbol", ""),
+        "note": d.get("note", ""),
+        "wallet": "paper",
+      })
+    for w in withdrawals:
+      rows.append({
+        "ts": w["ts"],
+        "kind": "withdraw",
+        "amount": w["amount"],
+        "target": w.get("target", ""),
+        "symbol": w.get("symbol", ""),
+        "note": w.get("note", ""),
+        "wallet": w.get("wallet", "paper"),
+      })
+    rows.sort(key=lambda r: r["ts"], reverse=True)
+    return rows[:limit]
 
   async def learning_stats(self) -> dict[str, Any]:
     async with self._connect() as db:

@@ -235,6 +235,74 @@ class BinanceLiveExchange:
         ]
         return {"mode": "testnet" if self.testnet else "live", "balances": balances[:30]}
 
+    async def deposit_address(self, coin: str = "USDT", network: str = "TRC20") -> dict[str, Any]:
+        if not self.enabled:
+            raise RuntimeError("exchange disabled")
+        data = await self._request(
+            "GET",
+            "/sapi/v1/capital/deposit/address",
+            {"coin": coin, "network": network},
+            signed=True,
+        )
+        return {
+            "address": data.get("address", ""),
+            "tag": data.get("tag") or data.get("memo") or "",
+            "url": data.get("url", ""),
+        }
+
+    async def deposit_history(self, coin: str = "USDT", limit: int = 10) -> list[dict[str, Any]]:
+        if not self.enabled:
+            return []
+        try:
+            data = await self._request(
+                "GET",
+                "/sapi/v1/capital/deposit/hisrec",
+                {"coin": coin, "limit": min(limit, 50)},
+                signed=True,
+            )
+            return data if isinstance(data, list) else []
+        except Exception as e:
+            logger.warning("deposit_history: %s", e)
+            return []
+
+    async def withdraw_usdt(
+        self,
+        amount: float,
+        address: str,
+        network: str = "TRC20",
+    ) -> dict[str, Any]:
+        if not self.enabled:
+            raise RuntimeError("exchange disabled")
+        params = {
+            "coin": "USDT",
+            "address": address,
+            "amount": round(amount, 2),
+            "network": network,
+        }
+        data = await self._request("POST", "/sapi/v1/capital/withdraw/apply", params, signed=True)
+        return {
+            "id": data.get("id"),
+            "amount": amount,
+            "address": address,
+            "network": network,
+            "status": "submitted",
+        }
+
+    async def withdraw_history(self, coin: str = "USDT", limit: int = 10) -> list[dict[str, Any]]:
+        if not self.enabled:
+            return []
+        try:
+            data = await self._request(
+                "GET",
+                "/sapi/v1/capital/withdraw/history",
+                {"coin": coin, "limit": min(limit, 50)},
+                signed=True,
+            )
+            return data if isinstance(data, list) else []
+        except Exception as e:
+            logger.warning("withdraw_history: %s", e)
+            return []
+
     async def get_order(self, symbol: str, order_id: int) -> dict[str, Any]:
         if not self.enabled:
             return {"error": "exchange disabled"}

@@ -320,7 +320,7 @@ TRADE_MODE = os.environ.get("TRADE_MODE", "active").lower()
 ACTIVE_TRADE_ON_START = _env_bool("ACTIVE_TRADE_ON_START", True)
 ACTIVE_TRADE_RESET_TIMERS = _env_bool("ACTIVE_TRADE_RESET_TIMERS", False)
 
-APP_VERSION = 43
+APP_VERSION = 44
 
 # Live trading prep — gate real money (v36)
 LIVE_REQUIRE_READINESS = _env_bool("LIVE_REQUIRE_READINESS", True)
@@ -354,6 +354,13 @@ EXCHANGE_NAME = "binance"
 EXCHANGE_TESTNET = os.environ.get("EXCHANGE_TESTNET", "true").lower() in ("1", "true", "yes")
 EXCHANGE_MAX_ORDER_USD = float(os.environ.get("EXCHANGE_MAX_ORDER_USD", "100"))
 EXCHANGE_MAX_DAILY_LOSS_PCT = float(os.environ.get("EXCHANGE_MAX_DAILY_LOSS_PCT", "5"))
+
+# Wallet bridge — bots use exchange USDT on testnet/live via wallet_credit
+WALLET_BRIDGE_ENABLED = os.environ.get("WALLET_BRIDGE_ENABLED", "true").lower() in ("1", "true", "yes")
+WALLET_BRIDGE_INTERVAL_SEC = int(os.environ.get("WALLET_BRIDGE_INTERVAL_SEC", "45"))
+EXCHANGE_MAX_WITHDRAW_USD = float(os.environ.get("EXCHANGE_MAX_WITHDRAW_USD", "500"))
+EXCHANGE_DEPOSIT_NETWORK = os.environ.get("EXCHANGE_DEPOSIT_NETWORK", "TRC20")
+EXCHANGE_WITHDRAW_NETWORK = os.environ.get("EXCHANGE_WITHDRAW_NETWORK", "TRC20")
 
 # Trading mode default: paper | testnet | live (runtime override in data/trading_mode.json)
 TRADING_MODE_DEFAULT = os.environ.get("TRADING_MODE_DEFAULT", "paper").lower()
