@@ -503,7 +503,7 @@ async function checkServerAndSync() {
     if (ping.market_meta?.length) applyMarketMeta(ping.market_meta);
     seedMarketsFromMeta();
     if (ping.total) updateTotal(ping.total);
-    const expectedVer = 26;
+    const expectedVer = 27;
     if (ping.version && ping.version < expectedVer) {
       showError(`Старый сервер v${ping.version} на порту 8765. Ctrl+C → python main.py → Ctrl+Shift+R`);
     }
@@ -624,6 +624,40 @@ async function renderHeatmap() {
   } catch (_) {}
 }
 
+async function renderStrategyReport() {
+  const el = document.getElementById("table-strategies");
+  if (!el) return;
+  el.innerHTML = "<p class='muted'>Считаю рейтинг стратегий...</p>";
+  try {
+    const r = await (await fetch("/api/strategy-report")).json();
+    const risk = r.risk_gate || {};
+    const corr = r.correlation_risk || {};
+    const riskLine = risk.blocks_buys
+      ? `<p class="warn">⚠️ Покупки заблокированы: ${escapeHtml(risk.reason || "риск")}</p>`
+      : `<p class="muted">✅ Покупки разрешены · beating hold ${r.markets_beating_hold}/${r.markets_total}</p>`;
+    const stratRows = (r.by_strategy || []).map(s =>
+      `<tr><td><b>${s.strategy_type}</b></td><td>${s.markets}</td><td>${fmtPct(s.avg_vs_hold_pct)}</td><td>${fmtPct(s.avg_pnl_pct)}</td><td>${s.beating_hold}/${s.markets}</td><td>${s.win_rate_pct}%</td></tr>`
+    ).join("");
+    const mktRows = (r.markets || []).map(m =>
+      `<tr data-sym="${m.symbol}"><td><b>${m.label}</b></td><td>${m.strategy_type}</td><td class="${m.vs_hold_pct >= 0 ? "up" : "down"}">${fmtPct(m.vs_hold_pct)}</td><td>${fmtPct(m.pnl_pct)}</td><td>${m.trade_count}</td><td>${m.win_rate_pct}%</td></tr>`
+    ).join("");
+    el.innerHTML = `${riskLine}
+      ${corr.bearish_markets ? `<p class="muted">🔗 Корреляция: падают ${corr.bearish_markets} рынков · sync-пар ${corr.sync_pairs || 0}</p>` : ""}
+      <h4>🏆 По типу стратегии (avg vs hold)</h4>
+      <table class="data-table"><thead><tr><th>Стратегия</th><th>Монет</th><th>vs hold</th><th>P&L</th><th>Beat hold</th><th>Win%</th></tr></thead>
+      <tbody>${stratRows || "<tr><td colspan=6>—</td></tr>"}</tbody></table>
+      <h4>📊 Все рынки</h4>
+      <table class="data-table"><thead><tr><th>Монета</th><th>Стратегия</th><th>vs hold</th><th>P&L</th><th>Сделки</th><th>Win%</th></tr></thead>
+      <tbody>${mktRows || "<tr><td colspan=6>—</td></tr>"}</tbody></table>`;
+    el.querySelectorAll("tr[data-sym]").forEach(row => {
+      row.style.cursor = "pointer";
+      row.onclick = () => switchMarket(row.dataset.sym);
+    });
+  } catch (_) {
+    el.innerHTML = "<p class='muted'>Не удалось загрузить отчёт стратегий</p>";
+  }
+}
+
 async function renderDailyReport() {
   const el = document.getElementById("table-report");
   if (!el) return;
@@ -635,10 +669,17 @@ async function renderDailyReport() {
     const brain = (r.brain_decisions || []).map(b =>
       `<tr><td>${new Date(b.ts * 1000).toLocaleTimeString("ru-RU")}</td><td>${b.decision}</td><td>${(b.verdict || "").slice(0, 60)}</td></tr>`
     ).join("");
+    const strat = (r.strategy_leaderboard || []).map(s =>
+      `<li>${s.strategy_type}: avg vs hold ${fmtPct(s.avg_vs_hold_pct)} (${s.beating_hold}/${s.markets} монет)</li>`
+    ).join("");
+    const corr = r.correlation_risk || {};
+    const corrLine = corr.block_buys ? `<p class="warn">🔗 ${escapeHtml(corr.reason || "корреляционный риск")}</p>` : "";
     el.innerHTML = `<div class="honesty-box ok">
       <p><b>Отчёт 24ч</b> · v${r.version} · сделок: ${r.trades_count} · fees: $${Number(r.fees_24h || 0).toFixed(2)}</p>
       <p>Портфель: ${fmtMoney(r.total?.total_value)} (${fmtPct(r.total?.pnl_pct)}) · Alpha vs hold: ${fmtPct(r.benchmark?.vs_hold_pct)}</p>
+      ${corrLine}
     </div>
+    <h4>🏆 Стратегии (avg vs hold)</h4><ul>${strat || "<li>—</li>"}</ul>
     <div class="report-cols"><div><h4>🏆 Лидеры</h4><ul>${gainers || "<li>—</li>"}</ul></div>
     <div><h4>📉 Отстающие</h4><ul>${losers || "<li>—</li>"}</ul></div></div>
     <table class="data-table"><thead><tr><th>Время</th><th>Решение</th><th>Вердикт</th></tr></thead><tbody>${brain || "<tr><td colspan=3>—</td></tr>"}</tbody></table>`;
@@ -1584,6 +1625,7 @@ function bindUi() {
       if (id === "trades") loadTradesTable(activeSymbol);
       if (id === "shadow") renderShadowLeaderboard();
       if (id === "report") renderDailyReport();
+      if (id === "strategies") renderStrategyReport();
       if (id === "brain-timeline") renderBrainTimeline();
     };
   });

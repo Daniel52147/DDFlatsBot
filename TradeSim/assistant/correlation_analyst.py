@@ -83,7 +83,12 @@ class CorrelationAnalystAgent:
         candles = ctx.get("candles") or []
         if len(candles) < 4:
             return None
-        closes = [c.close for c in candles[-4:]]
+        closes = []
+        for c in candles[-4:]:
+            if isinstance(c, dict):
+                closes.append(c.get("close"))
+            else:
+                closes.append(getattr(c, "close", None))
         if not closes[0]:
             return None
         return (closes[-1] - closes[0]) / closes[0] * 100

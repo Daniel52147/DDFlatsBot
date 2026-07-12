@@ -4,6 +4,8 @@ from __future__ import annotations
 
 _portfolio_halt = False
 _halt_reason = ""
+_correlation_block = False
+_correlation_reason = ""
 
 
 def set_portfolio_halt(active: bool, reason: str = "") -> None:
@@ -12,9 +14,28 @@ def set_portfolio_halt(active: bool, reason: str = "") -> None:
     _halt_reason = reason if active else ""
 
 
+def set_correlation_block(active: bool, reason: str = "") -> None:
+    global _correlation_block, _correlation_reason
+    _correlation_block = active
+    _correlation_reason = reason if active else ""
+
+
 def blocks_new_buys() -> bool:
-    return _portfolio_halt
+    return _portfolio_halt or _correlation_block
 
 
 def halt_reason() -> str:
-    return _halt_reason
+    if _portfolio_halt:
+        return _halt_reason
+    if _correlation_block:
+        return _correlation_reason
+    return ""
+
+
+def risk_status() -> dict[str, bool | str]:
+    return {
+        "portfolio_halt": _portfolio_halt,
+        "correlation_block": _correlation_block,
+        "blocks_buys": blocks_new_buys(),
+        "reason": halt_reason(),
+    }

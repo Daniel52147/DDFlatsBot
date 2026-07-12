@@ -16,6 +16,7 @@ from typing import Any
 
 import config
 from learning.optimizer import StrategyOptimizer
+from learning.walkforward import walkforward_validate
 from simulator.engine import SimulatorEngine
 from simulator.price_walk import prices_for_tick
 from simulator.strategies import create_bot
@@ -221,10 +222,18 @@ class ShadowLab:
                 continue
 
             winner = clones[best["id"]]
-            promoted_keys = []
-            live_params = session.bot.get_params()
             winner_params = winner.bot.get_params()
             stype = getattr(session, "strategy_type", "dca")
+            candles = session.candles.all_candles()
+            wf_ok, wf_note, wf_metrics = walkforward_validate(
+                candles, stype, session.bot.get_params(), winner_params,
+            )
+            if not wf_ok:
+                logger.info("[%s] Shadow promote blocked: %s", session.label, wf_note)
+                continue
+
+            promoted_keys = []
+            live_params = session.bot.get_params()
             keys = _PROMOTE_KEYS.get(stype, _PROMOTE_KEYS["dca"]) + _COMMON_PROMOTE_KEYS
 
             for key in keys:
@@ -251,6 +260,8 @@ class ShadowLab:
                 "trades": best["trades"],
                 "changes": promoted_keys[:5],
                 "total_clones": len(clones),
+                "walkforward": wf_note,
+                "oos": wf_metrics,
             }
             promotions.append(promo)
             logger.info(

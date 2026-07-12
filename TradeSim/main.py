@@ -181,7 +181,7 @@ def _learning_honesty(stats: dict) -> dict[str, Any]:
         "version": config.APP_VERSION,
         "markets_configured": len(config.MARKETS),
         "markets_active": len(sessions),
-        "project_readiness": "v26 — бэктест-гейт тактик, режим рынка, защита просадки",
+        "project_readiness": "v27 — walk-forward Shadow Lab, отчёт стратегий, корреляционный риск",
         "really_learns": True,
         "learning_kind": "эвристики + статистика (не нейросеть)",
         "what_is_real": [
@@ -285,7 +285,8 @@ async def run_session_loop(session: MarketSession):
 
 async def brain_loop():
     """Central brain thinks every BRAIN_CYCLE_SEC — agents report, brain decides."""
-    from simulator.risk_gate import set_portfolio_halt
+    from learning.correlation_risk import assess_correlation_risk
+    from simulator.risk_gate import set_correlation_block, set_portfolio_halt
 
     await asyncio.sleep(15)
     while state["running"]:
@@ -299,6 +300,11 @@ async def brain_loop():
                 )
             else:
                 set_portfolio_halt(False)
+
+            corr = assess_correlation_risk(ctx)
+            set_correlation_block(corr.get("block_buys", False), corr.get("reason", ""))
+            state["correlation_risk"] = corr
+
             cycle = await brain.think(ctx, total)
             state["brain_cycle"] = cycle
             prev_decision = brain.last_applied_decision
@@ -923,6 +929,18 @@ async def api_heatmap():
     return {"cells": cells, "benchmark": portfolio_benchmark()}
 
 
+@app.get("/api/strategy-report")
+async def api_strategy_report():
+    from learning.strategy_report import build_strategy_report
+
+    report = build_strategy_report(sessions)
+    report["version"] = config.APP_VERSION
+    report["correlation_risk"] = state.get("correlation_risk", {})
+    from simulator.risk_gate import risk_status
+    report["risk_gate"] = risk_status()
+    return report
+
+
 @app.get("/api/daily-report")
 async def api_daily_report():
     since = time.time() - 86400
@@ -936,6 +954,8 @@ async def api_daily_report():
     cells.sort(key=lambda x: x["pnl_pct"], reverse=True)
     fees = await logger_db.fee_summary(24)
     brain_hist = await logger_db.brain_history(12)
+    from learning.strategy_report import build_strategy_report
+    strat = build_strategy_report(sessions)
     return {
         "version": config.APP_VERSION,
         "period_hours": 24,
@@ -947,6 +967,8 @@ async def api_daily_report():
         "top_losers": list(reversed(cells[-3:])) if len(cells) >= 3 else [],
         "brain_decisions": brain_hist[-5:],
         "shadow_promotions": shadow_lab.last_promotions[:3] if shadow_lab else [],
+        "strategy_leaderboard": strat.get("by_strategy", [])[:5],
+        "correlation_risk": state.get("correlation_risk", {}),
     }
 
 
@@ -1150,6 +1172,8 @@ async def api_ready():
 
 @app.get("/api/ping")
 async def api_ping():
+    from simulator.risk_gate import risk_status
+
     ensure_all_markets()
     return {
         "version": config.APP_VERSION,
@@ -1161,6 +1185,8 @@ async def api_ping():
         "brain": state.get("brain_cycle") is not None,
         "total": total_portfolio(),
         "auth_required": auth_required(),
+        "risk_gate": risk_status(),
+        "correlation_risk": state.get("correlation_risk", {}),
     }
 
 

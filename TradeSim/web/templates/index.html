@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TradeSim v26 — profit engine · бэктест-гейт</title>
-  <link rel="stylesheet" href="/static/style.css?v=26" />
+  <title>TradeSim v27 — walk-forward · отчёт стратегий</title>
+  <link rel="stylesheet" href="/static/style.css?v=27" />
   <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
 </head>
-<body class="v26">
+<body class="v27">
   <div id="version-banner" class="version-banner hidden"></div>
   <div id="alerts-ticker" class="alerts-ticker" aria-live="polite">
     <span class="alerts-label">📡 Сканер</span>
@@ -17,8 +17,8 @@
     <div class="brand">
       <span class="logo">◆</span>
       <div>
-        <h1>TradeSim <span class="ver-badge">v26 Profit</span></h1>
-        <p class="tagline">Бэктест-гейт · режим рынка · защита просадки · vs hold</p>
+        <h1>TradeSim <span class="ver-badge">v27 Alpha</span></h1>
+        <p class="tagline">Walk-forward Shadow Lab · отчёт стратегий · корреляционный риск</p>
       </div>
     </div>
     <div class="header-stats">
@@ -74,6 +74,7 @@
 
       <section class="tables-section">
         <div class="tables-nav">
+          <button type="button" class="tbl-tab" data-table="strategies">🏆 Стратегии</button>
           <button type="button" class="tbl-tab" data-table="report">📋 Отчёт 24ч</button>
           <button type="button" class="tbl-tab" data-table="brain-timeline">🧠 Мозг</button>
           <button type="button" class="tbl-tab active" data-table="markets">📊 Рынки</button>
@@ -85,6 +86,7 @@
           <button type="button" class="tbl-tab" data-table="deposits">💵 Депозиты</button>
           <button type="button" class="tbl-tab" data-table="honesty">🔍 Статус</button>
         </div>
+        <div id="table-strategies" class="data-table-wrap hidden"></div>
         <div id="table-report" class="data-table-wrap hidden"></div>
         <div id="table-brain-timeline" class="data-table-wrap hidden"></div>
         <div id="table-markets" class="data-table-wrap active-table"></div>
@@ -210,7 +212,7 @@
   </details>
 
   <footer class="v16-footer">
-    <span>TradeSim v26 · profit engine</span>
+    <span>TradeSim v27 · walk-forward alpha</span>
     <div class="footer-actions">
       <input id="api-token-input" type="password" placeholder="API-токен" class="token-input" />
       <button id="btn-save-token" class="btn ghost small">🔐</button>
@@ -249,6 +251,6 @@
   </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=26"></script>
+  <script src="/static/app.js?v=27"></script>
 </body>
 </html>

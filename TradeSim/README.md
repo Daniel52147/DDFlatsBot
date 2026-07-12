@@ -1,6 +1,20 @@
-# TradeSim v26
+# TradeSim v27
 
-**Paper trading** with **backtest-gated auto-tactics**, **market regime filter**, and **portfolio drawdown protection**.
+**Paper trading** with **walk-forward Shadow Lab**, **strategy performance report**, and **correlation risk gate**.
+
+## v27 — Walk-forward & alpha report
+
+- **Walk-forward Shadow Lab** — clone params promoted only if OOS backtest beats live (`SHADOW_WALKFORWARD_*`)
+- **Strategy report** — `GET /api/strategy-report` + UI tab **🏆 Стратегии** (avg vs hold per strategy type)
+- **Correlation risk** — blocks new buys when ≥6 markets fall together (configurable)
+- **Daily report** — includes strategy leaderboard + correlation status
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `SHADOW_WALKFORWARD_ENABLED` | true | OOS gate before shadow promote |
+| `SHADOW_WALKFORWARD_MIN_EDGE` | 0.3 | Min OOS pp edge vs live params |
+| `CORRELATION_RISK_MIN_BEARISH` | 6 | Bearish markets to block buys |
+| `CORRELATION_RISK_MOMENTUM_PCT` | 0.8 | % move threshold |
 
 ## v26 — Profit engine
 
