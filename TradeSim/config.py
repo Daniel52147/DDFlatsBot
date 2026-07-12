@@ -284,7 +284,7 @@ CAPITAL_ALLOCATOR_MIN_VS_HOLD = float(os.environ.get("CAPITAL_ALLOCATOR_MIN_VS_H
 STRATEGY_OUTCOME_EVAL_SEC = int(os.environ.get("STRATEGY_OUTCOME_EVAL_SEC", "7200"))
 EXCHANGE_PNL_SNAPSHOT_SEC = int(os.environ.get("EXCHANGE_PNL_SNAPSHOT_SEC", "300"))
 
-APP_VERSION = 30
+APP_VERSION = 31
 
 # Security — default localhost; cloud preview needs TRADESIM_BIND_HOST=0.0.0.0
 def _default_bind_host() -> str:

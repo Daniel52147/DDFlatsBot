@@ -376,6 +376,29 @@ class MarketSession:
                 })
         return msgs
 
+    async def push_candle_ui(self, price: float) -> dict[str, Any] | None:
+        """Update candles and return a lightweight tick for the chart (no trading)."""
+        if not self._candles_ready or price <= 0:
+            return None
+        tick_ts = time.time()
+        self.engine.note_price(price)
+        closed = self.candles.add_tick(price, tick_ts)
+        closed_dict = closed.to_dict() if closed else None
+        sma_period = int(self.bot.params.get("sma_period", 20))
+        sma = self.candles.sma(sma_period)
+        snap = self.engine.snapshot(price)
+        return {
+            "type": "tick",
+            "symbol": self.symbol,
+            "price": price,
+            "portfolio": snap,
+            "sma": sma,
+            "candle": self.candles.current_candle(),
+            "source": self.feed.source,
+            "strategy": self.bot.status(price, sma),
+            "candle_only": True,
+        }
+
     def status_payload(self) -> dict[str, Any]:
         price = self.feed.price or self.demo_price
         sma = self.candles.sma(int(self.bot.params["sma_period"]))

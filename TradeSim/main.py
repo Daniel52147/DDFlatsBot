@@ -248,6 +248,8 @@ class StrategyPresetRequest(BaseModel):
 
 
 async def run_session_loop(session: MarketSession):
+    last_lag_fix = 0.0
+
     async def on_tick(price: float, ts: float):
         msgs = await session.on_tick(price, ts)
         if shadow_lab and config.SHADOW_LAB_ENABLED:
@@ -275,8 +277,23 @@ async def run_session_loop(session: MarketSession):
     try:
         while state["running"]:
             await asyncio.sleep(3)
-            # FeedHub multiplexes WS + REST — per-session poll causes rate storms
-            if not feed_hub and time.time() - session.feed.last_update > 2:
+            now = time.time()
+            lag = session.candles.lag_sec()
+            if lag > config.CANDLE_MAX_LAG_SEC and now - last_lag_fix > 30:
+                last_lag_fix = now
+                try:
+                    await session.refresh_candles(force=True)
+                    await broadcast({
+                        "type": "candles_refreshed",
+                        "symbols": [session.symbol],
+                    })
+                except Exception as e:
+                    logger.warning("[%s] lag heal failed: %s", session.symbol, e)
+            if feed_hub and session._candles_ready and (session.feed.price or 0) > 0:
+                ui_tick = await session.push_candle_ui(session.feed.price)
+                if ui_tick:
+                    await broadcast(ui_tick)
+            elif not feed_hub and now - session.feed.last_update > 2:
                 try:
                     p = await session.feed.fetch_price()
                     await on_tick(p, time.time())

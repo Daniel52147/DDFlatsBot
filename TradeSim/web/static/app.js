@@ -503,9 +503,11 @@ async function checkServerAndSync() {
     if (ping.market_meta?.length) applyMarketMeta(ping.market_meta);
     seedMarketsFromMeta();
     if (ping.total) updateTotal(ping.total);
-    const expectedVer = 30;
+    const expectedVer = 31;
     if (ping.version && ping.version < expectedVer) {
-      showError(`Старый сервер v${ping.version} на порту 8765. Ctrl+C → python main.py → Ctrl+Shift+R`);
+      const msg = `СТАРЫЙ СЕРВЕР v${ping.version}! Свечи не синхронизируются. Закрой сервер → запусти start.bat или: git pull origin cursor/tradesim-v30-candle-fix-2631 → python main.py → Ctrl+Shift+R`;
+      showError(msg);
+      showToast("⚠️ " + msg, 15000);
     }
     return ping;
   } catch (_) {
@@ -1003,16 +1005,43 @@ async function switchMarket(symbol) {
   loadExchangePanel();
 }
 
+function clientChartLagSec() {
+  if (!lastCandles.length) return 9999;
+  const lastTs = lastCandles[lastCandles.length - 1]?.time || 0;
+  return Math.max(0, Math.floor(Date.now() / 1000) - lastTs - 60);
+}
+
+async function syncChartIfStale() {
+  const lag = clientChartLagSec();
+  const serverLag = marketsData[activeSymbol]?.candle_lag_sec ?? 0;
+  if (lag > 90 || serverLag > 90) {
+    const c = await ensureFreshCandles(activeSymbol);
+    if (c?.length && candleSeries) {
+      lastCandles = c;
+      candleSeries.setData(c);
+      updateSMA(c, smaPeriod(activeSymbol));
+      updateChartTitle(activeSymbol);
+    }
+  }
+}
+
 function updateLiveCandle(candle) {
   if (!candle || !candleSeries) return;
   if (lastCandles.length && lastCandles[lastCandles.length - 1].time === candle.time) {
     lastCandles[lastCandles.length - 1] = candle;
-  } else {
+  } else if (!lastCandles.length || candle.time > lastCandles[lastCandles.length - 1].time) {
     lastCandles.push(candle);
+  } else {
+    return;
   }
   candleSeries.update(candle);
   updateSMA(lastCandles, smaPeriod(activeSymbol));
-  if (marketsData[activeSymbol]) marketsData[activeSymbol].candles = lastCandles;
+  if (marketsData[activeSymbol]) {
+    marketsData[activeSymbol].candles = lastCandles;
+    marketsData[activeSymbol].candle_lag_sec = clientChartLagSec();
+  }
+  updateChartTitle(activeSymbol);
+  if (clientChartLagSec() > 180) void syncChartIfStale();
 }
 
 function updateTotal(total) {
@@ -1920,6 +1949,7 @@ async function main() {
     await loadShadowLab();
     connectWs();
     setInterval(refreshStatus, 5000);
+    setInterval(syncChartIfStale, 20000);
     setInterval(loadBrain, 15000);
     setInterval(loadLearning, 60000);
     setInterval(loadShadowLab, 30000);
