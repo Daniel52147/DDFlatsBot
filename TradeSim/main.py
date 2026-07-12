@@ -620,8 +620,6 @@ async def lifespan(app: FastAPI):
         session.on_after_trade = after_paper_trade
     for session in sessions.values():
         await session.restore_from_db()
-    for session in sessions.values():
-        await session.startup()
 
     state["running"] = True
     tasks: list[asyncio.Task] = []
@@ -632,9 +630,18 @@ async def lifespan(app: FastAPI):
     tasks.append(asyncio.create_task(brain_loop()))
     tasks.append(asyncio.create_task(shadow_eval_loop()))
     tasks.append(asyncio.create_task(snapshot_loop()))
+
+    async def deferred_market_startup():
+        for session in sessions.values():
+            try:
+                await session.startup()
+            except Exception:
+                logger.exception("[%s] startup failed", session.symbol)
+
+    tasks.append(asyncio.create_task(deferred_market_startup()))
     logger.info(
-        "TradeSim v%s ready — %d markets — http://127.0.0.1:8765",
-        config.APP_VERSION, len(sessions),
+        "TradeSim v%s HTTP ready — загрузка свечей в фоне — http://127.0.0.1:8765",
+        config.APP_VERSION,
     )
 
     async def first_brain_cycle():

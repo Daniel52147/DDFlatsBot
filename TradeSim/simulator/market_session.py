@@ -296,7 +296,7 @@ class MarketSession:
         return msgs
 
     def status_payload(self) -> dict[str, Any]:
-        price = self.feed.price
+        price = self.feed.price or self.demo_price
         sma = self.candles.sma(int(self.bot.params["sma_period"]))
         return {
             "symbol": self.symbol,

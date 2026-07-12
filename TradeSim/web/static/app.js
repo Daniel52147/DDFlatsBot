@@ -455,16 +455,50 @@ function showVersionBanner(ping) {
   }
 }
 
+async function fetchWithTimeout(url, ms = 15000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function waitForServer(maxAttempts = 30) {
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const res = await fetchWithTimeout("/api/ping", 4000);
+      if (res.ok) return await res.json();
+    } catch (_) {}
+    const banner = document.getElementById("version-banner");
+    if (banner) {
+      banner.classList.remove("hidden");
+      banner.textContent = `⏳ Сервер стартует… (${i + 1}/${maxAttempts}) — дождись "HTTP ready" в терминале`;
+    }
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  return null;
+}
+
 async function checkServerAndSync() {
   try {
-    const ping = await (await fetch("/api/ping")).json();
+    let ping = await waitForServer();
+    if (!ping) {
+      showError("Сервер не отвечает. Останови старый python (Ctrl+C) и запусти: python main.py");
+      return null;
+    }
     if (ping.auth_required && !localStorage.getItem("tradesim_token")) {
       showToast("🔐 Нужен API-токен — введи внизу страницы");
     }
     if (ping.market_meta?.length) applyMarketMeta(ping.market_meta);
+    const expectedVer = 24;
+    if (ping.version && ping.version < expectedVer) {
+      showError(`Старый сервер v${ping.version} на порту 8765. Ctrl+C в терминале → python main.py → Ctrl+Shift+R`);
+    }
     if ((ping.sessions_active || 0) < (ping.markets_count || 17)) {
       await syncAllMarkets();
-      return await (await fetch("/api/ping")).json();
+      ping = await (await fetch("/api/ping")).json();
     }
     return ping;
   } catch (_) {
@@ -1091,10 +1125,13 @@ function updateTradeMarkers(trades) {
 
 function mergeMarket(sym, patch) {
   const label = labelFor(sym);
-  if (patch?.symbol && patch.symbol !== sym) return; // не подмешивать чужой рынок
-  if (patch?.price != null && !priceOk(label, patch.price)) return; // ETH не может стоить $62000
+  if (patch?.symbol && patch.symbol !== sym) return;
   const prev = marketsData[sym] || { symbol: sym, label };
-  marketsData[sym] = { ...prev, ...patch, symbol: sym, label: prev.label || label };
+  const safe = { ...patch };
+  if (safe.price != null && !priceOk(label, safe.price)) {
+    delete safe.price;
+  }
+  marketsData[sym] = { ...prev, ...safe, symbol: sym, label: prev.label || label };
 }
 
 function applyWsInit(msg) {
@@ -1292,7 +1329,7 @@ function loadEmbeddedData() {
 
 async function fetchBootstrap() {
   try {
-    const res = await fetch("/api/bootstrap");
+    const res = await fetchWithTimeout("/api/bootstrap", 30000);
     if (res.ok) return applyBootstrap(await res.json());
   } catch (_) {}
   // Запасной вариант: загрузить каждый рынок отдельно
