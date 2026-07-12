@@ -471,23 +471,30 @@ async def lifespan(app: FastAPI):
     tasks.append(asyncio.create_task(shadow_eval_loop()))
     tasks.append(asyncio.create_task(snapshot_loop()))
     logger.info(
-        "TradeSim v%s ready — %d markets — http://%s:8765",
-        config.APP_VERSION, len(sessions), config.BIND_HOST,
+        "TradeSim v%s ready — %d markets — http://127.0.0.1:8765",
+        config.APP_VERSION, len(sessions),
     )
 
-    # First brain think
-    cycle = await brain.think(all_contexts(), total_portfolio())
-    state["brain_cycle"] = cycle
-    brain.apply_decision(sessions, cycle["decision"])
-    brain.apply_learning_boost(sessions, all_contexts())
-    brain.apply_schemer_hints(sessions, cycle.get("schemer", {}))
+    async def first_brain_cycle():
+        """Don't block HTTP — agents can take 30–60s on first run."""
+        try:
+            cycle = await brain.think(all_contexts(), total_portfolio())
+            state["brain_cycle"] = cycle
+            brain.apply_decision(sessions, cycle["decision"])
+            brain.apply_learning_boost(sessions, all_contexts())
+            brain.apply_schemer_hints(sessions, cycle.get("schemer", {}))
+            greeting = brain.chat("привет", all_contexts(), total_portfolio())
+            state["chat_history"] = [
+                {"role": "assistant", "content": greeting},
+                {"role": "assistant", "content": cycle["summary"]},
+            ]
+            await logger_db.log_assistant("assistant", greeting)
+            logger.info("Первый цикл мозга завершён — агенты готовы")
+        except Exception:
+            logger.exception("Первый цикл мозга не удался — UI всё равно работает")
 
-    greeting = brain.chat("привет", all_contexts(), total_portfolio())
-    state["chat_history"] = [
-        {"role": "assistant", "content": greeting},
-        {"role": "assistant", "content": cycle["summary"]},
-    ]
-    await logger_db.log_assistant("assistant", greeting)
+    tasks.append(asyncio.create_task(first_brain_cycle()))
+    logger.info("Сайт открывай: http://127.0.0.1:8765  (не localhost, не agent.cvm.dev)")
 
     yield
 
@@ -878,10 +885,26 @@ async def websocket_endpoint(ws: WebSocket):
 
 
 if __name__ == "__main__":
+    import sys
+    import threading
+    import time
+    import webbrowser
+
     import uvicorn
+
     host = config.BIND_HOST
     if host == "0.0.0.0" and not config.API_TOKEN:
         logger.warning(
             "TRADESIM_API_TOKEN не задан — не открывай 0.0.0.0 без токена в интернет"
         )
+
+    def _open_browser():
+        time.sleep(2.5)
+        url = "http://127.0.0.1:8765"
+        logger.info("Открываю браузер: %s", url)
+        webbrowser.open(url)
+
+    if sys.platform == "win32":
+        threading.Thread(target=_open_browser, daemon=True).start()
+
     uvicorn.run("main:app", host=host, port=8765, reload=False)

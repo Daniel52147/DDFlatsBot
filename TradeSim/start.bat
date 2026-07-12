@@ -29,9 +29,11 @@ echo.
 echo [4/4] Запуск сервера...
 echo.
 echo   ЛОКАЛЬНО открой:  http://127.0.0.1:8765
-echo   НЕ закрывай это окно — иначе будет 502
-echo   Ctrl+Shift+R в браузере после старта
+echo   НЕ используй localhost и НЕ agent.cvm.dev
+echo   НЕ закрывай это окно — иначе сайт не откроется
+echo   Ctrl+Shift+R в браузере если пустая страница
 echo.
 set TRADESIM_BIND_HOST=127.0.0.1
+start "" cmd /c "timeout /t 4 /nobreak >nul && start http://127.0.0.1:8765"
 python main.py
 pause
