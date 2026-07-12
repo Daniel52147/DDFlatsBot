@@ -342,8 +342,10 @@ class MarketSession:
         if side == "buy":
             trade = self.engine.buy(price, amount_quote, reason=f"MANUAL: {reason}")
         elif side == "sell":
-            base = amount_quote / price
-            trade = self.engine.sell(price, base, reason=f"MANUAL: {reason}")
+            base_to_sell = min(amount_quote / price, self.engine.position.base)
+            if base_to_sell * price < 3:
+                return None
+            trade = self.engine.sell(price, base_to_sell, reason=f"MANUAL: {reason}")
         else:
             return None
         if trade:

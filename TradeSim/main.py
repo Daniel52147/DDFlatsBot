@@ -26,6 +26,7 @@ from exchange.binance_live import BinanceLiveExchange
 from learning.analytics import build_portfolio_analytics
 from learning.logger import LearningLogger
 from learning.optimizer import StrategyOptimizer
+from security import SecurityMiddleware, auth_required
 from simulator.backtest import Backtester
 from simulator.market_session import MarketSession
 from simulator.shadow_lab import ShadowLab
@@ -497,6 +498,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="TradeSim", description="Multi-market paper trading", lifespan=lifespan)
+app.add_middleware(SecurityMiddleware)
 templates = Jinja2Templates(directory=str(BASE_DIR / "web" / "templates"))
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "web" / "static")), name="static")
 
@@ -628,10 +630,27 @@ async def api_exchange_order(body: ManualTradeRequest):
         return {"error": "unknown symbol"}
     s = sessions[body.symbol]
     snap = s.engine.snapshot(s.feed.price or s.demo_price)
+    price = s.feed.price or s.demo_price
     return await live_exchange.place_market_order(
         body.symbol, body.side, body.amount_usd,
         snap["portfolio_value"], snap.get("pnl_pct", 0),
+        price=price,
     )
+
+
+@app.get("/api/exchange/reconcile")
+async def api_exchange_reconcile(symbol: str = "BTCUSDT"):
+    if symbol not in sessions:
+        return {"error": "unknown symbol"}
+    s = sessions[symbol]
+    return await live_exchange.reconcile(
+        symbol, s.engine.position.base, s.engine.position.quote,
+    )
+
+
+@app.get("/api/exchange/balances")
+async def api_exchange_balances():
+    return await live_exchange.account_balances()
 
 
 @app.get("/api/brain/history")
@@ -651,6 +670,7 @@ async def api_ping():
         "market_meta": _market_meta(),
         "brain": state.get("brain_cycle") is not None,
         "total": total_portfolio(),
+        "auth_required": auth_required(),
     }
 
 
@@ -811,8 +831,10 @@ async def reset_portfolio(full: bool = False):
         market = next(m for m in config.MARKETS if m["symbol"] == s.symbol)
         s.engine.reset(per_market)
         s.base_params = copy.deepcopy({**config.STRATEGY, **market.get("strategy", {})})
-        bounds = StrategyOptimizer.BOUNDS_VOLATILE if s.volatile else StrategyOptimizer.BOUNDS
-        s.optimizer = StrategyOptimizer(s.base_params, bounds=bounds, volatile=s.volatile)
+        bounds = StrategyOptimizer.BOUNDS_VOLATILE if (s.volatile or s.growth) else StrategyOptimizer.BOUNDS
+        s.optimizer = StrategyOptimizer(
+            s.base_params, bounds=bounds, volatile=(s.volatile or s.growth),
+        )
         s.bot.update_params(dict(s.base_params))
         s.bot.last_dca_ts = 0.0
         s.bot.last_take_profit_ts = 0.0
@@ -855,4 +877,9 @@ async def websocket_endpoint(ws: WebSocket):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8765, reload=False)
+    host = config.BIND_HOST
+    if host == "0.0.0.0" and not config.API_TOKEN:
+        logger.warning(
+            "TRADESIM_API_TOKEN не задан — не открывай 0.0.0.0 без токена в интернет"
+        )
+    uvicorn.run("main:app", host=host, port=8765, reload=False)

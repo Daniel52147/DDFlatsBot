@@ -49,17 +49,43 @@ def analyze_market_trades(trades: list[dict]) -> dict[str, Any]:
             reasons["dca"] += 1
         elif "TAKE-PROFIT" in r or "TP" in r:
             reasons["tp"] += 1
-    sell_pnl_est = 0.0
-    if sells and buys:
-        avg_buy = sum(t["price"] for t in buys) / len(buys)
-        sell_pnl_est = sum((t["price"] - avg_buy) / avg_buy * 100 for t in sells) / len(sells)
+
+    # FIFO walk: real win rate = sells above avg entry at sell time
+    cost = 0.0
+    base = 0.0
+    wins = 0
+    sell_count = 0
+    sell_pnl_sum = 0.0
+    for t in sorted(trades, key=lambda x: x.get("ts", 0)):
+        if t.get("side") == "buy":
+            fee = float(t.get("fee", 0))
+            net = float(t["amount_quote"]) - fee
+            base += float(t["amount_base"])
+            cost += net
+        elif t.get("side") == "sell":
+            sell_count += 1
+            avg = cost / base if base > 0 else None
+            if avg and float(t["price"]) > avg:
+                wins += 1
+            if avg:
+                sell_pnl_sum += (float(t["price"]) - avg) / avg * 100
+            if base > 0:
+                frac = min(1.0, float(t["amount_base"]) / base)
+                cost *= max(0, 1 - frac)
+                base = max(0, base - float(t["amount_base"]))
+
+    win_rate = round(wins / sell_count * 100, 1) if sell_count else 0.0
+    sell_edge = round(sell_pnl_sum / sell_count, 2) if sell_count else 0.0
+
     return {
         "total": len(trades),
         "buys": len(buys),
         "sells": len(sells),
         "reasons": reasons,
-        "sell_edge_pct": round(sell_pnl_est, 2),
-        "win_rate_pct": round(len(sells) / max(len(trades), 1) * 100, 1) if sells else 0,
+        "sell_edge_pct": sell_edge,
+        "win_rate_pct": win_rate,
+        "wins": wins,
+        "sell_count": sell_count,
     }
 
 
@@ -103,9 +129,15 @@ def build_portfolio_analytics(
             returns.append((values[i] - values[i - 1]) / values[i - 1] * 100)
 
     beating = sum(1 for v in vs_hold_values if v >= 0)
+    total_wins = sum(m["trade_stats"].get("wins", 0) for m in markets)
+    total_sell_trades = sum(m["trade_stats"].get("sell_count", 0) for m in markets)
+    portfolio_win_rate = (
+        round(total_wins / total_sell_trades * 100, 1) if total_sell_trades else 0.0
+    )
     return {
         "total_trades": total_trades,
         "total_sells": total_sells,
+        "portfolio_win_rate_pct": portfolio_win_rate,
         "markets_beating_hold": beating,
         "markets_total": len(markets),
         "max_drawdown_pct": _max_drawdown(values) if values else 0,

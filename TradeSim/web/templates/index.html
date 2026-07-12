@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TradeSim v14 — 17 рынков</title>
-  <link rel="stylesheet" href="/static/style.css?v=14" />
+  <title>TradeSim v15 — 17 рынков</title>
+  <link rel="stylesheet" href="/static/style.css?v=15" />
   <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -71,7 +71,10 @@
         <div id="table-learning" class="data-table-wrap hidden"></div>
         <div id="table-deposits" class="data-table-wrap hidden"></div>
         <div id="table-trades" class="data-table-wrap hidden"></div>
-        <div id="table-backtest" class="data-table-wrap hidden"></div>
+        <div id="table-backtest" class="data-table-wrap hidden">
+          <label class="muted">Рынок:</label>
+          <select id="backtest-symbol" class="backtest-select"></select>
+        </div>
         <div id="table-honesty" class="data-table-wrap hidden"></div>
       </section>
     </section>
@@ -112,8 +115,9 @@
           <span class="muted">Ручная сделка (paper):</span>
           <div class="manual-row">
             <button type="button" class="btn small manual-btn" data-side="buy">Купить $25</button>
-            <button type="button" class="btn ghost small manual-btn" data-side="sell">Продать $25</button>
+            <button type="button" class="btn ghost small manual-btn" data-side="sell">Продать ~$25</button>
           </div>
+          <button type="button" id="btn-testnet-order" class="btn ghost small testnet-btn">🏦 Testnet $10</button>
         </div>
       </section>
 
@@ -147,8 +151,10 @@
   </details>
 
   <footer>
-    <span>Данные: Binance · v14 · 17 рынков · 12 агентов · Ctrl+Shift+R</span>
+    <span>Данные: Binance · v15 · 17 рынков · 12 агентов</span>
     <div class="footer-actions">
+      <input id="api-token-input" type="password" placeholder="API-токен (если нужен)" class="token-input" />
+      <button id="btn-save-token" class="btn ghost small">🔐</button>
       <button id="btn-export" class="btn ghost small">Экспорт сделок</button>
       <button id="btn-reset" class="btn ghost small">Сброс портфеля</button>
       <button id="btn-reset-full" class="btn ghost small">Полный сброс БД</button>
@@ -184,6 +190,6 @@
   </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=19"></script>
+  <script src="/static/app.js?v=20"></script>
 </body>
 </html>

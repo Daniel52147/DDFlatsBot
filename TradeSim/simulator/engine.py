@@ -58,7 +58,8 @@ class SimulatorEngine:
         base_got = net / fill
         self.position.quote -= amount_quote
         self.position.base += base_got
-        self.position.cost_basis += amount_quote
+        # Economic cost = net quote that bought the base (after fee)
+        self.position.cost_basis += net
         self._trade_counter += 1
         trade = Trade(
             id=self._trade_counter,
@@ -84,7 +85,7 @@ class SimulatorEngine:
         fee = gross * config.FEE_RATE
         net = gross - fee
         if self.position.base > 0:
-            sold_frac = amount_base / (self.position.base + amount_base)
+            sold_frac = amount_base / self.position.base
             self.position.cost_basis *= max(0, 1 - sold_frac)
         self.position.base -= amount_base
         self.position.quote += net

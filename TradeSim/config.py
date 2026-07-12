@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
@@ -181,10 +182,14 @@ PRICE_DECIMALS = {
     "DOGE": 4, "PEPE": 8, "WIF": 4,
 }
 
-APP_VERSION = 14
+APP_VERSION = 15
 
-# Live exchange (optional — set env BINANCE_API_KEY + BINANCE_API_SECRET)
-EXCHANGE_ENABLED = False
+# Security — default localhost; set TRADESIM_API_TOKEN for remote write access
+BIND_HOST = os.environ.get("TRADESIM_BIND_HOST", "127.0.0.1")
+API_TOKEN = os.environ.get("TRADESIM_API_TOKEN", "")
+
+# Live exchange (optional — set env BINANCE_API_KEY + BINANCE_API_SECRET + EXCHANGE_ENABLED=true)
+EXCHANGE_ENABLED = os.environ.get("EXCHANGE_ENABLED", "false").lower() in ("1", "true", "yes")
 EXCHANGE_NAME = "binance"
 EXCHANGE_TESTNET = True
 EXCHANGE_MAX_ORDER_USD = 100.0

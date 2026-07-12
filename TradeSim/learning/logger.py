@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,16 @@ from simulator.engine import Trade
 class LearningLogger:
   def __init__(self, db_path: Path | None = None):
     self.db_path = db_path or config.DB_PATH
+
+  @asynccontextmanager
+  async def _connect(self):
+    db = await aiosqlite.connect(self.db_path, timeout=30.0)
+    await db.execute("PRAGMA journal_mode=WAL")
+    await db.execute("PRAGMA busy_timeout=30000")
+    try:
+      yield db
+    finally:
+      await db.close()
 
   async def _migrate(self, db: aiosqlite.Connection):
     for stmt in (
@@ -33,7 +44,7 @@ class LearningLogger:
         pass
 
   async def init(self):
-    async with aiosqlite.connect(self.db_path) as db:
+    async with self._connect() as db:
       await db.execute("PRAGMA journal_mode=WAL")
       await db.execute("""
         CREATE TABLE IF NOT EXISTS trades (
@@ -98,7 +109,7 @@ class LearningLogger:
       await db.commit()
 
   async def log_trade(self, trade: Trade, strategy_params: dict, symbol: str = ""):
-    async with aiosqlite.connect(self.db_path) as db:
+    async with self._connect() as db:
       await db.execute(
         """INSERT INTO trades
            (ts, symbol, side, price, amount_quote, amount_base, fee, reason,
@@ -114,7 +125,7 @@ class LearningLogger:
       await db.commit()
 
   async def log_snapshot(self, snap: dict, strategy_params: dict, symbol: str = ""):
-    async with aiosqlite.connect(self.db_path) as db:
+    async with self._connect() as db:
       await db.execute(
         """INSERT INTO snapshots
            (ts, symbol, price, portfolio_value, pnl_pct, vs_hold_pct, strategy_params)
@@ -127,7 +138,7 @@ class LearningLogger:
       await db.commit()
 
   async def log_strategy_change(self, params: dict, reason: str, avg_pnl: float, symbol: str = ""):
-    async with aiosqlite.connect(self.db_path) as db:
+    async with self._connect() as db:
       await db.execute(
         "INSERT INTO strategy_versions (ts, symbol, params, reason, avg_pnl_pct) VALUES (?,?,?,?,?)",
         (time.time(), symbol, json.dumps(params), reason, avg_pnl),
@@ -135,7 +146,7 @@ class LearningLogger:
       await db.commit()
 
   async def log_assistant(self, role: str, content: str):
-    async with aiosqlite.connect(self.db_path) as db:
+    async with self._connect() as db:
       await db.execute(
         "INSERT INTO assistant_messages (ts, role, content) VALUES (?,?,?)",
         (time.time(), role, content),
@@ -155,7 +166,7 @@ class LearningLogger:
       ascending: bool = False,
   ) -> list[dict[str, Any]]:
     order = "ASC" if ascending else "DESC"
-    async with aiosqlite.connect(self.db_path) as db:
+    async with self._connect() as db:
       db.row_factory = aiosqlite.Row
       if symbol:
         sql = f"SELECT * FROM trades WHERE symbol = ? ORDER BY ts {order}"
@@ -178,7 +189,7 @@ class LearningLogger:
     return out
 
   async def performance_summary(self) -> dict[str, Any]:
-    async with aiosqlite.connect(self.db_path) as db:
+    async with self._connect() as db:
       db.row_factory = aiosqlite.Row
       cur = await db.execute("SELECT COUNT(*) as c FROM trades")
       count = (await cur.fetchone())["c"]
@@ -203,7 +214,7 @@ class LearningLogger:
     }
 
   async def recent_assistant_messages(self, limit: int = 20) -> list[dict[str, Any]]:
-    async with aiosqlite.connect(self.db_path) as db:
+    async with self._connect() as db:
       db.row_factory = aiosqlite.Row
       cur = await db.execute(
         "SELECT * FROM assistant_messages ORDER BY ts DESC LIMIT ?", (limit,)
@@ -212,7 +223,7 @@ class LearningLogger:
     return list(reversed([dict(r) for r in rows]))
 
   async def save_session(self, symbol: str, data: dict[str, Any]):
-    async with aiosqlite.connect(self.db_path) as db:
+    async with self._connect() as db:
       await db.execute(
         """INSERT INTO sessions
            (symbol, quote, base, trade_counter, start_balance, start_ts,
@@ -243,7 +254,7 @@ class LearningLogger:
       await db.commit()
 
   async def load_session(self, symbol: str) -> dict[str, Any] | None:
-    async with aiosqlite.connect(self.db_path) as db:
+    async with self._connect() as db:
       db.row_factory = aiosqlite.Row
       cur = await db.execute("SELECT * FROM sessions WHERE symbol = ?", (symbol,))
       row = await cur.fetchone()
@@ -256,21 +267,21 @@ class LearningLogger:
     return d
 
   async def clear_sessions(self):
-    async with aiosqlite.connect(self.db_path) as db:
+    async with self._connect() as db:
       await db.execute("DELETE FROM sessions")
       await db.commit()
 
   async def full_reset(self):
-    async with aiosqlite.connect(self.db_path) as db:
+    async with self._connect() as db:
       for table in (
         "trades", "snapshots", "strategy_versions", "assistant_messages",
-        "sessions", "total_snapshots", "brain_cycles",
+        "sessions", "total_snapshots", "brain_cycles", "deposits",
       ):
         await db.execute(f"DELETE FROM {table}")
       await db.commit()
 
   async def strategy_history(self, symbol: str | None = None, limit: int = 15) -> list[dict[str, Any]]:
-    async with aiosqlite.connect(self.db_path) as db:
+    async with self._connect() as db:
       db.row_factory = aiosqlite.Row
       if symbol:
         cur = await db.execute(
@@ -296,7 +307,7 @@ class LearningLogger:
     return out
 
   async def log_total_snapshot(self, total_value: float, pnl_pct: float):
-    async with aiosqlite.connect(self.db_path) as db:
+    async with self._connect() as db:
       await db.execute(
         "INSERT INTO total_snapshots (ts, total_value, pnl_pct) VALUES (?,?,?)",
         (time.time(), total_value, pnl_pct),
@@ -305,7 +316,7 @@ class LearningLogger:
 
   async def equity_curve(self, hours: int = 48) -> list[dict[str, Any]]:
     since = time.time() - hours * 3600
-    async with aiosqlite.connect(self.db_path) as db:
+    async with self._connect() as db:
       db.row_factory = aiosqlite.Row
       cur = await db.execute(
         """SELECT ts, total_value, pnl_pct FROM total_snapshots
@@ -315,7 +326,7 @@ class LearningLogger:
       rows = [dict(r) for r in await cur.fetchall()]
     if rows:
       return [{"time": int(r["ts"]), "value": r["total_value"], "pnl_pct": r["pnl_pct"]} for r in rows]
-    async with aiosqlite.connect(self.db_path) as db:
+    async with self._connect() as db:
       db.row_factory = aiosqlite.Row
       cur = await db.execute(
         """SELECT CAST(ts / 300 AS INT) * 300 as bucket,
@@ -328,7 +339,7 @@ class LearningLogger:
     return [{"time": int(r["bucket"]), "value": round(r["total_value"], 2)} for r in rows]
 
   async def log_brain_cycle(self, decision: str, verdict: str):
-    async with aiosqlite.connect(self.db_path) as db:
+    async with self._connect() as db:
       await db.execute(
         "INSERT INTO brain_cycles (ts, decision, verdict) VALUES (?,?,?)",
         (time.time(), decision, verdict),
@@ -336,7 +347,7 @@ class LearningLogger:
       await db.commit()
 
   async def brain_history(self, limit: int = 8) -> list[dict[str, Any]]:
-    async with aiosqlite.connect(self.db_path) as db:
+    async with self._connect() as db:
       db.row_factory = aiosqlite.Row
       cur = await db.execute(
         "SELECT ts, decision, verdict FROM brain_cycles ORDER BY ts DESC LIMIT ?",
@@ -348,7 +359,7 @@ class LearningLogger:
   async def log_deposit(
       self, amount: float, target: str, symbol: str, note: str, total_after: float,
   ):
-    async with aiosqlite.connect(self.db_path) as db:
+    async with self._connect() as db:
       await db.execute(
         "INSERT INTO deposits (ts, amount, target, symbol, note, total_after) VALUES (?,?,?,?,?,?)",
         (time.time(), amount, target, symbol or "", note, total_after),
@@ -356,7 +367,7 @@ class LearningLogger:
       await db.commit()
 
   async def deposit_history(self, limit: int = 20) -> list[dict[str, Any]]:
-    async with aiosqlite.connect(self.db_path) as db:
+    async with self._connect() as db:
       db.row_factory = aiosqlite.Row
       cur = await db.execute(
         "SELECT * FROM deposits ORDER BY ts DESC LIMIT ?", (limit,),
@@ -364,7 +375,7 @@ class LearningLogger:
       return [dict(r) for r in await cur.fetchall()]
 
   async def learning_stats(self) -> dict[str, Any]:
-    async with aiosqlite.connect(self.db_path) as db:
+    async with self._connect() as db:
       db.row_factory = aiosqlite.Row
       cur = await db.execute("SELECT COUNT(*) as c FROM trades")
       trades = (await cur.fetchone())["c"]

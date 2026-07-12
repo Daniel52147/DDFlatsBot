@@ -211,7 +211,7 @@ class ShadowLab:
                 continue
 
             session.set_params_bounded(winner_params)
-            session.base_params = dict(session.bot.get_params())
+            session.base_params = copy.deepcopy(session.bot.get_params())
 
             promo = {
                 "ts": now,

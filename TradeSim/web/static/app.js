@@ -23,6 +23,22 @@ let marketMeta = [
   { symbol: "WIFUSDT", label: "WIF", volatile: true, viral: true },
 ];
 let startBalance = 10000;
+
+function apiHeaders(json = true) {
+  const h = {};
+  if (json) h["Content-Type"] = "application/json";
+  const t = localStorage.getItem("tradesim_token");
+  if (t) h["X-API-Token"] = t;
+  return h;
+}
+
+async function apiFetch(url, options = {}) {
+  const opts = { ...options, headers: { ...apiHeaders(options.body != null), ...(options.headers || {}) } };
+  const res = await fetch(url, opts);
+  if (res.status === 401) showToast("🔐 Нужен API-токен — введи в настройках внизу");
+  if (res.status === 429) showToast("⏳ Слишком много запросов — подожди");
+  return res;
+}
 let chatHistory = [];
 let lastBrain = null;
 let activityLog = [];
@@ -75,6 +91,11 @@ function showToast(text, ms = 5000) {
 function applyMarketMeta(meta) {
   if (!meta?.length) return;
   marketMeta = meta;
+  const bt = document.getElementById("backtest-symbol");
+  if (bt) {
+    bt.innerHTML = meta.map(m => `<option value="${m.symbol}">${m.label}</option>`).join("");
+    bt.value = activeSymbol;
+  }
 }
 
 function renderMarketsTable(rows) {
@@ -163,7 +184,7 @@ function renderAnalyticsTable(analytics) {
       <td>${fmtPct(m.vs_hold_pct)}</td><td>${m.trade_stats?.total || 0}</td>
       <td>${rs.dca || 0}</td><td>${rs.dip || 0}</td><td>${rs.tp || 0}</td><td>${rs.stop || 0}</td></tr>`;
   }).join("")}</tbody></table>
-  <p class="muted" style="margin-top:0.5rem">Max DD: ${analytics.max_drawdown_pct}% · Sharpe proxy: ${analytics.sharpe_proxy ?? "—"}</p>`;
+  <p class="muted" style="margin-top:0.5rem">Win rate (FIFO): ${analytics.portfolio_win_rate_pct ?? "—"}% · Max DD: ${analytics.max_drawdown_pct}% · Sharpe: ${analytics.sharpe_proxy ?? "—"}</p>`;
 }
 
 function renderLearningTable(learning, history, honesty) {
@@ -216,12 +237,12 @@ function renderHonestyTable(h) {
 async function runBacktestTable() {
   const el = document.getElementById("table-backtest");
   if (!el) return;
+  const sym = document.getElementById("backtest-symbol")?.value || activeSymbol;
   el.innerHTML = "<p class='muted'>⏱ Прогон стратегии по историческим свечам...</p>";
   try {
-    const res = await fetch("/api/backtest", {
+    const res = await apiFetch("/api/backtest", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ symbol: activeSymbol, limit: 500 }),
+      body: JSON.stringify({ symbol: sym, limit: 500 }),
     });
     const r = await res.json();
     if (r.error) {
@@ -253,7 +274,7 @@ function renderAllTables(data) {
 
 async function syncAllMarkets() {
   try {
-    const res = await fetch("/api/sync-markets", { method: "POST" });
+    const res = await apiFetch("/api/sync-markets", { method: "POST" });
     const data = await res.json();
     if (data.market_meta) applyMarketMeta(data.market_meta);
     if (data.markets) {
@@ -292,6 +313,9 @@ function showVersionBanner(ping) {
 async function checkServerAndSync() {
   try {
     const ping = await (await fetch("/api/ping")).json();
+    if (ping.auth_required && !localStorage.getItem("tradesim_token")) {
+      showToast("🔐 Нужен API-токен — введи внизу страницы");
+    }
     if (ping.market_meta?.length) applyMarketMeta(ping.market_meta);
     if ((ping.sessions_active || 0) < (ping.markets_count || 17)) {
       await syncAllMarkets();
@@ -816,6 +840,7 @@ function connectWs() {
       }
       if (msg.type === "deposit" && msg.total) {
         updateTotal(msg.total);
+        if (msg.total.start_balance) startBalance = msg.total.start_balance;
         showToast(`💵 Пополнено $${msg.amount} · всего ${fmtMoney(msg.total.total_value)}`);
         loadDepositsTable();
       }
@@ -880,12 +905,21 @@ function parseStatus(data) {
 
 function computeTotalFromMarkets(markets) {
   let sum = 0;
+  let start = 0;
   for (const sym of Object.keys(markets)) {
-    sum += markets[sym]?.portfolio?.portfolio_value || 0;
+    const p = markets[sym]?.portfolio;
+    sum += p?.portfolio_value || 0;
+    start += p?.start_balance || 0;
   }
   if (sum <= 0) return null;
-  const start = startBalance;
-  return { total_value: sum, pnl_pct: ((sum - start) / start) * 100, start_balance: start };
+  if (start > 0) startBalance = start;
+  const startVal = start > 0 ? start : startBalance;
+  return {
+    total_value: sum,
+    pnl: sum - startVal,
+    pnl_pct: ((sum - startVal) / startVal) * 100,
+    start_balance: startVal,
+  };
 }
 
 function applyBootstrap(data) {
@@ -1016,7 +1050,7 @@ async function loadInitial() {
 
 function bindUi() {
   document.getElementById("btn-toggle").onclick = async () => {
-    await fetch(`/api/bot/toggle?symbol=${activeSymbol}`, { method: "POST" });
+    await apiFetch(`/api/bot/toggle?symbol=${activeSymbol}`, { method: "POST" });
     await refreshStatus();
   };
 
@@ -1026,40 +1060,51 @@ function bindUi() {
     const text = input?.value?.trim();
     if (!text) return;
     input.value = "";
+    input.disabled = true;
     chatHistory.push({ role: "user", content: text });
     renderChat();
-    const res = await fetch("/api/assistant/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text }),
-    });
-    const data = await res.json();
-    if (data.chat) renderChat(data.chat);
-    else if (data.reply) {
-      chatHistory.push({ role: "assistant", content: data.reply });
+    try {
+      const res = await apiFetch("/api/assistant/chat", {
+        method: "POST",
+        body: JSON.stringify({ message: text }),
+      });
+      const data = await res.json();
+      if (data.chat) renderChat(data.chat);
+      else if (data.reply) {
+        chatHistory.push({ role: "assistant", content: data.reply });
+        renderChat();
+      } else if (data.error) {
+        chatHistory.push({ role: "assistant", content: "Ошибка: " + data.error });
+        renderChat();
+      }
+    } catch (_) {
+      chatHistory.push({ role: "assistant", content: "Не удалось отправить — проверь сервер." });
       renderChat();
+    } finally {
+      input.disabled = false;
+      input.focus();
     }
   };
 
   document.getElementById("btn-reset").onclick = async () => {
     if (!confirm(`Сбросить портфели ${marketMeta.length} рынков? (сделки в БД останутся)`)) return;
-    await fetch("/api/reset", { method: "POST" });
+    await apiFetch("/api/reset", { method: "POST" });
     location.reload();
   };
 
   document.getElementById("btn-reset-full")?.addEventListener("click", async () => {
     if (!confirm("ПОЛНЫЙ сброс: портфели + все сделки и история в SQLite. Продолжить?")) return;
-    await fetch("/api/reset?full=true", { method: "POST" });
+    await apiFetch("/api/reset?full=true", { method: "POST" });
     location.reload();
   });
 
   document.getElementById("btn-export")?.addEventListener("click", async () => {
     try {
-      const data = await (await fetch("/api/export/trades")).json();
+      const data = await (await apiFetch("/api/export/trades")).json();
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `tradesim-trades-v${data.version || 9}.json`;
+      a.download = `tradesim-trades-v${data.version || 15}.json`;
       a.click();
       showToast(`Экспорт: ${data.count || 0} сделок`);
     } catch (_) {
@@ -1067,12 +1112,29 @@ function bindUi() {
     }
   });
 
+  document.getElementById("btn-testnet-order")?.addEventListener("click", async () => {
+    const side = confirm("Testnet BUY $10? (Cancel = SELL $10)") ? "buy" : "sell";
+    const res = await apiFetch("/api/exchange/order", {
+      method: "POST",
+      body: JSON.stringify({ symbol: activeSymbol, side, amount_usd: 10 }),
+    });
+    const data = await res.json();
+    if (data.error) showToast("⚠ " + data.error);
+    else showToast(`🏦 ${data.mode}: ${side} ${activeSymbol} — ${data.note || data.status || "ok"}`);
+  });
+
+  document.getElementById("btn-save-token")?.addEventListener("click", () => {
+    const t = document.getElementById("api-token-input")?.value?.trim();
+    if (t) localStorage.setItem("tradesim_token", t);
+    else localStorage.removeItem("tradesim_token");
+    showToast(t ? "🔐 Токен сохранён" : "Токен удалён");
+  });
+
   document.querySelectorAll(".manual-btn").forEach(btn => {
     btn.onclick = async () => {
       const side = btn.dataset.side;
-      const res = await fetch("/api/trade", {
+      const res = await apiFetch("/api/trade", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ symbol: activeSymbol, side, amount_usd: 25 }),
       });
       const data = await res.json();
@@ -1135,9 +1197,8 @@ function bindUi() {
     const amount = Number(document.getElementById("deposit-amount")?.value);
     const target = depTarget?.value || "split";
     const symbol = target === "symbol" ? depSym?.value : null;
-    const res = await fetch("/api/deposit", {
+    const res = await apiFetch("/api/deposit", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ amount, target, symbol }),
     });
     const data = await res.json();

@@ -30,26 +30,28 @@ class TestEngineFeesAndCostBasis(unittest.TestCase):
         expected_base = (100.0 - trade.fee) / fill
         self.assertAlmostEqual(self.engine.position.base, expected_base, places=6)
 
-    def test_cost_basis_tracks_quote_spent(self):
+    def test_cost_basis_tracks_net_quote(self):
         self.engine.buy(50.0, 200.0, reason="buy1")
-        self.assertAlmostEqual(self.engine.position.cost_basis, 200.0)
+        self.assertAlmostEqual(self.engine.position.cost_basis, 200.0 * (1 - config.FEE_RATE))
         self.engine.buy(50.0, 100.0, reason="buy2")
-        self.assertAlmostEqual(self.engine.position.cost_basis, 300.0)
+        self.assertAlmostEqual(
+            self.engine.position.cost_basis,
+            200.0 * (1 - config.FEE_RATE) + 100.0 * (1 - config.FEE_RATE),
+        )
 
     def test_avg_entry_price(self):
         self.engine.buy(100.0, 500.0, reason="buy")
         avg = self.engine.avg_entry_price()
         self.assertIsNotNone(avg)
-        self.assertAlmostEqual(avg, 500.0 / self.engine.position.base, places=4)
+        self.assertAlmostEqual(avg, self.engine.position.cost_basis / self.engine.position.base, places=6)
 
     def test_sell_reduces_cost_basis_proportionally(self):
         self.engine.buy(100.0, 500.0, reason="buy")
         base = self.engine.position.base
         sell_amt = base * 0.5
-        sold_frac = sell_amt / (base + sell_amt)
+        basis_before = self.engine.position.cost_basis
         self.engine.sell(110.0, sell_amt, reason="sell half")
-        expected = 500.0 * (1 - sold_frac)
-        self.assertAlmostEqual(self.engine.position.cost_basis, expected, places=2)
+        self.assertAlmostEqual(self.engine.position.cost_basis, basis_before * 0.5, places=2)
 
     def test_export_trades_no_default_cap(self):
         for i in range(60):
