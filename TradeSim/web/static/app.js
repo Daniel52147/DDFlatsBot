@@ -84,16 +84,71 @@ function renderMarketsTable(rows) {
     el.innerHTML = "<p class='muted'>Загрузка рынков...</p>";
     return;
   }
-  el.innerHTML = `<table class="data-table"><thead><tr>
-    <th>Монета</th><th>Тип</th><th>Цена</th><th>Портфель</th><th>P&L</th><th>vs hold</th><th>Сделок</th><th>Бот</th>
-  </tr></thead><tbody>${rows.map(r => {
-    const cls = r.pnl_pct >= 0 ? "up" : "down";
-    const tier = r.viral ? "🔥 viral" : r.growth ? "📈 growth" : r.tier || "major";
-    if (!r.active) return `<tr class="inactive"><td>${r.label}</td><td>${tier}</td><td colspan="6">не подключён — нажми «Подключить все монеты»</td></tr>`;
+  const tiers = [
+    { key: "major", title: "🏦 Majors (4)" },
+    { key: "growth", title: "📈 Growth (10)" },
+    { key: "volatile", title: "⚡ Meme (2)" },
+    { key: "viral", title: "🔥 Viral (1)" },
+  ];
+  const rowHtml = (r) => {
+    const cls = (r.pnl_pct ?? 0) >= 0 ? "up" : "down";
+    const tier = r.viral ? "🔥 viral" : r.growth ? "📈 growth" : r.tier === "volatile" ? "⚡ meme" : "🏦 major";
+    if (!r.active) return `<tr class="inactive"><td>${r.label}</td><td>${tier}</td><td colspan="6">не подключён</td></tr>`;
     return `<tr><td><b>${r.label}</b></td><td>${tier}</td><td>${fmtMoney(r.price, priceDecimals(r.label))}</td>
       <td>${fmtMoney(r.portfolio_value)}</td><td class="${cls}">${fmtPct(r.pnl_pct)}</td>
       <td>${fmtPct(r.vs_hold_pct)}</td><td>${r.trades}</td><td>${r.bot_enabled ? "✅" : "⏸"}</td></tr>`;
-  }).join("")}</tbody></table>`;
+  };
+  const head = `<table class="data-table"><thead><tr>
+    <th>Монета</th><th>Тип</th><th>Цена</th><th>Портфель</th><th>P&L</th><th>vs hold</th><th>Сделок</th><th>Бот</th>
+  </tr></thead><tbody>`;
+  let html = "";
+  for (const t of tiers) {
+    const group = rows.filter(r =>
+      t.key === "viral" ? r.viral :
+      t.key === "volatile" ? (r.tier === "volatile" && !r.viral) :
+      t.key === "growth" ? r.growth :
+      (!r.growth && !r.volatile && !r.viral && r.tier === "major")
+    );
+    if (!group.length) continue;
+    html += `<tr class="tier-header"><td colspan="8">${t.title}</td></tr>${group.map(rowHtml).join("")}`;
+  }
+  const other = rows.filter(r => !tiers.some(t => {
+    if (t.key === "viral") return r.viral;
+    if (t.key === "volatile") return r.tier === "volatile" && !r.viral;
+    if (t.key === "growth") return r.growth;
+    return !r.growth && !r.volatile && !r.viral;
+  }));
+  if (other.length) html += other.map(rowHtml).join("");
+  el.innerHTML = head + html + "</tbody></table>";
+}
+
+async function loadTradesTable(symbol) {
+  const el = document.getElementById("table-trades");
+  if (!el) return;
+  el.innerHTML = "<p class='muted'>Загрузка сделок из SQLite...</p>";
+  try {
+    const sym = symbol || "";
+    const url = sym ? `/api/trades?limit=150&symbol=${sym}` : "/api/trades?limit=150";
+    const data = await (await fetch(url)).json();
+    const trades = data.trades || [];
+    if (!trades.length) {
+      el.innerHTML = "<p class='muted'>Сделок пока нет — бот купит при DCA или просадке.</p>";
+      return;
+    }
+    el.innerHTML = `<p class="muted" style="margin-bottom:0.5rem">Всего в БД: <b>${data.count}</b> · источник: ${data.source || "sqlite"}</p>
+    <table class="data-table"><thead><tr>
+      <th>Время</th><th>Монета</th><th>Сторона</th><th>Цена</th><th>$</th><th>Fee</th><th>Причина</th>
+    </tr></thead><tbody>${trades.map(t => {
+      const d = new Date((t.ts || 0) * 1000).toLocaleString("ru-RU", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+      const lbl = t.label || labelFor(t.symbol);
+      const cls = t.side === "buy" ? "up" : "down";
+      return `<tr><td>${d}</td><td><b>${lbl}</b></td><td class="${cls}">${t.side?.toUpperCase()}</td>
+        <td>${fmtMoney(t.price, priceDecimals(lbl))}</td><td>${fmtMoney(t.amount_quote)}</td>
+        <td>${t.fee != null ? "$" + Number(t.fee).toFixed(3) : "—"}</td><td>${escapeHtml((t.reason || "").slice(0, 50))}</td></tr>`;
+    }).join("")}</tbody></table>`;
+  } catch (_) {
+    el.innerHTML = "<p class='muted'>Не удалось загрузить сделки</p>";
+  }
 }
 
 function renderAnalyticsTable(analytics) {
@@ -264,7 +319,7 @@ function initChart() {
     timeScale: { timeVisible: true, secondsVisible: false },
     rightPriceScale: { borderColor: "rgba(0,229,192,0.15)" },
     width: w,
-    height: 400,
+    height: 420,
   });
   candleSeries = chart.addCandlestickSeries({
     upColor: "#00e5a8", downColor: "#ff5c7a", borderVisible: false,
@@ -374,7 +429,7 @@ function renderLearningPanel(learning, brainHistory, analytics) {
   if (a) {
     metrics = `
       <div class="lp-row"><span class="lp-label">Max drawdown</span><span class="lp-val">${a.max_drawdown_pct ?? 0}%</span></div>
-      <div class="lp-row"><span class="lp-label">Опережают hold</span><span class="lp-val">${a.markets_beating_hold ?? 0}/${a.markets_total ?? 6}</span></div>
+      <div class="lp-row"><span class="lp-label">Опережают hold</span><span class="lp-val">${a.markets_beating_hold ?? 0}/${a.markets_total ?? 17}</span></div>
       <div class="lp-row"><span class="lp-label">Среднее vs hold</span><span class="lp-val">${fmtPct(a.avg_vs_hold_pct)}</span></div>
       ${a.sharpe_proxy != null ? `<div class="lp-row"><span class="lp-label">Sharpe (proxy)</span><span class="lp-val">${a.sharpe_proxy}</span></div>` : ""}
     `;
@@ -382,7 +437,7 @@ function renderLearningPanel(learning, brainHistory, analytics) {
   el.innerHTML = `
     <div class="lp-row"><span class="lp-label">Сделок в БД</span><span class="lp-val">${learning?.trade_count || a?.total_trades || 0}</span></div>
     <div class="lp-row"><span class="lp-label">Продаж / TP / SL</span><span class="lp-val">${a?.total_sells ?? "—"}</span></div>
-    <div class="lp-row"><span class="lp-label">Мозг · 11 агентов</span><span class="lp-val">каждые 45 сек</span></div>
+    <div class="lp-row"><span class="lp-label">Мозг · 12 агентов</span><span class="lp-val">каждые 45 сек</span></div>
     <div class="lp-row"><span class="lp-label">По рынкам</span><span class="lp-val">${markets}</span></div>
     ${metrics}
     ${tune}${bh}
@@ -473,7 +528,19 @@ function renderTabs() {
   renderPortfolioGrid();
 }
 
-function switchMarket(symbol) {
+async function loadCandlesForSymbol(symbol) {
+  try {
+    const res = await fetch(`/api/candles?symbol=${symbol}&limit=200`);
+    const data = await res.json();
+    if (data.candles?.length) {
+      if (marketsData[symbol]) marketsData[symbol].candles = data.candles;
+      return data.candles;
+    }
+  } catch (_) {}
+  return marketsData[symbol]?.candles || [];
+}
+
+async function switchMarket(symbol) {
   activeSymbol = symbol;
   const d = marketsData[symbol];
   if (!d) {
@@ -481,14 +548,23 @@ function switchMarket(symbol) {
     return;
   }
   lastCandles = d.candles || [];
+  if (lastCandles.length < 40) {
+    lastCandles = await loadCandlesForSymbol(symbol);
+  }
   const period = smaPeriod(symbol);
   if (candleSeries && lastCandles.length) {
     candleSeries.setData(lastCandles);
     updateSMA(lastCandles, period);
-    updateTradeMarkers(d.trades || []);
+    try {
+      const tr = await (await fetch(`/api/trades?symbol=${symbol}&limit=30`)).json();
+      updateTradeMarkers(tr.trades || d.trades || []);
+    } catch (_) {
+      updateTradeMarkers(d.trades || []);
+    }
+    if (chart) chart.timeScale().fitContent();
   }
   const title = document.getElementById("chart-title");
-  if (title) title.textContent = `${d.label || labelFor(symbol)}/USDT — свечи`;
+  if (title) title.textContent = `${d.label || labelFor(symbol)}/USDT — свечи (${lastCandles.length})`;
   renderBotStatus(d);
   renderTabs();
 }
@@ -569,7 +645,7 @@ async function renderAllTrades() {
     ul.innerHTML = "<li>Сделок пока нет — бот купит при старте или на просадке</li>";
     return;
   }
-  ul.innerHTML = all.slice(0, 20).map(t => {
+  ul.innerHTML = all.slice(0, 40).map(t => {
     const d = new Date(t.ts * 1000).toLocaleString("ru-RU");
     return `<li class="${t.side}"><b>${t.label}</b> ${d} · ${t.side.toUpperCase()} @ ${fmtMoney(t.price, priceDecimals(t.label))} · $${Number(t.amount_quote || 0).toFixed(0)} · ${t.reason}</li>`;
   }).join("");
@@ -614,6 +690,8 @@ function openAgentModal(key, data) {
   if (data.halts?.length) extra += data.halts.map(h => `<li>🛑 ${h}</li>`).join("");
   if (data.suggestions?.length) extra += data.suggestions.map(s => `<li>⚖️ ${s}</li>`).join("");
   if (data.overweight?.length) extra += data.overweight.map(o => `<li>📦 ${o}</li>`).join("");
+  if (data.signals?.length) extra += data.signals.map(s => `<li>👁️ ${s.text || s.trader}</li>`).join("");
+  if (data.warnings?.length && !data.critical) extra += data.warnings.map(w => `<li>🔴 ${w}</li>`).join("");
   body.innerHTML = `
     <h3>${data.emoji || ""} ${data.name || key}</h3>
     <p>${escapeHtml(data.summary || "")}</p>
@@ -848,7 +926,7 @@ function renderTradesList(all) {
     ul.innerHTML = "<li>Сделок пока нет</li>";
     return;
   }
-  ul.innerHTML = all.slice(0, 20).map(t => {
+  ul.innerHTML = all.slice(0, 40).map(t => {
     const d = new Date(t.ts * 1000).toLocaleString("ru-RU");
     return `<li class="${t.side}"><b>${t.label}</b> ${d} · ${t.side.toUpperCase()} @ ${fmtMoney(t.price, priceDecimals(t.label))} · $${Number(t.amount_quote || 0).toFixed(0)} · ${t.reason}</li>`;
   }).join("");
@@ -1021,6 +1099,7 @@ function bindUi() {
       document.querySelectorAll(".data-table-wrap").forEach(w => w.classList.add("hidden"));
       document.getElementById(`table-${id}`)?.classList.remove("hidden");
       if (id === "backtest") runBacktestTable();
+      if (id === "trades") loadTradesTable(activeSymbol);
     };
   });
 
@@ -1087,12 +1166,30 @@ async function loadLearning() {
   } catch (_) {}
 }
 
+async function loadExchangeBadge() {
+  try {
+    const st = await (await fetch("/api/exchange/status")).json();
+    const el = document.getElementById("exchange-badge");
+    if (!el) return;
+    if (st.enabled) {
+      el.textContent = st.testnet ? "TESTNET" : "LIVE";
+      el.className = "stat badge " + (st.testnet ? "testnet" : "live-exchange");
+      el.title = `Биржа: ${st.exchange} · ордер до $${st.max_order_usd}`;
+    } else {
+      el.textContent = "PAPER";
+      el.className = "stat badge paper";
+      el.title = "Paper режим — задай BINANCE_API_KEY для testnet";
+    }
+  } catch (_) {}
+}
+
 async function main() {
   try {
     bindUi();
     if (!initChart()) showError("График: проверь интернет, нажми Ctrl+F5");
     initEquityChart();
     await loadInitial();
+    await loadExchangeBadge();
     await loadShadowLab();
     connectWs();
     setInterval(refreshStatus, 5000);

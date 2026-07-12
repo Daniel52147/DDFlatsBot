@@ -181,7 +181,7 @@ PRICE_DECIMALS = {
     "DOGE": 4, "PEPE": 8, "WIF": 4,
 }
 
-APP_VERSION = 13
+APP_VERSION = 14
 
 # Live exchange (optional — set env BINANCE_API_KEY + BINANCE_API_SECRET)
 EXCHANGE_ENABLED = False

@@ -123,7 +123,7 @@ def _learning_honesty(stats: dict) -> dict[str, Any]:
         "version": config.APP_VERSION,
         "markets_configured": len(config.MARKETS),
         "markets_active": len(sessions),
-        "project_readiness": "beta — paper lab, не биржа",
+        "project_readiness": "beta ~75% — paper lab + бэктест, не production биржа",
         "really_learns": True,
         "learning_kind": "эвристики + статистика (не нейросеть)",
         "what_is_real": [
@@ -580,6 +580,21 @@ async def api_all_trades(symbol: str | None = None, limit: int = 200):
         "memory_trades": mem_count,
         "source": "sqlite",
     }
+
+
+@app.get("/api/candles")
+async def api_candles(symbol: str, limit: int = 200):
+    """Historical OHLC for chart — refreshes sparse markets."""
+    if symbol not in sessions:
+        return {"error": "unknown symbol"}
+    s = sessions[symbol]
+    lim = min(max(limit, 10), 500)
+    try:
+        candles = await s.feed.fetch_klines(interval=config.CANDLE_INTERVAL, limit=lim)
+    except Exception as e:
+        logger.warning("[%s] candles fetch: %s", symbol, e)
+        candles = s.candles.all_candles()[-lim:]
+    return {"symbol": symbol, "label": s.label, "candles": candles, "count": len(candles)}
 
 
 @app.post("/api/backtest")

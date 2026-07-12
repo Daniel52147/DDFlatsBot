@@ -134,7 +134,7 @@ class MarketSession:
 
     async def startup(self):
         try:
-            history = await self.feed.fetch_klines(interval=config.CANDLE_INTERVAL, limit=100)
+            history = await self.feed.fetch_klines(interval=config.CANDLE_INTERVAL, limit=200)
         except Exception as e:
             logger.error("[%s] klines failed: %s", self.symbol, e)
             try:
@@ -265,7 +265,7 @@ class MarketSession:
             "price": price,
             "portfolio": self.engine.snapshot(price),
             "strategy": self.bot.status(price, sma),
-            "candles": self.candles.all_candles()[-100:],
+            "candles": self.candles.all_candles()[-200:],
             "source": self.feed.source,
             "trades": [
                 {
