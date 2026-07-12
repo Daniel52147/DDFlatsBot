@@ -41,6 +41,7 @@ async function apiFetch(url, options = {}) {
 }
 let chatHistory = [];
 let lastBrain = null;
+let lastTradeMarkers = [];
 let activityLog = [];
 let lastAnalytics = null;
 let lastShadowLab = null;
@@ -503,7 +504,7 @@ async function checkServerAndSync() {
     if (ping.market_meta?.length) applyMarketMeta(ping.market_meta);
     seedMarketsFromMeta();
     if (ping.total) updateTotal(ping.total);
-    const expectedVer = 32;
+    const expectedVer = 33;
     if (ping.version && ping.version < expectedVer) {
       const msg = `СТАРЫЙ СЕРВЕР v${ping.version}! Свечи не синхронизируются. Закрой сервер → запусти start.bat или: git pull origin cursor/tradesim-v30-candle-fix-2631 → python main.py → Ctrl+Shift+R`;
       showError(msg);
@@ -542,16 +543,21 @@ function initChart() {
   if (fallback) fallback.style.display = "none";
   const w = el.clientWidth || document.getElementById("chart-wrap")?.clientWidth || 600;
   chart = LightweightCharts.createChart(el, {
-    layout: { background: { color: "#0c1220" }, textColor: "#8b9cb8" },
-    grid: { vertLines: { color: "#141c2e" }, horzLines: { color: "#141c2e" } },
+    layout: { background: { color: "#080e18" }, textColor: "#a8b8d0" },
+    grid: { vertLines: { color: "#1a2438" }, horzLines: { color: "#1a2438" } },
     timeScale: { timeVisible: true, secondsVisible: false },
     rightPriceScale: { borderColor: "rgba(0,229,192,0.15)" },
     width: w,
-    height: 420,
+    height: 480,
   });
   candleSeries = chart.addCandlestickSeries({
-    upColor: "#00e5a8", downColor: "#ff5c7a", borderVisible: false,
-    wickUpColor: "#00e5a8", wickDownColor: "#ff5c7a",
+    upColor: "#00f0b8",
+    downColor: "#ff6b8a",
+    borderUpColor: "#00f0b8",
+    borderDownColor: "#ff6b8a",
+    borderVisible: true,
+    wickUpColor: "#00f0b8",
+    wickDownColor: "#ff6b8a",
   });
   smaSeries = chart.addLineSeries({ color: "#ffb020", lineWidth: 2 });
   window.addEventListener("resize", () => {
@@ -992,12 +998,7 @@ async function switchMarket(symbol) {
   lastCandles = await ensureFreshCandles(symbol);
   const period = smaPeriod(symbol);
   if (candleSeries && lastCandles.length) {
-    try {
-      const tr = await (await fetch(`/api/trades?symbol=${symbol}&limit=30`)).json();
-      updateTradeMarkers(tr.trades || d.trades || []);
-    } catch (_) {
-      updateTradeMarkers(d.trades || []);
-    }
+    await refreshTradeMarkers(symbol);
   }
   updateChartTitle(symbol);
   renderBotStatus(d);
@@ -1021,6 +1022,7 @@ async function syncChartIfStale() {
       candleSeries.setData(c);
       updateSMA(c, smaPeriod(activeSymbol));
       updateChartTitle(activeSymbol);
+      await refreshTradeMarkers(activeSymbol);
     }
   }
 }
@@ -1288,23 +1290,55 @@ function priceOk(label, price) {
   return price >= r[0] && price <= r[1];
 }
 
+function snapTradeToCandleTime(ts, candles) {
+  if (!candles?.length) return Math.floor(ts / 60) * 60;
+  const bucket = Math.floor(ts / 60) * 60;
+  const times = candles.map(c => c.time);
+  if (times.includes(bucket)) return bucket;
+  let best = times[0];
+  let bestDist = Math.abs(bucket - best);
+  for (const t of times) {
+    const d = Math.abs(bucket - t);
+    if (d < bestDist) { best = t; bestDist = d; }
+  }
+  return bestDist <= 7200 ? best : bucket;
+}
+
+function tradeMarkerLabel(t) {
+  const buy = t.side === "buy";
+  const usd = Number(t.amount_quote || 0);
+  const short = usd >= 10 ? `$${Math.round(usd)}` : `$${usd.toFixed(1)}`;
+  const tag = (t.reason || "").includes("MANUAL") ? "M" : "";
+  return buy ? `▲${tag}${short}` : `▼${tag}${short}`;
+}
+
 function updateTradeMarkers(trades) {
-  if (!candleSeries || !trades?.length || !lastCandles.length) return;
-  const times = new Set(lastCandles.map(c => c.time));
-  const markers = trades.slice(-20).map(t => {
-    const bucket = Math.floor(t.ts / 60) * 60;
-    const time = times.has(bucket) ? bucket : lastCandles[0]?.time;
-    if (!time) return null;
+  if (!candleSeries || !lastCandles.length) return;
+  const list = (trades || []).slice(-40);
+  lastTradeMarkers = list;
+  const markers = list.map(t => {
     const buy = t.side === "buy";
+    const time = snapTradeToCandleTime(t.ts, lastCandles);
+    const manual = (t.reason || "").includes("MANUAL");
     return {
       time,
       position: buy ? "belowBar" : "aboveBar",
-      color: buy ? "#00e5a8" : "#ff5c7a",
+      color: buy ? (manual ? "#4de8ff" : "#00f0b8") : (manual ? "#ff9eb0" : "#ff5c7a"),
       shape: buy ? "arrowUp" : "arrowDown",
-      text: buy ? "B" : "S",
+      text: tradeMarkerLabel(t),
+      size: 2,
     };
-  }).filter(Boolean);
+  }).sort((a, b) => a.time - b.time);
   candleSeries.setMarkers(markers);
+}
+
+async function refreshTradeMarkers(symbol) {
+  try {
+    const tr = await (await fetch(`/api/trades?symbol=${symbol}&limit=50`)).json();
+    updateTradeMarkers(tr.trades || []);
+  } catch (_) {
+    updateTradeMarkers(marketsData[symbol]?.trades || []);
+  }
 }
 
 function mergeMarket(sym, patch) {
@@ -1425,11 +1459,17 @@ function connectWs() {
         void refreshStatus();
         loadExchangePanel();
       }
+      if (msg.type === "trading_mode") {
+        renderTradingMode(msg);
+        showToast(`Режим: ${msg.label || msg.mode}`);
+        loadExchangePanel();
+      }
       if (msg.type === "trade" && msg.trade) {
         const icon = msg.trade.side === "sell" ? "💵" : "💰";
         showToast(`${icon} ${msg.label || labelFor(msg.symbol)}: ${msg.trade.reason}`);
         pushActivity(`${msg.label || labelFor(msg.symbol)} ${msg.trade.side.toUpperCase()}: ${msg.trade.reason}`);
         renderAllTrades();
+        if (msg.symbol === activeSymbol) void refreshTradeMarkers(activeSymbol);
         refreshStatus();
       }
       if (msg.type === "shadow_promote") {
@@ -1501,6 +1541,7 @@ function applyBootstrap(data) {
   if (data.chat) renderChat([{ role: "assistant", content: data.chat }]);
   if (data.trades?.length) renderTradesList(data.trades);
   else renderAllTrades();
+  if (data.trading_mode) renderTradingMode(data.trading_mode);
   if (data.equity) renderEquityCurve(data.equity);
   if (data.learning) renderLearningPanel(data.learning, data.brain_history, data.analytics);
   if (data.analytics) lastAnalytics = data.analytics;
@@ -1779,6 +1820,10 @@ function bindUi() {
       showToast("Ошибка сброса Shadow Lab");
     }
   });
+  document.querySelectorAll(".mode-btn").forEach(btn => {
+    btn.addEventListener("click", () => setTradingMode(btn.dataset.mode));
+  });
+
   document.getElementById("btn-active-trades")?.addEventListener("click", async () => {
     try {
       const res = await apiFetch("/api/strategy/active", {
@@ -1933,21 +1978,46 @@ async function loadAutoTactics() {
   }
 }
 
+function renderTradingMode(tm) {
+  if (!tm?.mode) return;
+  document.querySelectorAll(".mode-btn").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.mode === tm.mode);
+  });
+  const el = document.getElementById("exchange-badge");
+  if (el) {
+    const labels = { paper: "PAPER", testnet: "TESTNET", live: "LIVE" };
+    const classes = { paper: "paper", testnet: "testnet", live: "live-exchange" };
+    el.textContent = labels[tm.mode] || "PAPER";
+    el.className = "stat badge " + (classes[tm.mode] || "paper");
+    el.title = tm.note || "";
+  }
+}
+
+async function setTradingMode(mode) {
+  if (mode === "live" && !confirm("⚠️ LIVE — реальные деньги на Binance. Продолжить?")) return;
+  try {
+    const res = await apiFetch("/api/trading-mode", {
+      method: "POST",
+      body: JSON.stringify({ mode }),
+    });
+    const data = await res.json();
+    if (!data.ok && data.error) {
+      showToast("⚠ " + data.error);
+      return;
+    }
+    renderTradingMode(data);
+    showToast(`Режим: ${data.label || mode} — ${data.note || ""}`);
+    loadExchangePanel();
+  } catch (_) {
+    showToast("Ошибка смены режима");
+  }
+}
+
 async function loadExchangeBadge() {
   try {
     const st = await (await fetch("/api/exchange/status")).json();
+    renderTradingMode(st);
     updateExchangeControls(!!st.enabled);
-    const el = document.getElementById("exchange-badge");
-    if (!el) return;
-    if (st.enabled) {
-      el.textContent = st.testnet ? "TESTNET" : "LIVE";
-      el.className = "stat badge " + (st.testnet ? "testnet" : "live-exchange");
-      el.title = `Биржа: ${st.exchange} · ордер до $${st.max_order_usd}`;
-    } else {
-      el.textContent = "PAPER";
-      el.className = "stat badge paper";
-      el.title = "Paper режим — задай BINANCE_API_KEY для testnet";
-    }
   } catch (_) {}
 }
 

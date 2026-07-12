@@ -24,6 +24,7 @@ import config
 from assistant.coordinator import CentralBrain
 from exchange.binance_live import BinanceLiveExchange
 from exchange.paper_sync import mirror_base_from_exchange, sync_order_to_paper, sync_trade_to_exchange
+from exchange.trading_mode import trading_mode
 from exchange.pnl_tracker import snapshot_exchange_portfolio
 from learning.analytics import build_portfolio_analytics
 from learning.auto_tactics import AutoTacticsEngine
@@ -251,6 +252,10 @@ class StrategyPresetRequest(BaseModel):
 class ActiveTradeRequest(BaseModel):
     symbol: str | None = None
     reset_timers: bool = False
+
+
+class TradingModeRequest(BaseModel):
+    mode: str  # paper | testnet | live
 
 
 async def run_session_loop(session: MarketSession):
@@ -547,6 +552,7 @@ def _bootstrap_payload() -> dict[str, Any]:
         "brain": _brain_public(state["brain_cycle"]) if state.get("brain_cycle") else None,
         "trades": _all_trades(),
         "chat": state["chat_history"][-1]["content"] if state.get("chat_history") else "",
+        "trading_mode": trading_mode.status(live_exchange),
     }
 
 
@@ -681,12 +687,15 @@ def _brain_public(cycle: dict) -> dict:
 
 
 async def after_paper_trade(session, trade):
-    result = await sync_trade_to_exchange(session, trade, live_exchange)
+    result = None
+    if trading_mode.should_mirror_to_exchange() and config.EXCHANGE_SYNC_FROM_PAPER:
+        result = await sync_trade_to_exchange(session, trade, live_exchange)
     payload = {
         "type": "exchange_sync",
         "symbol": session.symbol,
         "label": session.label,
         "total": total_portfolio(),
+        "trading_mode": trading_mode.mode,
     }
     if result and result.get("ok"):
         payload["paper_to_exchange"] = result
@@ -853,6 +862,7 @@ async def api_health():
         "feed_hub": feed_hub is not None,
         "shadow_lab": shadow_lab is not None and config.SHADOW_LAB_ENABLED,
         "exchange_enabled": live_exchange.enabled,
+        "trading_mode": trading_mode.status(live_exchange),
         "total_value": t["total_value"],
         "pnl_pct": t["pnl_pct"],
     }
@@ -1253,7 +1263,20 @@ async def api_exchange_pnl():
 
 @app.get("/api/exchange/status")
 async def api_exchange_status():
-    return live_exchange.status()
+    return {**live_exchange.status(), **trading_mode.status(live_exchange)}
+
+
+@app.get("/api/trading-mode")
+async def api_trading_mode_get():
+    return trading_mode.status(live_exchange)
+
+
+@app.post("/api/trading-mode")
+async def api_trading_mode_set(body: TradingModeRequest):
+    result = trading_mode.set_mode(body.mode, exchange=live_exchange)
+    if result.get("ok"):
+        await broadcast({"type": "trading_mode", **result})
+    return result
 
 
 @app.post("/api/exchange/order")

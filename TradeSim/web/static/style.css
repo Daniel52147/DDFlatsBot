@@ -131,8 +131,8 @@ header {
   letter-spacing: -0.01em;
 }
 
-#chart-wrap { position: relative; min-height: 380px; }
-#chart { height: 380px; width: 100%; }
+#chart-wrap { position: relative; min-height: 480px; }
+#chart { height: 480px; width: 100%; }
 .equity-section {
   margin-top: 1rem;
   padding-top: 0.85rem;
@@ -159,7 +159,7 @@ header {
 .brain-history li { padding: 0.2rem 0; list-style: none; }
 
 @media (max-width: 640px) {
-  #chart, #chart-wrap { min-height: 260px; height: 260px; }
+  #chart, #chart-wrap { min-height: 320px; height: 320px; }
   #equity-chart { height: 100px; }
 }
 .chart-loading { color: var(--muted); padding: 2rem; text-align: center; }
@@ -511,7 +511,10 @@ footer {
 
 .assistant-card { border-color: rgba(255, 176, 32, 0.2); }
 
-.chart-legend { font-size: 0.72rem; color: var(--muted); }
+.chart-legend { font-size: 0.72rem; color: var(--muted); display: flex; flex-wrap: wrap; gap: 0.65rem; align-items: center; }
+.chart-legend .legend.buy-marker { color: #00e5a8; font-weight: 600; }
+.chart-legend .legend.sell-marker { color: #ff5c7a; font-weight: 600; }
+.chart-legend .legend.sma { color: #ffb020; }
 .legend.sma::before {
   content: "";
   display: inline-block;
@@ -524,6 +527,29 @@ footer {
 }
 
 .chart-card { border-color: rgba(0, 229, 192, 0.18); }
+
+.trading-mode-switch {
+  display: flex;
+  gap: 2px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(0, 229, 192, 0.2);
+  border-radius: 8px;
+  padding: 2px;
+}
+.trading-mode-switch .mode-btn {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.72rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.trading-mode-switch .mode-btn:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+.trading-mode-switch .mode-btn.active[data-mode="paper"] { background: rgba(99, 179, 255, 0.2); color: #63b3ff; }
+.trading-mode-switch .mode-btn.active[data-mode="testnet"] { background: rgba(255, 176, 32, 0.2); color: #ffb020; }
+.trading-mode-switch .mode-btn.active[data-mode="live"] { background: rgba(255, 92, 122, 0.25); color: #ff5c7a; }
 
 .version-banner {
   background: rgba(255, 176, 32, 0.15);

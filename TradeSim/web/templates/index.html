@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TradeSim v32 — active trading</title>
-  <link rel="stylesheet" href="/static/style.css?v=32" />
+  <title>TradeSim v33 — chart & exchange</title>
+  <link rel="stylesheet" href="/static/style.css?v=33" />
   <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
 </head>
-<body class="v32">
+<body class="v33">
   <div id="version-banner" class="version-banner hidden"></div>
   <div id="alerts-ticker" class="alerts-ticker" aria-live="polite">
     <span class="alerts-label">📡 Сканер</span>
@@ -17,8 +17,8 @@
     <div class="brand">
       <span class="logo">◆</span>
       <div>
-        <h1>TradeSim <span class="ver-badge">v32 Active</span></h1>
-        <p class="tagline">Больше сделок · активный режим · короткие паузы между входами</p>
+        <h1>TradeSim <span class="ver-badge">v33 Chart</span></h1>
+        <p class="tagline">Свечи + метки сделок · Paper / Testnet / Live меню</p>
       </div>
     </div>
     <div class="header-stats">
@@ -38,6 +38,11 @@
         <span class="label">Fees 7д</span>
         <span class="value" id="total-fees">$0</span>
       </div>
+      <div class="trading-mode-switch" id="trading-mode-switch" title="Режим торговли">
+        <button type="button" class="mode-btn active" data-mode="paper">📄 Paper</button>
+        <button type="button" class="mode-btn" data-mode="testnet">🧪 Testnet</button>
+        <button type="button" class="mode-btn" data-mode="live">🏦 Live</button>
+      </div>
       <div class="stat badge paper" id="exchange-badge" title="Режим торговли">PAPER</div>
       <button type="button" id="btn-deposit" class="btn small deposit-btn">+ Пополнить</button>
       <div class="stat">
@@ -56,7 +61,9 @@
       <div class="card-header">
         <h2 id="chart-title">BTC/USDT — свечи</h2>
         <div class="chart-legend">
-          <span class="legend sma" id="sma-legend">SMA</span>
+          <span class="legend sma" id="sma-legend">SMA-20</span>
+          <span class="legend buy-marker">▲ Куплено</span>
+          <span class="legend sell-marker">▼ Продано</span>
           <span class="legend hold" id="feed-source">live</span>
         </div>
       </div>
@@ -213,7 +220,7 @@
   </details>
 
   <footer class="v16-footer">
-    <span>TradeSim v32 · больше сделок</span>
+    <span>TradeSim v33 · paper & exchange</span>
     <div class="footer-actions">
       <input id="api-token-input" type="password" placeholder="API-токен" class="token-input" />
       <button id="btn-save-token" class="btn ghost small">🔐</button>
@@ -252,6 +259,6 @@
   </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=32"></script>
+  <script src="/static/app.js?v=33"></script>
 </body>
 </html>
