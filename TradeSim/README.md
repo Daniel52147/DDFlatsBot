@@ -1,6 +1,14 @@
-# TradeSim v37
+# TradeSim v38
 
-**Honest vs Hold** — fixed benchmark when bot is in cash; **auto-Testnet** on startup; **one-click week prep**.
+**Hold Fix** — vs Hold now uses loaded candle window (~8h), not ancient first-tick prices.
+
+## v38 — vs Hold fix + 1970 dates
+
+- **Candle anchor** — hold baseline = oldest loaded 1m candle (~8h), not `start_price` from months ago
+- **Per-market vs Hold** — ETH +46% / WIF +92% artifacts fixed via `benchmark_hold_price`
+- **Equity curve hold** — new snapshots use corrected hold (~$10k not ~$4k)
+- **1970 dates** — `strategy_versions` now includes `ts` in learning panel
+- **Banner** — warns when vs Hold was misleading
 
 ## v37 — Fixes + week to Live
 

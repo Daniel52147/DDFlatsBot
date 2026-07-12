@@ -786,6 +786,8 @@ async def lifespan(app: FastAPI):
         ready = sum(1 for s in sessions.values() if s._candles_ready)
         max_lag = max((s.candles.lag_sec() for s in sessions.values()), default=0.0)
         logger.info("Candles ready: %d/%d markets (max lag %.0fs)", ready, len(sessions), max_lag)
+        from simulator.portfolio_benchmark import sync_all_hold_benchmarks
+        sync_all_hold_benchmarks(sessions)
         await broadcast({
             "type": "candles_ready",
             "ready": ready,

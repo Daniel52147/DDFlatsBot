@@ -84,21 +84,10 @@ def _paper_total(sessions: dict) -> float:
 
 
 def _paper_benchmark(sessions: dict) -> dict[str, float]:
-    live_total = 0.0
-    hold_total = 0.0
-    start_total = 0.0
-    for s in sessions.values():
-        price = s.feed.price or s.demo_price
-        snap = s.engine.snapshot(price)
-        live_total += snap["portfolio_value"]
-        start_total += s.engine.start_balance
-        sp = s.engine.start_price or price
-        if sp > 0:
-            hold_total += (s.engine.start_balance / sp) * price
-    live_pnl = ((live_total - start_total) / start_total * 100) if start_total else 0
-    hold_pnl = ((hold_total - start_total) / start_total * 100) if start_total else 0
+    from simulator.portfolio_benchmark import portfolio_benchmark
+    bench = portfolio_benchmark(sessions)
     return {
-        "live_value": round(live_total, 2),
-        "hold_value": round(hold_total, 2),
-        "vs_hold_pct": round(live_pnl - hold_pnl, 2),
+        "live_value": bench["live_value"],
+        "hold_value": bench["hold_value"],
+        "vs_hold_pct": bench["vs_hold_pct"],
     }

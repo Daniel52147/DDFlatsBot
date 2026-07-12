@@ -43,6 +43,8 @@ class SimulatorEngine:
         self.start_balance = bal
         self.start_ts = time.time()
         self.start_price: float = 0.0
+        self.benchmark_hold_price: float = 0.0
+        self.benchmark_hold_anchor: str = ""
 
     def note_price(self, price: float) -> None:
         """Record benchmark price for buy-and-hold comparison."""
@@ -50,9 +52,10 @@ class SimulatorEngine:
             self.start_price = price
 
     def _hold_pnl_pct(self, price: float) -> float:
-        if not self.start_balance or not price or self.start_price <= 0:
+        anchor_price = self.benchmark_hold_price if self.benchmark_hold_price > 0 else self.start_price
+        if not self.start_balance or not price or anchor_price <= 0:
             return 0.0
-        hold_coins = self.start_balance / self.start_price
+        hold_coins = self.start_balance / anchor_price
         hold_value = hold_coins * price
         return (hold_value - self.start_balance) / self.start_balance * 100
 
@@ -206,6 +209,8 @@ class SimulatorEngine:
         self.start_balance = bal
         self.start_ts = time.time()
         self.start_price = 0.0
+        self.benchmark_hold_price = 0.0
+        self.benchmark_hold_anchor = ""
 
     def restore(
         self,
@@ -222,6 +227,8 @@ class SimulatorEngine:
         self.start_balance = start_balance
         self.start_ts = start_ts
         self.start_price = start_price or 0.0
+        self.benchmark_hold_price = 0.0
+        self.benchmark_hold_anchor = ""
         self._trade_counter = trade_counter
         self.trades.clear()
         for row in trades or []:

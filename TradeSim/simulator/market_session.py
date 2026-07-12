@@ -125,6 +125,8 @@ class MarketSession:
             )
         self.sync_base_params()
         self._restored = True
+        from simulator.portfolio_benchmark import sync_session_hold_benchmark
+        sync_session_hold_benchmark(self)
         logger.info("[%s] restored portfolio $%.2f (%d trades)", self.symbol,
                     self.engine.snapshot(self.feed.price or self.demo_price)["portfolio_value"],
                     len(self.engine.trades))
@@ -244,6 +246,8 @@ class MarketSession:
             self.candles.add_tick(price, time.time())
 
         self._candles_ready = True
+        from simulator.portfolio_benchmark import sync_session_hold_benchmark
+        sync_session_hold_benchmark(self)
         if lag > max_lag:
             logger.warning("[%s] candles still lag %.0fs (last %s)", self.label, lag, self.candles.last_time())
         return {

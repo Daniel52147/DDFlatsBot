@@ -222,11 +222,13 @@ function renderLearningTable(learning, history, honesty) {
   if (!el) return;
   const ev = honesty?.evidence || {};
   let hist = "";
-  if (history?.length) {
+  const tuneRows = (history?.length ? history : learning?.strategy_versions) || [];
+  if (tuneRows.length) {
     hist = `<h4 style="margin:0.75rem 0 0.35rem;font-size:0.8rem">Последние автонастройки</h4>
     <table class="data-table"><thead><tr><th>Время</th><th>Рынок</th><th>Причина</th></tr></thead><tbody>
-    ${(learning?.strategy_versions || history).slice(0, 10).map(t => {
-      const d = new Date((t.ts || 0) * 1000).toLocaleString("ru-RU");
+    ${tuneRows.slice(0, 10).map(t => {
+      const ts = t.ts && t.ts > 1e9 ? t.ts : null;
+      const d = ts ? new Date(ts * 1000).toLocaleString("ru-RU") : "—";
       return `<tr><td>${d}</td><td>${(t.symbol || "").replace("USDT", "")}</td><td>${(t.reason || "").slice(0, 60)}</td></tr>`;
     }).join("")}</tbody></table>`;
   }
@@ -504,9 +506,9 @@ async function checkServerAndSync() {
     if (ping.market_meta?.length) applyMarketMeta(ping.market_meta);
     seedMarketsFromMeta();
     if (ping.total) updateTotal(ping.total);
-    const expectedVer = 37;
+    const expectedVer = 38;
     if (ping.version && ping.version < expectedVer) {
-      const msg = `СТАРЫЙ СЕРВЕР v${ping.version}! Обнови: git pull origin cursor/tradesim-v37-fixes-2631 → .\\start.bat → Ctrl+Shift+R`;
+      const msg = `СТАРЫЙ СЕРВЕР v${ping.version}! Обнови: git pull origin cursor/tradesim-v38-hold-fix-2631 → .\\start.bat → Ctrl+Shift+R`;
       showError(msg);
       showToast("⚠️ " + msg, 15000);
     }
@@ -1046,6 +1048,14 @@ function updateLiveCandle(candle) {
   if (clientChartLagSec() > 180) void syncChartIfStale();
 }
 
+function showVersionBanner(text, level = "info") {
+  const el = document.getElementById("version-banner");
+  if (!el || !text) return;
+  el.textContent = text;
+  el.className = "version-banner " + (level === "warn" ? "warn" : "ok");
+  el.classList.remove("hidden");
+}
+
 function updateTotal(total) {
   if (!total) return;
   const valueElement = document.getElementById("total-value");
@@ -1068,10 +1078,13 @@ function updateTotal(total) {
         vsHoldElement.title = note;
         vsHoldElement.classList.add("warn-metric");
       } else {
-        vsHoldElement.title = "";
+        vsHoldElement.title = benchmark.hold_window || "";
         vsHoldElement.classList.remove("warn-metric");
       }
     }
+  }
+  if (benchmark.benchmark_note) {
+    showVersionBanner(benchmark.benchmark_note, benchmark.benchmark_misleading ? "warn" : "info");
   }
 }
 

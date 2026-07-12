@@ -226,7 +226,7 @@ class LearningLogger:
       )
       snapshots = [dict(r) for r in await cur.fetchall()]
       cur = await db.execute(
-        "SELECT symbol, params, reason, avg_pnl_pct FROM strategy_versions ORDER BY ts DESC LIMIT 8"
+        "SELECT ts, symbol, params, reason, avg_pnl_pct FROM strategy_versions ORDER BY ts DESC LIMIT 8"
       )
       versions = [dict(r) for r in await cur.fetchall()]
       cur = await db.execute(

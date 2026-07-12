@@ -5,32 +5,59 @@ from __future__ import annotations
 from typing import Any
 
 
+def first_buy_price(engine) -> float | None:
+    buys = [trade for trade in engine.trades if trade.side == "buy" and trade.price > 0]
+    if not buys:
+        return None
+    earliest_buy = min(buys, key=lambda trade: trade.ts)
+    return float(earliest_buy.price)
+
+
+def candle_anchor_price(session) -> float | None:
+    candles = session.candles.all_candles()
+    if not candles:
+        return None
+    return float(candles[0]["close"])
+
+
 def hold_anchor_price(session) -> tuple[float, str]:
     """
     Price used for buy-and-hold baseline on one market.
-    Prefer candle history over stale first-tick start_price when bot barely traded.
+    Prefer recent candle window over stale first-tick start_price.
     """
     price = session.feed.price or session.demo_price
     engine = session.engine
-    trade_count = len(engine.trades)
 
-    candles = session.candles.all_candles()
-    if trade_count == 0 and candles:
-        return float(candles[0]["close"]), "candle_anchor"
+    candle_price = candle_anchor_price(session)
+    if candle_price and candle_price > 0:
+        return candle_price, "candle_anchor"
 
-    if engine.start_price > 0 and trade_count > 0:
-        return float(engine.start_price), "trade_anchor"
+    buy_price = first_buy_price(engine)
+    if buy_price and buy_price > 0:
+        return buy_price, "first_buy_anchor"
 
     if engine.start_price > 0:
         return float(engine.start_price), "tick_anchor"
 
-    if candles:
-        return float(candles[0]["close"]), "candle_anchor"
-
     return float(price), "current_fallback"
 
 
+def sync_session_hold_benchmark(session) -> float:
+    """Push resolved anchor into engine so per-market vs Hold matches portfolio."""
+    hold_price, anchor = hold_anchor_price(session)
+    session.engine.benchmark_hold_price = hold_price
+    session.engine.benchmark_hold_anchor = anchor
+    return hold_price
+
+
+def sync_all_hold_benchmarks(sessions: dict) -> None:
+    for session in sessions.values():
+        sync_session_hold_benchmark(session)
+
+
 def portfolio_benchmark(sessions: dict) -> dict[str, Any]:
+    sync_all_hold_benchmarks(sessions)
+
     live_total = 0.0
     hold_total = 0.0
     start_total = 0.0
@@ -53,24 +80,27 @@ def portfolio_benchmark(sessions: dict) -> dict[str, Any]:
     live_pnl_pct = ((live_total - start_total) / start_total * 100) if start_total else 0
     vs_hold_pct = live_pnl_pct - hold_pnl_pct
 
-    reliable = anchor_counts.get("trade_anchor", 0) + anchor_counts.get("candle_anchor", 0)
+    candle_anchored = anchor_counts.get("candle_anchor", 0)
     market_count = len(sessions)
-    if reliable >= market_count * 0.7:
+    if candle_anchored >= market_count * 0.7:
         quality = "high"
-    elif reliable >= market_count * 0.4:
+    elif candle_anchored >= market_count * 0.4:
         quality = "medium"
     else:
         quality = "low"
 
-    misleading = abs(vs_hold_pct) > 15 and abs(live_pnl_pct) < 2
+    misleading = (
+        (abs(vs_hold_pct) > 10 and abs(live_pnl_pct) < 3)
+        or (hold_pnl_pct < -15 and abs(live_pnl_pct) < 3)
+    )
     note = ""
     if misleading:
         note = (
-            "vs Hold завышен: бот в основном в кэше, hold считает покупку по старым ценам. "
-            "Смотри P&L, не только vs Hold."
+            "vs Hold считался по старым ценам — теперь по окну свечей (~8ч). "
+            "Главная метрика: P&L портфеля."
         )
     elif quality == "low":
-        note = "Мало данных для честного vs Hold — нужны сделки или свечи."
+        note = "Мало свечей для vs Hold — подожди загрузки графика."
 
     return {
         "live_value": round(live_total, 2),
@@ -85,4 +115,5 @@ def portfolio_benchmark(sessions: dict) -> dict[str, Any]:
         "benchmark_misleading": misleading,
         "benchmark_note": note,
         "anchor_counts": anchor_counts,
+        "hold_window": "oldest loaded candle (~8h on 1m chart)",
     }

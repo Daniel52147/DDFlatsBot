@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TradeSim v37 — fixes + live week</title>
+  <title>TradeSim v38 — hold fix</title>
   <link rel="stylesheet" href="/static/style.css?v=37" />
   <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
 </head>
-<body class="v37">
+<body class="v38">
   <div id="version-banner" class="version-banner hidden"></div>
   <div id="alerts-ticker" class="alerts-ticker" aria-live="polite">
     <span class="alerts-label">📡 Сканер</span>
@@ -17,8 +17,8 @@
     <div class="brand">
       <span class="logo">◆</span>
       <div>
-        <h1>TradeSim <span class="ver-badge">v37 Fixes</span></h1>
-        <p class="tagline">Честный vs Hold · авто-Testnet · кнопка «Неделя Testnet»</p>
+        <h1>TradeSim <span class="ver-badge">v38 Hold Fix</span></h1>
+        <p class="tagline">vs Hold по свечам (~8ч) · даты автонастроек · Testnet</p>
       </div>
     </div>
     <div class="header-stats">
@@ -270,6 +270,6 @@
   </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=37"></script>
+  <script src="/static/app.js?v=38"></script>
 </body>
 </html>
