@@ -1,6 +1,31 @@
-# TradeSim v35
+# TradeSim v36
 
-**Profit Focus** — auto-pause bots losing vs hold; boost top 25% leaders with aggressive preset + larger buys. Active trading on boot.
+**Live Prep** — 7-day path to real money with readiness checks, Live gate, and strict $25/order limits.
+
+## v36 — Live Prep (7 days to real money)
+
+- **Live Readiness** — `GET /api/live-readiness` scores paper/testnet history before Live
+- **Live gate** — `POST /api/trading-mode` blocks Live until checks pass (`LIVE_REQUIRE_READINESS=true`)
+- **Stricter Live limits** — $25/order, 3% daily stop, 10% max position (separate from testnet $100)
+- **7-day plan UI** — sidebar checklist: Paper → Testnet → stability → Live
+- **vs Hold warning** — explains when high vs_hold is cash vs crashed hold, not profit
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `LIVE_MIN_DAYS_TESTNET` | 3 | Min days on testnet before Live |
+| `LIVE_MIN_TRADES` | 30 | Min trades in DB |
+| `LIVE_MAX_ORDER_USD` | 25 | Max order on Live |
+| `LIVE_REQUIRE_READINESS` | true | Block Live without checks |
+| `LIVE_BYPASS_READINESS` | false | Emergency override (dangerous) |
+
+### Week plan
+
+| Days | Action |
+|------|--------|
+| 1–2 | Paper on v36, watch vs Hold and trades |
+| 3–4 | Switch to 🧪 Testnet, small orders |
+| 5–6 | ≥30 trades, stable P&L, Profit Focus OK |
+| 7 | Live only if readiness 100% + `EXCHANGE_TESTNET=false` |
 
 ## v35 — Profit Focus
 

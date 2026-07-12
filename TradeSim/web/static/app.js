@@ -506,7 +506,7 @@ async function checkServerAndSync() {
     if (ping.total) updateTotal(ping.total);
     const expectedVer = 34;
     if (ping.version && ping.version < expectedVer) {
-      const msg = `СТАРЫЙ СЕРВЕР v${ping.version}! Обнови код: git pull origin cursor/tradesim-v35-profit-focus-2631 → .\\start.bat → Ctrl+Shift+R`;
+      const msg = `СТАРЫЙ СЕРВЕР v${ping.version}! Обнови: git pull origin cursor/tradesim-v36-live-prep-2631 → .\\start.bat → Ctrl+Shift+R`;
       showError(msg);
       showToast("⚠️ " + msg, 15000);
     }
@@ -1154,6 +1154,41 @@ function renderProfitFocusPanel(data) {
     ${actions ? `<p class="muted">Последние действия:</p><ul class="auto-tactics-list">${actions}</ul>` : ""}`;
 }
 
+function renderLiveReadinessPanel(data) {
+  const el = document.getElementById("live-readiness-panel");
+  if (!el) return;
+  if (!data) {
+    el.innerHTML = "<p class='muted'>Готовность к Live: нет данных</p>";
+    return;
+  }
+  window.lastLiveReadiness = data;
+  const score = data.score_pct ?? 0;
+  const cls = data.ready_for_live ? "ok" : score >= 60 ? "warn" : "bad";
+  const checks = (data.checks || []).map(c => {
+    const icon = c.ok ? "✅" : "❌";
+    return `<li>${icon} <b>${escapeHtml(c.label)}</b> — <span class="muted">${escapeHtml(c.detail || "")}</span></li>`;
+  }).join("");
+  const plan = (data.week_plan || []).map(p =>
+    `<li class="${p.done ? "up" : ""}"><b>День ${p.day}</b> · ${escapeHtml(p.task)}: ${escapeHtml(p.action)}</li>`
+  ).join("");
+  const lim = data.limits_if_live || {};
+  const st = data.stats || {};
+  let vsNote = "";
+  if (Math.abs(st.live_pnl_pct || 0) < 2 && Math.abs(st.vs_hold_pct || 0) > 10) {
+    vsNote = `<p class="warn">⚠ vs Hold ${fmtPct(st.vs_hold_pct)} при P&L ${fmtPct(st.pnl_pct)} — часто это «кэш лучше просевшего hold», не чистая прибыль.</p>`;
+  }
+  el.innerHTML = `
+    <div class="honesty-box ${cls}">
+      <p><b>Готовность к Live: ${score}%</b> ${data.ready_for_live ? "— можно включать 🏦 Live" : "— доработай пункты"}</p>
+      <p class="muted">Paper ${st.paper_days ?? 0}д · Testnet ${st.testnet_days ?? 0}д · сделок ${st.trade_count ?? 0} · P&L ${fmtPct(st.pnl_pct)}</p>
+      ${vsNote}
+      <p class="muted">На Live: макс. $${lim.max_order_usd ?? 25}/ордер · дневной стоп ${lim.max_daily_loss_pct ?? 3}%</p>
+    </div>
+    <ul class="auto-tactics-list">${checks}</ul>
+    <p class="muted">📅 План на неделю:</p>
+    <ul class="auto-tactics-list">${plan}</ul>`;
+}
+
 function updateExchangeControls(enabled) {
   document.querySelectorAll(".testnet-btn").forEach(btn => {
     btn.style.display = enabled ? "" : "none";
@@ -1597,6 +1632,7 @@ function applyBootstrap(data) {
   if (data.shadow_lab) renderShadowLab(data.shadow_lab);
   if (data.auto_tactics) renderAutoTacticsPanel(data.auto_tactics);
   if (data.profit_focus) renderProfitFocusPanel(data.profit_focus);
+  if (data.live_readiness) renderLiveReadinessPanel(data.live_readiness);
   renderAllTables(data);
   setLiveStatus("live");
   return Object.keys(marketsData).length > 0;
@@ -1852,6 +1888,7 @@ function bindUi() {
   document.getElementById("btn-backtest-compare")?.addEventListener("click", runBacktestCompare);
   document.getElementById("btn-strategy-apply")?.addEventListener("click", applyStrategy);
   document.getElementById("btn-exchange-refresh")?.addEventListener("click", loadExchangePanel);
+  document.getElementById("btn-live-readiness-refresh")?.addEventListener("click", loadLiveReadiness);
   document.getElementById("btn-auto-tactics-refresh")?.addEventListener("click", loadAutoTactics);
   document.getElementById("btn-profit-focus-refresh")?.addEventListener("click", loadProfitFocus);
   document.getElementById("btn-shadow-reset")?.addEventListener("click", async () => {
@@ -2049,8 +2086,29 @@ function renderTradingMode(tm) {
   }
 }
 
+async function loadLiveReadiness() {
+  try {
+    const data = await (await fetch("/api/live-readiness")).json();
+    renderLiveReadinessPanel(data);
+    return data;
+  } catch (_) {
+    const el = document.getElementById("live-readiness-panel");
+    if (el) el.innerHTML = "<p class='muted'>Не удалось загрузить готовность к Live</p>";
+    return null;
+  }
+}
+
 async function setTradingMode(mode) {
-  if (mode === "live" && !confirm("⚠️ LIVE — реальные деньги на Binance. Продолжить?")) return;
+  if (mode === "live") {
+    const rd = await loadLiveReadiness();
+    if (rd && !rd.ready_for_live) {
+      const fails = (rd.checks || []).filter(c => c.required && !c.ok).map(c => c.label).slice(0, 3).join(", ");
+      showToast(`⚠ Live заблокирован (${rd.score_pct}%): ${fails}`, 9000);
+      return;
+    }
+    const lim = rd?.limits_if_live?.max_order_usd ?? 25;
+    if (!confirm(`⚠️ LIVE — РЕАЛЬНЫЕ ДЕНЬГИ на Binance.\n\nЛимит $${lim}/ордер.\nДневной стоп ${rd?.limits_if_live?.max_daily_loss_pct ?? 3}%.\n\nТы уверен?`)) return;
+  }
   try {
     const res = await apiFetch("/api/trading-mode", {
       method: "POST",
@@ -2058,12 +2116,14 @@ async function setTradingMode(mode) {
     });
     const data = await res.json();
     if (!data.ok && data.error) {
-      showToast("⚠ " + data.error);
+      showToast("⚠ " + data.error, 8000);
+      if (data.live_readiness) renderLiveReadinessPanel(data.live_readiness);
       return;
     }
     renderTradingMode(data);
-    showToast(`Режим: ${data.label || mode} — ${data.note || ""}`);
+    showToast(`Режим: ${data.label || mode} — ${data.warning || data.note || ""}`);
     loadExchangePanel();
+    loadLiveReadiness();
   } catch (_) {
     showToast("Ошибка смены режима");
   }
@@ -2085,6 +2145,7 @@ async function main() {
     await loadInitial();
     await loadExchangeBadge();
     await loadExchangePanel();
+    await loadLiveReadiness();
     await loadAutoTactics();
     await loadProfitFocus();
     await loadAlerts();

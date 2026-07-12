@@ -1,11 +1,11 @@
 # Запуск на Windows (PowerShell)
 
-## 1. Обновить код (ветка v35)
+## 1. Обновить код (ветка v36 — путь к Live)
 
 ```powershell
 cd C:\Users\de381\DDFlatsBot\TradeSim
 git fetch origin
-git pull origin cursor/tradesim-v35-profit-focus-2631
+git pull origin cursor/tradesim-v36-live-prep-2631
 ```
 
 Или двойной клик **start.bat** — он сам подтянет последнюю ветку.

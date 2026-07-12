@@ -37,21 +37,31 @@ class ExchangeRiskManager:
         amount_usd: float,
         portfolio_value: float,
         pnl_pct: float,
+        *,
+        max_order_usd: float | None = None,
+        max_daily_loss_pct: float | None = None,
+        max_position_pct: float | None = None,
     ) -> tuple[bool, str]:
         self._roll_day()
-        max_order = config.EXCHANGE_MAX_ORDER_USD
+        max_order = max_order_usd if max_order_usd is not None else config.EXCHANGE_MAX_ORDER_USD
+        daily_loss_pct = (
+            max_daily_loss_pct if max_daily_loss_pct is not None else config.EXCHANGE_MAX_DAILY_LOSS_PCT
+        )
+        pos_pct_limit = (
+            max_position_pct if max_position_pct is not None else config.EXCHANGE_MAX_POSITION_PCT
+        )
         if amount_usd > max_order:
             return False, f"Ордер ${amount_usd:.0f} > лимита ${max_order:.0f}"
         if portfolio_value > 0:
             pos_pct = amount_usd / portfolio_value
-            if pos_pct > config.EXCHANGE_MAX_POSITION_PCT:
+            if pos_pct > pos_pct_limit:
                 return False, (
                     f"Позиция {pos_pct * 100:.0f}% > лимита "
-                    f"{config.EXCHANGE_MAX_POSITION_PCT * 100:.0f}%"
+                    f"{pos_pct_limit * 100:.0f}%"
                 )
-        if pnl_pct <= -config.EXCHANGE_MAX_DAILY_LOSS_PCT:
+        if pnl_pct <= -daily_loss_pct:
             return False, f"Дневная просадка {pnl_pct:.1f}% — торговля заблокирована"
-        if self.daily_loss_usd >= portfolio_value * config.EXCHANGE_MAX_DAILY_LOSS_PCT / 100:
+        if self.daily_loss_usd >= portfolio_value * daily_loss_pct / 100:
             return False, "Дневной лимит убытка исчерпан"
         return True, "ok"
 
@@ -247,6 +257,20 @@ class BinanceLiveExchange:
             "synced": abs(ex_base - paper_base) <= max(1e-6, abs(paper_base) * 0.01 + 1e-4),
         }
 
+    def order_limits(self) -> dict[str, float]:
+        from exchange.trading_mode import trading_mode
+        if trading_mode.is_live():
+            return {
+                "max_order_usd": config.LIVE_MAX_ORDER_USD,
+                "max_daily_loss_pct": config.LIVE_MAX_DAILY_LOSS_PCT,
+                "max_position_pct": config.LIVE_MAX_POSITION_PCT,
+            }
+        return {
+            "max_order_usd": config.EXCHANGE_MAX_ORDER_USD,
+            "max_daily_loss_pct": config.EXCHANGE_MAX_DAILY_LOSS_PCT,
+            "max_position_pct": config.EXCHANGE_MAX_POSITION_PCT,
+        }
+
     async def place_market_order(
         self,
         symbol: str,
@@ -261,7 +285,10 @@ class BinanceLiveExchange:
         if side not in ("buy", "sell"):
             return {"ok": False, "error": "side must be buy or sell"}
 
-        ok, reason = self.risk.check_order(side, amount_usd, portfolio_value, pnl_pct)
+        limits = self.order_limits()
+        ok, reason = self.risk.check_order(
+            side, amount_usd, portfolio_value, pnl_pct, **limits,
+        )
         if not ok:
             return {"ok": False, "error": reason, "mode": "blocked"}
 

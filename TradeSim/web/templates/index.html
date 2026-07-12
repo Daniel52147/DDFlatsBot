@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TradeSim v35 — profit focus</title>
-  <link rel="stylesheet" href="/static/style.css?v=35" />
+  <title>TradeSim v36 — live prep</title>
+  <link rel="stylesheet" href="/static/style.css?v=36" />
   <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
 </head>
 <body class="v33">
@@ -17,8 +17,8 @@
     <div class="brand">
       <span class="logo">◆</span>
       <div>
-        <h1>TradeSim <span class="ver-badge">v35 Profit</span></h1>
-        <p class="tagline">Profit Focus · пауза лузеров · буст лидеров · Paper / Testnet / Live</p>
+        <h1>TradeSim <span class="ver-badge">v36 Live Prep</span></h1>
+        <p class="tagline">7 дней к реальным деньгам · проверки · лимиты Live $25</p>
       </div>
     </div>
     <div class="header-stats">
@@ -191,9 +191,11 @@
 
       <section class="card v16-card" id="exchange-panel">
         <div class="card-header">
-          <h2>🏦 Биржа</h2>
-          <button type="button" id="btn-exchange-refresh" class="btn ghost small">Обновить</button>
+          <h2>🏦 Биржа · путь к Live</h2>
+          <button type="button" id="btn-live-readiness-refresh" class="btn ghost small">Проверить</button>
+          <button type="button" id="btn-exchange-refresh" class="btn ghost small">Баланс</button>
         </div>
+        <div id="live-readiness-panel" class="live-readiness-panel muted">Загрузка готовности к Live...</div>
         <div id="exchange-panel-body" class="exchange-panel-body muted">Загрузка балансов...</div>
       </section>
 
@@ -228,7 +230,7 @@
   </details>
 
   <footer class="v16-footer">
-    <span>TradeSim v35 · profit focus</span>
+    <span>TradeSim v36 · live prep</span>
     <div class="footer-actions">
       <input id="api-token-input" type="password" placeholder="API-токен" class="token-input" />
       <button id="btn-save-token" class="btn ghost small">🔐</button>
@@ -267,6 +269,6 @@
   </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=35"></script>
+  <script src="/static/app.js?v=36"></script>
 </body>
 </html>

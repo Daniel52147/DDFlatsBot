@@ -306,7 +306,20 @@ ACTIVE_TRADE_RESET_TIMERS = _env_bool("ACTIVE_TRADE_RESET_TIMERS", False)
 # Trading mode default: paper | testnet | live (runtime override in data/trading_mode.json)
 TRADING_MODE_DEFAULT = os.environ.get("TRADING_MODE_DEFAULT", "paper").lower()
 
-APP_VERSION = 35
+APP_VERSION = 36
+
+# Live trading prep — gate real money (v36)
+LIVE_REQUIRE_READINESS = _env_bool("LIVE_REQUIRE_READINESS", True)
+LIVE_BYPASS_READINESS = _env_bool("LIVE_BYPASS_READINESS", False)
+LIVE_MIN_DAYS_PAPER = float(os.environ.get("LIVE_MIN_DAYS_PAPER", "2"))
+LIVE_MIN_DAYS_TESTNET = float(os.environ.get("LIVE_MIN_DAYS_TESTNET", "3"))
+LIVE_MIN_TRADES = int(os.environ.get("LIVE_MIN_TRADES", "30"))
+LIVE_MIN_PNL_PCT = float(os.environ.get("LIVE_MIN_PNL_PCT", "-2.0"))
+LIVE_MIN_VS_HOLD = float(os.environ.get("LIVE_MIN_VS_HOLD", "0.0"))
+LIVE_MAX_DRAWDOWN_PCT = float(os.environ.get("LIVE_MAX_DRAWDOWN_PCT", "8.0"))
+LIVE_MAX_ORDER_USD = float(os.environ.get("LIVE_MAX_ORDER_USD", "25"))
+LIVE_MAX_DAILY_LOSS_PCT = float(os.environ.get("LIVE_MAX_DAILY_LOSS_PCT", "3"))
+LIVE_MAX_POSITION_PCT = float(os.environ.get("LIVE_MAX_POSITION_PCT", "0.10"))
 
 # Security — default localhost; cloud preview needs TRADESIM_BIND_HOST=0.0.0.0
 def _default_bind_host() -> str:

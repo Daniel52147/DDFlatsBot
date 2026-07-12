@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -15,21 +16,36 @@ MODES = ("paper", "testnet", "live")
 _STATE_FILE = config.DATA_DIR / "trading_mode.json"
 
 
-def _load() -> str:
+def _load_state() -> dict[str, Any]:
     try:
         if _STATE_FILE.exists():
             data = json.loads(_STATE_FILE.read_text(encoding="utf-8"))
-            mode = str(data.get("mode", "paper")).lower()
-            if mode in MODES:
-                return mode
+            if isinstance(data, dict):
+                return data
     except Exception as e:
         logger.warning("trading_mode load: %s", e)
-    return config.TRADING_MODE_DEFAULT
+    return {}
 
 
-def _save(mode: str) -> None:
+def _load() -> str:
+    mode = str(_load_state().get("mode", config.TRADING_MODE_DEFAULT)).lower()
+    return mode if mode in MODES else config.TRADING_MODE_DEFAULT
+
+
+def _save(mode: str, extra: dict[str, Any] | None = None) -> None:
+    state = _load_state()
+    state["mode"] = mode
+    now = time.time()
+    if extra:
+        state.update(extra)
+    if mode == "testnet" and not state.get("testnet_since"):
+        state["testnet_since"] = now
+    if mode == "paper" and not state.get("paper_since"):
+        state["paper_since"] = now
+    if mode == "live" and not state.get("live_since"):
+        state["live_since"] = now
     _STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _STATE_FILE.write_text(json.dumps({"mode": mode}, indent=2), encoding="utf-8")
+    _STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
 
 class TradingModeManager:
@@ -37,12 +53,24 @@ class TradingModeManager:
 
     def __init__(self):
         self._mode = _load()
+        if not _load_state().get("paper_since"):
+            _save(self._mode)
 
     @property
     def mode(self) -> str:
         return self._mode
 
-    def set_mode(self, mode: str, *, exchange) -> dict[str, Any]:
+    def milestones(self) -> dict[str, Any]:
+        return _load_state()
+
+    def set_mode(
+        self,
+        mode: str,
+        *,
+        exchange,
+        readiness: dict[str, Any] | None = None,
+        force: bool = False,
+    ) -> dict[str, Any]:
         mode = str(mode).lower().strip()
         if mode not in MODES:
             return {"ok": False, "error": f"unknown mode {mode}", "allowed": list(MODES)}
@@ -62,7 +90,7 @@ class TradingModeManager:
         if mode == "live" and exchange.testnet:
             return {
                 "ok": False,
-                "error": "Live режим: задай EXCHANGE_TESTNET=false в .env",
+                "error": "Live режим: задай EXCHANGE_TESTNET=false в .env и перезапусти",
                 "mode": self._mode,
             }
 
@@ -73,17 +101,43 @@ class TradingModeManager:
                 "mode": self._mode,
             }
 
+        if mode == "live" and config.LIVE_REQUIRE_READINESS and not force and not config.LIVE_BYPASS_READINESS:
+            if not readiness or not readiness.get("ready_for_live"):
+                score = readiness.get("score_pct", 0) if readiness else 0
+                failed = [
+                    c["label"] for c in (readiness or {}).get("checks", [])
+                    if c.get("required", True) and not c.get("ok")
+                ]
+                return {
+                    "ok": False,
+                    "error": (
+                        f"Live заблокирован — готовность {score}%"
+                        f"{': ' + ', '.join(failed[:3]) if failed else ''}"
+                    ),
+                    "mode": self._mode,
+                    "live_readiness": readiness,
+                }
+
         self._mode = mode
         _save(self._mode)
         logger.info("Trading mode → %s", mode)
-        return self.status(exchange)
+        result = self.status(exchange)
+        if mode == "live":
+            result["warning"] = (
+                f"⚠️ LIVE — реальные деньги · лимит ${config.LIVE_MAX_ORDER_USD}/ордер"
+            )
+        return result
 
     def should_mirror_to_exchange(self) -> bool:
         return self._mode in ("testnet", "live")
 
+    def is_live(self) -> bool:
+        return self._mode == "live"
+
     def status(self, exchange) -> dict[str, Any]:
         ex = exchange.status() if exchange else {}
         ready = self._mode == "paper" or bool(ex.get("enabled"))
+        meta = self.milestones()
         return {
             "ok": True,
             "mode": self._mode,
@@ -93,6 +147,9 @@ class TradingModeManager:
             "mirror_bots": self.should_mirror_to_exchange(),
             "ready": ready,
             "note": self._note(ex),
+            "testnet_days": round(max(0, (time.time() - float(meta.get("testnet_since", 0))) / 86400), 1)
+            if meta.get("testnet_since")
+            else 0,
         }
 
     def _note(self, ex: dict[str, Any]) -> str:

@@ -25,6 +25,7 @@ from assistant.coordinator import CentralBrain
 from exchange.binance_live import BinanceLiveExchange
 from exchange.paper_sync import mirror_base_from_exchange, sync_order_to_paper, sync_trade_to_exchange
 from exchange.trading_mode import trading_mode
+from exchange.live_readiness import assess_live_readiness
 from exchange.pnl_tracker import snapshot_exchange_portfolio
 from learning.analytics import build_portfolio_analytics
 from learning.auto_tactics import AutoTacticsEngine
@@ -258,6 +259,7 @@ class ActiveTradeRequest(BaseModel):
 
 class TradingModeRequest(BaseModel):
     mode: str  # paper | testnet | live
+    force: bool = False
 
 
 async def run_session_loop(session: MarketSession):
@@ -567,6 +569,20 @@ def _bootstrap_payload() -> dict[str, Any]:
     }
 
 
+async def _live_readiness_payload() -> dict[str, Any]:
+    verify = None
+    if live_exchange.enabled:
+        verify = await live_exchange.verify_connection()
+    return await assess_live_readiness(
+        sessions,
+        live_exchange,
+        logger_db,
+        trading_mode,
+        benchmark=portfolio_benchmark(),
+        verify=verify,
+    )
+
+
 def _analytics_payload(equity: list | None = None) -> dict[str, Any]:
     snaps = []
     for s in sessions.values():
@@ -613,6 +629,7 @@ async def _bootstrap_payload_async() -> dict[str, Any]:
     if shadow_lab:
         payload["shadow_lab"] = shadow_lab.status()
     payload["auto_tactics"] = _auto_tactics_payload()
+    payload["live_readiness"] = await _live_readiness_payload()
     return payload
 
 
@@ -1310,9 +1327,22 @@ async def api_trading_mode_get():
     return trading_mode.status(live_exchange)
 
 
+@app.get("/api/live-readiness")
+async def api_live_readiness():
+    return await _live_readiness_payload()
+
+
 @app.post("/api/trading-mode")
 async def api_trading_mode_set(body: TradingModeRequest):
-    result = trading_mode.set_mode(body.mode, exchange=live_exchange)
+    readiness = None
+    if body.mode == "live":
+        readiness = await _live_readiness_payload()
+    result = trading_mode.set_mode(
+        body.mode,
+        exchange=live_exchange,
+        readiness=readiness,
+        force=body.force,
+    )
     if result.get("ok"):
         await broadcast({"type": "trading_mode", **result})
     return result
