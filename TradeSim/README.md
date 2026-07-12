@@ -1,6 +1,27 @@
-# TradeSim v23
+# TradeSim v26
 
-**Paper trading** with **bidirectional testnet sync**, **FeedHub REST fallback**, and **automatic per-coin tactics**.
+**Paper trading** with **backtest-gated auto-tactics**, **market regime filter**, and **portfolio drawdown protection**.
+
+## v26 — Profit engine
+
+- **Backtest gate** — auto-tactics and trader-copy switches require proposed strategy to beat current on last ~200 candles (`AUTO_TACTICS_BACKTEST_*`)
+- **Regime filter** — blocks DCA/Grid/RSI buys in bear market (price below SMA + falling momentum)
+- **Portfolio drawdown halt** — at `PORTFOLIO_MAX_DRAWDOWN_PCT` (default 12%) brain triggers emergency halt and blocks new buys
+- **Scalper fix** — TP from entry price, minimum edge covers fees+slippage (no negative-EV micro scalps)
+- **RSI on candle closes** — RSI computed from 1m closes, not noisy ticks
+- **Shadow Lab** — slower eval (5 min), more trades before promote (8); clones not reset on tactic switch
+- **Tuning** — min 5 trades before optimizer (was 2); less overfitting
+- **FeedHub** — no duplicate per-market REST poll when multiplex active
+- **Exchange sync** — mirror fills include fees; paper→exchange errors shown in UI
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `AUTO_TACTICS_BACKTEST_ENABLED` | true | Gate strategy switches with backtest |
+| `AUTO_TACTICS_BACKTEST_MIN_EDGE` | 0.5 | Min pp vs-hold edge over current strategy |
+| `PORTFOLIO_MAX_DRAWDOWN_PCT` | 12 | Block new buys + emergency brain halt |
+| `REGIME_FILTER_ENABLED` | true | Skip counter-trend dip buys in bear |
+| `SHADOW_MIN_TRADES_PROMOTE` | 8 | Clone needs more trades before promote |
+| `SHADOW_EVAL_SEC` | 300 | Shadow eval every 5 min (less noise) |
 
 ## v23 — Sync + FeedHub
 

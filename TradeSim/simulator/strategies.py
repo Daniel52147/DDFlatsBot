@@ -6,6 +6,7 @@ import time
 from typing import Any
 
 import config
+from learning.regime import detect_regime, regime_blocks_buy
 from simulator.engine import SimulatorEngine, Trade
 from simulator.strategy import StrategyBot as DCAStrategyBot
 
@@ -93,6 +94,13 @@ class _StrategyMixin:
         max_pct = self.params.get("max_buy_pct_of_cash", 0.5)
         cap = self.engine.position.quote * max_pct
         return min(amount, cap) if cap > 0 else amount
+
+    def _regime_blocks_buy(self, price: float, sma: float | None) -> bool:
+        if not config.REGIME_FILTER_ENABLED:
+            return False
+        closes = getattr(self, "_prices", None)
+        regime = detect_regime(price, sma, closes if isinstance(closes, list) else None)
+        return regime_blocks_buy(getattr(self, "strategy_type", "dca"), regime)
 
     def _maybe_stop_loss(self, price: float) -> Trade | None:
         sl_pct = self.params.get("stop_loss_pct")
@@ -209,7 +217,7 @@ class GridStrategyBot(_StrategyMixin):
             sell_level = int(rise_pct // spacing)
             cd = self.params.get("grid_cooldown_minutes", 12)
             if buy_level > self._last_buy_level and dip_pct >= spacing:
-                if self._cooldown_ok(self.last_dip_ts, cd):
+                if self._cooldown_ok(self.last_dip_ts, cd) and not self._regime_blocks_buy(price, sma):
                     amt = self._cap_buy_amount(self.params.get("grid_buy_amount", 22))
                     trade = self.engine.buy(
                         price, amt,
@@ -328,6 +336,13 @@ class RSIStrategyBot(_StrategyMixin):
             self.params.update(params)
         self._prices: list[float] = []
 
+    def on_candle_close(self, close: float) -> None:
+        if close <= 0:
+            return
+        self._prices.append(close)
+        if len(self._prices) > 80:
+            self._prices = self._prices[-80:]
+
     def _rsi(self) -> float | None:
         period = int(self.params.get("rsi_period", 14))
         if len(self._prices) < period + 1:
@@ -347,9 +362,6 @@ class RSIStrategyBot(_StrategyMixin):
     def maybe_trade(self, price: float, sma: float | None) -> Trade | None:
         if not self.enabled or price <= 0:
             return None
-        self._prices.append(price)
-        if len(self._prices) > 80:
-            self._prices = self._prices[-80:]
         sl = self._maybe_stop_loss(price)
         if sl:
             return sl
@@ -357,7 +369,11 @@ class RSIStrategyBot(_StrategyMixin):
         oversold = self.params.get("rsi_oversold", 30)
         overbought = self.params.get("rsi_overbought", 70)
         if rsi is not None:
-            if rsi <= oversold and self._cooldown_ok(self.last_dip_ts, self.params.get("rsi_buy_cooldown_minutes", 15)):
+            if (
+                rsi <= oversold
+                and self._cooldown_ok(self.last_dip_ts, self.params.get("rsi_buy_cooldown_minutes", 15))
+                and not self._regime_blocks_buy(price, sma)
+            ):
                 amt = self._cap_buy_amount(self.params.get("rsi_buy_amount", 28))
                 trade = self.engine.buy(price, amt, reason=f"RSI {rsi:.0f}: перепроданность — отскок")
                 if trade:
@@ -400,6 +416,12 @@ class ScalperStrategyBot(_StrategyMixin):
             self.params.update(params)
         self._last_price = 0.0
         self._ticks = 0
+        self._scalp_entry = 0.0
+
+    def _min_scalp_tp_pct(self) -> float:
+        """Round-trip fees + slippage — scalps below this are negative EV."""
+        floor = (config.FEE_RATE + config.SLIPPAGE_RATE) * 2 * 100 + 0.15
+        return max(self.params.get("scalp_tp_pct", 0.45), floor)
 
     def maybe_trade(self, price: float, sma: float | None) -> Trade | None:
         if not self.enabled or price <= 0:
@@ -407,9 +429,10 @@ class ScalperStrategyBot(_StrategyMixin):
         self._ticks += 1
         sl = self._maybe_stop_loss(price)
         if sl:
+            self._scalp_entry = 0.0
             return sl
         micro_pct = self.params.get("scalp_move_pct", 0.55)
-        tp_micro = self.params.get("scalp_tp_pct", 0.45)
+        tp_micro = self._min_scalp_tp_pct()
         cd = self.params.get("scalp_cooldown_seconds", 90)
         if self._last_price > 0:
             move = (price - self._last_price) / self._last_price * 100
@@ -418,19 +441,22 @@ class ScalperStrategyBot(_StrategyMixin):
                 trade = self.engine.buy(price, amt, reason=f"SCALP: dip {move:.2f}% — быстрый вход")
                 if trade:
                     self.last_dip_ts = time.time()
+                    self._scalp_entry = price
                     self._last_price = price
                     return trade
-            if move >= tp_micro and self.engine.position.base > 0:
-                if self._cooldown_ok(self.last_take_profit_ts, cd / 60):
+            if self._scalp_entry > 0 and self.engine.position.base > 0:
+                pnl_pct = (price - self._scalp_entry) / self._scalp_entry * 100
+                if pnl_pct >= tp_micro and self._cooldown_ok(self.last_take_profit_ts, cd / 60):
                     fraction = self.params.get("scalp_sell_fraction", 0.25)
                     amount_base = self.engine.position.base * fraction
                     if amount_base * price >= 3:
                         trade = self.engine.sell(
                             price, amount_base,
-                            reason=f"SCALP TP: +{move:.2f}% — быстрая фиксация",
+                            reason=f"SCALP TP: +{pnl_pct:.2f}% от входа — фиксация",
                         )
                         if trade:
                             self.last_take_profit_ts = time.time()
+                            self._scalp_entry = 0.0
                             self._last_price = price
                             return trade
         self._last_price = price
@@ -439,14 +465,23 @@ class ScalperStrategyBot(_StrategyMixin):
         return None
 
     def _export_strategy_state(self) -> dict[str, Any]:
-        return {"last_price": self._last_price, "ticks": self._ticks}
+        return {"last_price": self._last_price, "ticks": self._ticks, "scalp_entry": self._scalp_entry}
 
     def _import_strategy_state(self, data: dict[str, Any]) -> None:
         self._last_price = float(data.get("last_price", self._last_price))
         self._ticks = int(data.get("ticks", self._ticks))
+        self._scalp_entry = float(data.get("scalp_entry", self._scalp_entry))
 
     def status(self, price: float, sma: float | None) -> dict[str, Any]:
         move = None
+        entry_pnl = None
         if self._last_price and price:
             move = round((price - self._last_price) / self._last_price * 100, 3)
-        return self._status_common(price, sma, {"micro_move_pct": move, "ticks": self._ticks})
+        if self._scalp_entry > 0 and price:
+            entry_pnl = round((price - self._scalp_entry) / self._scalp_entry * 100, 3)
+        return self._status_common(price, sma, {
+            "micro_move_pct": move,
+            "scalp_entry_pnl_pct": entry_pnl,
+            "min_tp_pct": round(self._min_scalp_tp_pct(), 2),
+            "ticks": self._ticks,
+        })

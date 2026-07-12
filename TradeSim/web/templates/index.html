@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TradeSim v23 — sync · fallback · авто-тактики</title>
-  <link rel="stylesheet" href="/static/style.css?v=23" />
+  <title>TradeSim v26 — profit engine · бэктест-гейт</title>
+  <link rel="stylesheet" href="/static/style.css?v=26" />
   <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
 </head>
-<body class="v23">
+<body class="v26">
   <div id="version-banner" class="version-banner hidden"></div>
   <div id="alerts-ticker" class="alerts-ticker" aria-live="polite">
     <span class="alerts-label">📡 Сканер</span>
@@ -17,8 +17,8 @@
     <div class="brand">
       <span class="logo">◆</span>
       <div>
-        <h1>TradeSim <span class="ver-badge">v24 Fix</span></h1>
-        <p class="tagline">FeedHub REST fallback · двусторонняя sync · авто-тактики</p>
+        <h1>TradeSim <span class="ver-badge">v26 Profit</span></h1>
+        <p class="tagline">Бэктест-гейт · режим рынка · защита просадки · vs hold</p>
       </div>
     </div>
     <div class="header-stats">
@@ -210,7 +210,7 @@
   </details>
 
   <footer class="v16-footer">
-    <span>TradeSim v24 · fix loading</span>
+    <span>TradeSim v26 · profit engine</span>
     <div class="footer-actions">
       <input id="api-token-input" type="password" placeholder="API-токен" class="token-input" />
       <button id="btn-save-token" class="btn ghost small">🔐</button>
@@ -249,6 +249,6 @@
   </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=25"></script>
+  <script src="/static/app.js?v=26"></script>
 </body>
 </html>

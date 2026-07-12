@@ -203,21 +203,33 @@ STRATEGY = {
 CANDLE_INTERVAL = "1m"
 MAX_CANDLES = 500
 
+
+def _env_bool(key: str, default: bool) -> bool:
+    v = os.environ.get(key)
+    if v is None:
+        return default
+    return v.lower() in ("1", "true", "yes")
+
+
 LEARNING_CHECK_SEC = 1800          # 30 min — majors
 LEARNING_CHECK_VOLATILE_SEC = 600  # 10 min — DOGE/PEPE/WIF
 LEARNING_CHECK_HOURS = LEARNING_CHECK_SEC / 3600  # backward compat
-MIN_TRADES_FOR_TUNING = 2
-MIN_TRADES_VOLATILE = 1
-FAST_LEARN_EVERY_N_TRADES = 2     # retune every 2 trades if losing
+MIN_TRADES_FOR_TUNING = 5
+MIN_TRADES_VOLATILE = 3
+FAST_LEARN_EVERY_N_TRADES = 3     # retune every 3 trades if losing
 BRAIN_CYCLE_SEC = 45
 
+# Portfolio risk — brain + execution gate
+PORTFOLIO_MAX_DRAWDOWN_PCT = float(os.environ.get("PORTFOLIO_MAX_DRAWDOWN_PCT", "12"))
+REGIME_FILTER_ENABLED = _env_bool("REGIME_FILTER_ENABLED", True)
+
 # Shadow Lab — hidden parallel mock bots (same crypto, many param variants)
-SHADOW_LAB_ENABLED = True
+SHADOW_LAB_ENABLED = _env_bool("SHADOW_LAB_ENABLED", True)
 SHADOW_CLONES_PER_MARKET = 12       # 12 mocks × N markets
 SHADOW_BALANCE = 500.0              # virtual $ per clone
-SHADOW_EVAL_SEC = 90                # pick winners every 90s
+SHADOW_EVAL_SEC = int(os.environ.get("SHADOW_EVAL_SEC", "300"))  # 5 min — less noise
 SHADOW_PARAM_JITTER = 0.18          # random extra variation
-SHADOW_MIN_TRADES_PROMOTE = 3       # clone needs N trades before promotion
+SHADOW_MIN_TRADES_PROMOTE = int(os.environ.get("SHADOW_MIN_TRADES_PROMOTE", "8"))
 SHADOW_PROMOTE_MARGIN = 0.35        # must beat live by this many pp vs hold
 
 PRICE_DECIMALS = {
@@ -226,13 +238,6 @@ PRICE_DECIMALS = {
     "SUI": 4, "NEAR": 3, "DOT": 3, "INJ": 3, "TON": 3,
     "DOGE": 4, "PEPE": 8, "WIF": 4,
 }
-
-def _env_bool(key: str, default: bool) -> bool:
-    v = os.environ.get(key)
-    if v is None:
-        return default
-    return v.lower() in ("1", "true", "yes")
-
 
 EXCHANGE_MAX_POSITION_PCT = 0.25
 EXCHANGE_SYNC_TO_PAPER = _env_bool("EXCHANGE_SYNC_TO_PAPER", True)
@@ -244,8 +249,11 @@ AUTO_TACTICS_MIN_MARGIN = float(os.environ.get("AUTO_TACTICS_MIN_MARGIN", "1.5")
 AUTO_TACTICS_MIN_TRADES = int(os.environ.get("AUTO_TACTICS_MIN_TRADES", "2"))
 AUTO_TRADER_COPY_ENABLED = _env_bool("AUTO_TRADER_COPY_ENABLED", True)
 AUTO_TRADER_MIN_CONFIDENCE = float(os.environ.get("AUTO_TRADER_MIN_CONFIDENCE", "0.68"))
+AUTO_TACTICS_BACKTEST_ENABLED = _env_bool("AUTO_TACTICS_BACKTEST_ENABLED", True)
+AUTO_TACTICS_BACKTEST_CANDLES = int(os.environ.get("AUTO_TACTICS_BACKTEST_CANDLES", "200"))
+AUTO_TACTICS_BACKTEST_MIN_EDGE = float(os.environ.get("AUTO_TACTICS_BACKTEST_MIN_EDGE", "0.5"))
 
-APP_VERSION = 25
+APP_VERSION = 26
 
 # Security — default localhost; cloud preview needs TRADESIM_BIND_HOST=0.0.0.0
 def _default_bind_host() -> str:
@@ -264,5 +272,5 @@ API_TOKEN = os.environ.get("TRADESIM_API_TOKEN", "")
 EXCHANGE_ENABLED = os.environ.get("EXCHANGE_ENABLED", "false").lower() in ("1", "true", "yes")
 EXCHANGE_NAME = "binance"
 EXCHANGE_TESTNET = os.environ.get("EXCHANGE_TESTNET", "true").lower() in ("1", "true", "yes")
-EXCHANGE_MAX_ORDER_USD = 100.0
-EXCHANGE_MAX_DAILY_LOSS_PCT = 5.0
+EXCHANGE_MAX_ORDER_USD = float(os.environ.get("EXCHANGE_MAX_ORDER_USD", "100"))
+EXCHANGE_MAX_DAILY_LOSS_PCT = float(os.environ.get("EXCHANGE_MAX_DAILY_LOSS_PCT", "5"))

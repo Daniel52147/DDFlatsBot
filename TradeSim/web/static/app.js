@@ -503,7 +503,7 @@ async function checkServerAndSync() {
     if (ping.market_meta?.length) applyMarketMeta(ping.market_meta);
     seedMarketsFromMeta();
     if (ping.total) updateTotal(ping.total);
-    const expectedVer = 24;
+    const expectedVer = 26;
     if (ping.version && ping.version < expectedVer) {
       showError(`Старый сервер v${ping.version} на порту 8765. Ctrl+C → python main.py → Ctrl+Shift+R`);
     }
@@ -780,11 +780,29 @@ function updateSMA(candles, period = 20) {
   smaSeries.setData(smaData);
 }
 
-function setLiveStatus(ok) {
+function setLiveStatus(mode) {
   const el = document.getElementById("live-status");
   if (!el) return;
-  el.textContent = ok ? "● LIVE" : "○ пауза";
-  el.className = "value live-dot" + (ok ? "" : " stale");
+  if (mode === "live") {
+    el.textContent = "● LIVE";
+    el.className = "value live-dot";
+  } else if (mode === "demo") {
+    el.textContent = "○ DEMO";
+    el.className = "value live-dot stale";
+  } else if (mode === "stale") {
+    el.textContent = "○ STALE";
+    el.className = "value live-dot stale";
+  } else {
+    el.textContent = "○ пауза";
+    el.className = "value live-dot stale";
+  }
+}
+
+function feedLiveMode(source) {
+  const src = String(source || "").toLowerCase();
+  if (!src) return "live";
+  if (src.includes("demo") || src.includes("fallback") || src.includes("coingecko")) return "demo";
+  return "live";
 }
 
 function renderPortfolioGrid() {
@@ -1170,7 +1188,7 @@ function applyWsInit(msg) {
   if (msg.brain) renderBrain(msg.brain);
   if (msg.assistant) renderChat([{ role: "assistant", content: msg.assistant }]);
   renderAllTrades();
-  setLiveStatus(true);
+  setLiveStatus("live");
 }
 
 function connectWs() {
@@ -1204,16 +1222,18 @@ function connectWs() {
           price: msg.price,
           portfolio: msg.portfolio,
           strategy: msg.strategy,
+          source: msg.source,
         });
         if (msg.symbol === activeSymbol) {
           if (msg.candle) updateLiveCandle(msg.candle);
+          setLiveStatus(feedLiveMode(msg.source));
           renderBotStatus(marketsData[msg.symbol]);
           const fs = document.getElementById("feed-source");
           if (fs && msg.source) fs.textContent = msg.source;
         }
         renderTabs();
         updateTotal(computeTotal());
-        setLiveStatus(true);
+        setLiveStatus("live");
       }
       if (msg.type === "strategy_update") {
         showToast(`🔧 ${msg.label || labelFor(msg.symbol)}: ${msg.reason || "автонастройка"}`);
@@ -1227,6 +1247,8 @@ function connectWs() {
           showToast(`🔗 ${msg.label}: testnet → paper синхронизирован`);
         } else if (msg.paper_to_exchange?.ok) {
           showToast(`📤 ${msg.label}: paper → testnet (${msg.paper_to_exchange.side} $${Number(msg.paper_to_exchange.amount_usd).toFixed(0)})`);
+        } else if (msg.paper_to_exchange && !msg.paper_to_exchange.ok) {
+          showToast(`⚠️ ${msg.label}: sync testnet — ${msg.paper_to_exchange.error || "ошибка"}`);
         } else if (msg.mirror?.ok) {
           showToast(`🔗 ${msg.label}: base mirrored (Δ ${msg.mirror.diff})`);
         }
@@ -1322,7 +1344,7 @@ function applyBootstrap(data) {
   if (data.shadow_lab) renderShadowLab(data.shadow_lab);
   if (data.auto_tactics) renderAutoTacticsPanel(data.auto_tactics);
   renderAllTables(data);
-  setLiveStatus(true);
+  setLiveStatus("live");
   return Object.keys(marketsData).length > 0;
 }
 
@@ -1384,7 +1406,7 @@ async function refreshStatus() {
     renderTabs();
     switchMarket(activeSymbol);
     await renderAllTrades();
-    setLiveStatus(true);
+    setLiveStatus("live");
   } catch (e) {
     setLiveStatus(false);
   }

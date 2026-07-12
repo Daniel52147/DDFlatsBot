@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
+import config
 from assistant.correlation_analyst import CorrelationAnalystAgent
 from assistant.performance_analyst import PerformanceAnalystAgent
 from assistant.portfolio_allocator import PortfolioAllocatorAgent
@@ -88,6 +89,11 @@ class CentralBrain:
                 rec = "hold"
             votes[rec] = votes.get(rec, 0) + report.get("confidence", 0.5)
 
+        pnl_pct = float(total.get("pnl_pct", 0))
+        if pnl_pct <= -config.PORTFOLIO_MAX_DRAWDOWN_PCT:
+            votes["reduce_aggression"] += 2.5
+            votes["pause_dip"] += 2.0
+
         if guardian.get("halts") and len(guardian["halts"]) >= 2:
             decision = "emergency_halt"
             verdict = f"🛑 СТОП: {guardian['halts'][0]} — пауза просадочных ботов."
@@ -109,6 +115,13 @@ class CentralBrain:
         else:
             decision = "hold"
             verdict = "⏸ Держим курс — ждём больше сигналов."
+
+        if pnl_pct <= -config.PORTFOLIO_MAX_DRAWDOWN_PCT:
+            decision = "emergency_halt"
+            verdict = (
+                f"🛑 Портфель {pnl_pct:+.1f}% (лимит −{config.PORTFOLIO_MAX_DRAWDOWN_PCT:.0f}%) "
+                "— новые покупки заблокированы."
+            )
 
         brain_summary = self._format_brain_report(
             mentor, news, schemer, volatility, risk, trend, profit, correlation,
@@ -201,22 +214,45 @@ class CentralBrain:
 
         for session in sessions.values():
             p = dict(session.bot.get_params())
+            stype = getattr(session, "strategy_type", "dca")
             if decision == "pause_dip":
-                p["dip_extra_amount"] = p.get("dip_extra_amount", 0) * 0.5
-                p["dip_threshold_pct"] = p.get("dip_threshold_pct", 3) + 1.0
-                if p.get("spike_extra_amount"):
+                if stype in ("dca", "grid"):
+                    p["dip_extra_amount"] = p.get("dip_extra_amount", 0) * 0.5
+                    p["dip_threshold_pct"] = p.get("dip_threshold_pct", 3) + 1.0
+                if stype == "dca" and p.get("spike_extra_amount"):
                     p["spike_extra_amount"] *= 0.5
+                if stype == "grid":
+                    p["grid_spacing_pct"] = p.get("grid_spacing_pct", 2.5) + 0.3
+                if stype == "rsi":
+                    p["rsi_oversold"] = min(35, p.get("rsi_oversold", 30) + 2)
             elif decision == "reduce_aggression":
-                p["dca_amount"] = p.get("dca_amount", 25) * 0.85
-                p["dip_extra_amount"] = p.get("dip_extra_amount", 0) * 0.85
+                if stype == "dca":
+                    p["dca_amount"] = p.get("dca_amount", 25) * 0.85
+                    p["dip_extra_amount"] = p.get("dip_extra_amount", 0) * 0.85
+                elif stype == "grid":
+                    p["grid_buy_amount"] = p.get("grid_buy_amount", 22) * 0.85
+                elif stype == "momentum":
+                    p["momentum_buy_amount"] = p.get("momentum_buy_amount", 35) * 0.85
+                elif stype == "scalper":
+                    p["scalp_buy_amount"] = p.get("scalp_buy_amount", 18) * 0.85
             elif decision == "emergency_halt":
-                pnl = session.engine.snapshot(session.feed.price or session.demo_price).get("pnl_pct", 0)
-                if pnl <= -8:
+                snap_pnl = session.engine.snapshot(
+                    session.feed.price or session.demo_price,
+                ).get("pnl_pct", 0)
+                if snap_pnl <= -8:
                     session.bot.enabled = False
-                p["dip_extra_amount"] = p.get("dip_extra_amount", 0) * 0.3
-                p["dca_amount"] = p.get("dca_amount", 25) * 0.7
+                if stype == "dca":
+                    p["dip_extra_amount"] = p.get("dip_extra_amount", 0) * 0.3
+                    p["dca_amount"] = p.get("dca_amount", 25) * 0.7
+                elif stype == "grid":
+                    p["grid_buy_amount"] = p.get("grid_buy_amount", 22) * 0.6
+                elif stype in ("momentum", "scalper", "rsi"):
+                    p["max_buy_pct_of_cash"] = min(0.25, p.get("max_buy_pct_of_cash", 0.5) * 0.5)
             elif decision == "experiment" and session.volatile:
-                p["dip_threshold_pct"] = max(3.0, p.get("dip_threshold_pct", 5) - 0.5)
+                if stype == "dca":
+                    p["dip_threshold_pct"] = max(3.0, p.get("dip_threshold_pct", 5) - 0.5)
+                elif stype == "scalper":
+                    p["scalp_move_pct"] = max(0.35, p.get("scalp_move_pct", 0.55) - 0.05)
 
             session.set_params_bounded(p)
 

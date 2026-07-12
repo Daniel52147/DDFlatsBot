@@ -181,7 +181,7 @@ def _learning_honesty(stats: dict) -> dict[str, Any]:
         "version": config.APP_VERSION,
         "markets_configured": len(config.MARKETS),
         "markets_active": len(sessions),
-        "project_readiness": "v23 — FeedHub REST fallback + двусторонняя sync + авто-тактики",
+        "project_readiness": "v26 — бэктест-гейт тактик, режим рынка, защита просадки",
         "really_learns": True,
         "learning_kind": "эвристики + статистика (не нейросеть)",
         "what_is_real": [
@@ -270,7 +270,8 @@ async def run_session_loop(session: MarketSession):
     try:
         while state["running"]:
             await asyncio.sleep(3)
-            if time.time() - session.feed.last_update > 2:
+            # FeedHub multiplexes WS + REST — per-session poll causes rate storms
+            if not feed_hub and time.time() - session.feed.last_update > 2:
                 try:
                     p = await session.feed.fetch_price()
                     await on_tick(p, session.feed.last_update)
@@ -284,11 +285,20 @@ async def run_session_loop(session: MarketSession):
 
 async def brain_loop():
     """Central brain thinks every BRAIN_CYCLE_SEC — agents report, brain decides."""
+    from simulator.risk_gate import set_portfolio_halt
+
     await asyncio.sleep(15)
     while state["running"]:
         try:
             ctx = all_contexts()
             total = total_portfolio()
+            if total["pnl_pct"] <= -config.PORTFOLIO_MAX_DRAWDOWN_PCT:
+                set_portfolio_halt(
+                    True,
+                    f"portfolio {total['pnl_pct']:+.1f}%",
+                )
+            else:
+                set_portfolio_halt(False)
             cycle = await brain.think(ctx, total)
             state["brain_cycle"] = cycle
             prev_decision = brain.last_applied_decision
@@ -595,14 +605,19 @@ def _brain_public(cycle: dict) -> dict:
 
 async def after_paper_trade(session, trade):
     result = await sync_trade_to_exchange(session, trade, live_exchange)
+    payload = {
+        "type": "exchange_sync",
+        "symbol": session.symbol,
+        "label": session.label,
+        "total": total_portfolio(),
+    }
     if result and result.get("ok"):
-        await broadcast({
-            "type": "exchange_sync",
-            "symbol": session.symbol,
-            "label": session.label,
-            "paper_to_exchange": result,
-            "total": total_portfolio(),
-        })
+        payload["paper_to_exchange"] = result
+        await broadcast(payload)
+    elif result and not result.get("ok"):
+        payload["paper_to_exchange"] = result
+        await broadcast(payload)
+        logger.warning("[%s] paper→exchange sync failed: %s", session.label, result.get("error"))
 
 
 @asynccontextmanager

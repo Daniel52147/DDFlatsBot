@@ -63,6 +63,9 @@ class SimulatorEngine:
         return price * (1 - slip)
 
     def buy(self, price: float, amount_quote: float, reason: str) -> Trade | None:
+        from simulator.risk_gate import blocks_new_buys
+        if blocks_new_buys():
+            return None
         if amount_quote <= 0 or self.position.quote < amount_quote:
             return None
         fill = self._apply_slippage(price, "buy")

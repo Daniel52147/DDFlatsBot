@@ -10,6 +10,7 @@ from typing import Any
 
 import config
 from learning.strategy_presets import apply_strategy_preset
+from simulator.backtest import Backtester
 from simulator.strategies import STRATEGY_META
 
 logger = logging.getLogger(__name__)
@@ -123,6 +124,31 @@ class AutoTacticsEngine:
         margin = best_score - cur_score
         return best, margin
 
+    def _backtest_validate(self, ctx: dict[str, Any], proposal: dict[str, Any]) -> tuple[bool, str]:
+        """Require proposed strategy to beat current on recent candles (vs hold)."""
+        if not config.AUTO_TACTICS_BACKTEST_ENABLED:
+            return True, ""
+        candles = ctx.get("candles") or []
+        if len(candles) < 30:
+            return True, "мало свечей для бэктеста"
+        current = ctx.get("strategy_type", "dca")
+        proposed = proposal["strategy_type"]
+        if proposed == current:
+            return True, ""
+        window = candles[-config.AUTO_TACTICS_BACKTEST_CANDLES :]
+        bal = config.BALANCE_PER_MARKET
+        cur_bt = Backtester(initial_balance=bal, strategy_type=current).run(window)
+        new_bt = Backtester(initial_balance=bal, strategy_type=proposed).run(window)
+        cur_vs = float(cur_bt.get("vs_hold_pct") or -999)
+        new_vs = float(new_bt.get("vs_hold_pct") or -999)
+        edge = new_vs - cur_vs
+        if edge < config.AUTO_TACTICS_BACKTEST_MIN_EDGE:
+            return False, (
+                f"бэктест: {proposed} vs hold {new_vs:+.2f}% не лучше {current} "
+                f"({cur_vs:+.2f}%, Δ {edge:+.2f}pp)"
+            )
+        return True, f"бэктест OK: {proposed} {new_vs:+.2f}% vs {current} {cur_vs:+.2f}%"
+
     def decide(
         self,
         ctx: dict[str, Any],
@@ -148,7 +174,7 @@ class AutoTacticsEngine:
             and market_play.get("strategy") in STRATEGY_META
             and market_play.get("strategy") != current
         ):
-            return {
+            proposal = {
                 "symbol": sym,
                 "label": label,
                 "strategy_type": market_play["strategy"],
@@ -159,6 +185,13 @@ class AutoTacticsEngine:
                 "reason": market_play.get("reason", f"копируем стиль {market_play.get('trader')}"),
                 "margin": market_play["confidence"],
             }
+            ok, note = self._backtest_validate(ctx, proposal)
+            if not ok:
+                logger.info("[%s] Trader copy blocked: %s", label, note)
+                return None
+            if note:
+                proposal["reason"] = f"{proposal['reason']} ({note})"
+            return proposal
 
         if not config.AUTO_TACTICS_ENABLED:
             return None
@@ -173,7 +206,7 @@ class AutoTacticsEngine:
         if trade_count < config.AUTO_TACTICS_MIN_TRADES:
             return None
 
-        return {
+        proposal = {
             "symbol": sym,
             "label": label,
             "strategy_type": best,
@@ -185,6 +218,13 @@ class AutoTacticsEngine:
             "margin": margin,
             "scores": {k: round(v, 2) for k, v in sorted(scores.items(), key=lambda x: -x[1])[:3]},
         }
+        ok, note = self._backtest_validate(ctx, proposal)
+        if not ok:
+            logger.info("[%s] Auto-tactics blocked: %s", label, note)
+            return None
+        if note and note != "мало свечей для бэктеста":
+            proposal["reason"] = f"{proposal['reason']} ({note})"
+        return proposal
 
     def apply_preset_multipliers(self, session, preset_name: str | None) -> bool:
         return self._apply_preset(session, preset_name) if preset_name else False
@@ -214,8 +254,7 @@ class AutoTacticsEngine:
             session.switch_strategy(proposal["strategy_type"])
             if proposal.get("preset"):
                 self._apply_preset(session, proposal["preset"])
-            if shadow_lab:
-                shadow_lab.reset_clones(sym)
+            # Keep shadow clones learning — reset wiped useful A/B data
 
             self.last_switch_ts[sym] = time.time()
             self.last_reasons[sym] = proposal
@@ -256,6 +295,8 @@ class AutoTacticsEngine:
         return {
             "enabled": config.AUTO_TACTICS_ENABLED,
             "trader_copy": config.AUTO_TRADER_COPY_ENABLED,
+            "backtest_gate": config.AUTO_TACTICS_BACKTEST_ENABLED,
+            "backtest_min_edge_pp": config.AUTO_TACTICS_BACKTEST_MIN_EDGE,
             "total_switches": self.total_switches,
             "markets": markets,
         }

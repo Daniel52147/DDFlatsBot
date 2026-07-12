@@ -229,6 +229,8 @@ class MarketSession:
         sma = self.candles.sma(sma_period)
 
         closed_dict = closed.to_dict() if closed else None
+        if closed_dict and hasattr(self.bot, "on_candle_close"):
+            self.bot.on_candle_close(float(closed_dict.get("close", price)))
         walk_prices = prices_for_tick(price, closed_dict)
         executed = run_strategy_prices(self.bot, walk_prices, sma)
         await self._execute_trades(executed, msgs)

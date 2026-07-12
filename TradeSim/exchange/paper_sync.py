@@ -133,12 +133,13 @@ async def mirror_base_from_exchange(session, exchange, tolerance: float | None =
 
     if diff > 0:
         amount_quote = diff * price
+        fee = amount_quote * config.FEE_RATE
         trade = eng.apply_exchange_fill(
             side="buy",
             price=price,
             amount_base=diff,
-            amount_quote=amount_quote,
-            fee=0.0,
+            amount_quote=amount_quote + fee,
+            fee=fee,
             reason=reason,
             mark_price=price,
         )
@@ -167,7 +168,7 @@ async def mirror_base_from_exchange(session, exchange, tolerance: float | None =
             price=price,
             amount_base=remove,
             amount_quote=remove * price,
-            fee=0.0,
+            fee=remove * price * config.FEE_RATE,
             reason=reason,
             mark_price=price,
         )

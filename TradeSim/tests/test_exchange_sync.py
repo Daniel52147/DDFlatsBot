@@ -92,10 +92,11 @@ class TestMirrorBaseFromExchange(unittest.IsolatedAsyncioTestCase):
         exchange = MockExchange(exchange_base=1.0)
         result = await mirror_base_from_exchange(session, exchange, tolerance=0.0)
         self.assertTrue(result["ok"])
-        self.assertAlmostEqual(session.engine.position.quote, 900.0)
+        fee = 100.0 * config.FEE_RATE
+        self.assertAlmostEqual(session.engine.position.quote, 1000.0 - 100.0 - fee, places=2)
         self.assertAlmostEqual(session.engine.position.base, 1.0)
         snap = session.engine.snapshot(100.0)
-        self.assertAlmostEqual(snap["portfolio_value"], 1000.0)
+        self.assertAlmostEqual(snap["portfolio_value"], 1000.0 - fee, places=1)
         session._log_trade.assert_awaited_once()
 
     async def test_mirror_buy_insufficient_quote(self):
