@@ -191,8 +191,17 @@ PRICE_DECIMALS = {
 
 APP_VERSION = 15
 
-# Security — default localhost; set TRADESIM_API_TOKEN for remote write access
-BIND_HOST = os.environ.get("TRADESIM_BIND_HOST", "127.0.0.1")
+# Security — default localhost; cloud preview needs TRADESIM_BIND_HOST=0.0.0.0
+def _default_bind_host() -> str:
+    if os.environ.get("TRADESIM_BIND_HOST"):
+        return os.environ["TRADESIM_BIND_HOST"]
+    # Cursor Cloud / port-forward preview
+    if any(os.environ.get(k) for k in ("PORT", "CURSOR_AGENT", "CURSOR_TRACE_ID")):
+        return "0.0.0.0"
+    return "127.0.0.1"
+
+
+BIND_HOST = _default_bind_host()
 API_TOKEN = os.environ.get("TRADESIM_API_TOKEN", "")
 
 # Live exchange (optional — set env BINANCE_API_KEY + BINANCE_API_SECRET + EXCHANGE_ENABLED=true)

@@ -470,8 +470,10 @@ async def lifespan(app: FastAPI):
     tasks.append(asyncio.create_task(brain_loop()))
     tasks.append(asyncio.create_task(shadow_eval_loop()))
     tasks.append(asyncio.create_task(snapshot_loop()))
-    if added:
-        logger.info("Started %d new market sessions: %s", len(added), added)
+    logger.info(
+        "TradeSim v%s ready — %d markets — http://%s:8765",
+        config.APP_VERSION, len(sessions), config.BIND_HOST,
+    )
 
     # First brain think
     cycle = await brain.think(all_contexts(), total_portfolio())
