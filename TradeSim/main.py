@@ -494,7 +494,20 @@ async def lifespan(app: FastAPI):
             logger.exception("Первый цикл мозга не удался — UI всё равно работает")
 
     tasks.append(asyncio.create_task(first_brain_cycle()))
-    logger.info("Сайт открывай: http://127.0.0.1:8765  (не localhost, не agent.cvm.dev)")
+
+    import sys
+
+    async def _open_browser_when_ready():
+        await asyncio.sleep(1.0)
+        import webbrowser
+        url = "http://127.0.0.1:8765/health"
+        webbrowser.open(url)
+        logger.info("Браузер открыт: %s → затем перейди на главную", url)
+
+    if sys.platform == "win32":
+        asyncio.create_task(_open_browser_when_ready())
+
+    logger.info("Сайт: http://127.0.0.1:8765  (не localhost, не agent.cvm.dev)")
 
     yield
 
@@ -512,13 +525,27 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "web" / "templates"))
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "web" / "static")), name="static")
 
 
+@app.get("/health", response_class=HTMLResponse)
+async def health_page():
+    t = total_portfolio()
+    return HTMLResponse(
+        f"""<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8">
+        <title>TradeSim OK</title></head>
+        <body style="font-family:system-ui;background:#0c1220;color:#e8eef8;padding:2rem">
+        <h1>✅ TradeSim v{config.APP_VERSION} работает</h1>
+        <p>Рынков: {len(sessions)} · Портфель: ${t['total_value']:,.2f}</p>
+        <p><a href="/" style="color:#00e5a8">→ Открыть панель управления</a></p>
+        </body></html>"""
+    )
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    payload = await _bootstrap_payload_async()
+    # Быстрый ответ — данные подгрузит JS через /api/bootstrap
     return templates.TemplateResponse(
         request,
         "index.html",
-        {"initial_json": json.dumps(payload, ensure_ascii=False)},
+        {"initial_json": "null"},
     )
 
 
@@ -885,11 +912,6 @@ async def websocket_endpoint(ws: WebSocket):
 
 
 if __name__ == "__main__":
-    import sys
-    import threading
-    import time
-    import webbrowser
-
     import uvicorn
 
     host = config.BIND_HOST
@@ -897,14 +919,4 @@ if __name__ == "__main__":
         logger.warning(
             "TRADESIM_API_TOKEN не задан — не открывай 0.0.0.0 без токена в интернет"
         )
-
-    def _open_browser():
-        time.sleep(2.5)
-        url = "http://127.0.0.1:8765"
-        logger.info("Открываю браузер: %s", url)
-        webbrowser.open(url)
-
-    if sys.platform == "win32":
-        threading.Thread(target=_open_browser, daemon=True).start()
-
     uvicorn.run("main:app", host=host, port=8765, reload=False)

@@ -34,6 +34,5 @@ echo   НЕ закрывай это окно — иначе сайт не отк
 echo   Ctrl+Shift+R в браузере если пустая страница
 echo.
 set TRADESIM_BIND_HOST=127.0.0.1
-start "" cmd /c "timeout /t 4 /nobreak >nul && start http://127.0.0.1:8765"
 python main.py
 pause
