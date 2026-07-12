@@ -30,6 +30,7 @@ from learning.auto_tactics import AutoTacticsEngine
 from learning.capital_allocator import CapitalAllocator
 from learning.strategy_outcomes import evaluate_pending, log_switch
 from learning.strategy_presets import apply_strategy_preset
+from learning.trade_mode import apply_active_all, apply_active_trading
 from learning.logger import LearningLogger
 from learning.optimizer import StrategyOptimizer
 from security import SecurityMiddleware, auth_required
@@ -245,6 +246,11 @@ def _markets_table_rows() -> list[dict[str, Any]]:
 class StrategyPresetRequest(BaseModel):
     symbol: str
     preset: str  # aggressive | conservative | balanced
+
+
+class ActiveTradeRequest(BaseModel):
+    symbol: str | None = None
+    reset_timers: bool = False
 
 
 async def run_session_loop(session: MarketSession):
@@ -708,6 +714,17 @@ async def lifespan(app: FastAPI):
     for session in sessions.values():
         await session.restore_from_db()
 
+    if config.TRADE_MODE == "active" and config.ACTIVE_TRADE_ON_START:
+        from learning.trade_mode import apply_active_all
+
+        apply_active_all(
+            sessions,
+            reset_timers=config.ACTIVE_TRADE_RESET_TIMERS,
+        )
+        for s in sessions.values():
+            await s.persist()
+        logger.info("Active trade mode applied to %d markets", len(sessions))
+
     state["running"] = True
 
     async def parallel_market_startup():
@@ -977,6 +994,25 @@ async def api_analytics():
     equity = await logger_db.equity_curve(48)
     return await _analytics_payload_db(equity)
 
+
+
+@app.post("/api/strategy/active")
+async def api_strategy_active(body: ActiveTradeRequest | None = None):
+    """Shorter cooldowns on one market or all — more buys/sells."""
+    body = body or ActiveTradeRequest()
+    if body.symbol:
+        if body.symbol not in sessions:
+            return {"error": "unknown symbol"}
+        info = apply_active_trading(
+            sessions[body.symbol], reset_timers=body.reset_timers,
+        )
+        await sessions[body.symbol].persist()
+        return {"ok": True, "markets": [info]}
+    results = apply_active_all(sessions, reset_timers=body.reset_timers)
+    for s in sessions.values():
+        await s.persist()
+    await broadcast({"type": "strategy_active", "count": len(results)})
+    return {"ok": True, "markets": results, "count": len(results)}
 
 
 @app.post("/api/strategy/preset")

@@ -73,11 +73,11 @@ VIRAL_STRATEGY = {
 
 GRID_STRATEGY = {
     **GROWTH_STRATEGY,
-    "grid_spacing_pct": 2.5,
+    "grid_spacing_pct": 1.8,
     "grid_buy_amount": 22.0,
     "grid_sell_fraction": 0.18,
-    "grid_cooldown_minutes": 12,
-    "dca_interval_hours": 20,
+    "grid_cooldown_minutes": 6,
+    "dca_interval_hours": 10,
 }
 
 MOMENTUM_STRATEGY = {
@@ -104,12 +104,12 @@ RSI_STRATEGY = {
 
 SCALPER_STRATEGY = {
     **VOLATILE_STRATEGY,
-    "scalp_move_pct": 0.55,
+    "scalp_move_pct": 0.45,
     "scalp_tp_pct": 0.45,
     "scalp_buy_amount": 16.0,
     "scalp_sell_fraction": 0.28,
-    "scalp_cooldown_seconds": 90,
-    "dca_interval_hours": 8,
+    "scalp_cooldown_seconds": 45,
+    "dca_interval_hours": 4,
     "dca_amount": 12.0,
     "sma_period": 8,
     "take_profit_pct": 3.5,
@@ -184,19 +184,21 @@ SLIPPAGE_RATE = 0.0005
 
 STRATEGY = {
     "dca_amount": 25.0,
-    "dca_interval_hours": 24,
-    "dip_threshold_pct": 3.0,
+    "dca_interval_hours": 8,
+    "dip_threshold_pct": 2.5,
     "dip_extra_amount": 40.0,
-    "dip_cooldown_minutes": 30,
-    "spike_cooldown_minutes": 60,
+    "dip_cooldown_minutes": 12,
+    "spike_threshold_pct": 5.0,
+    "spike_extra_amount": 35.0,
+    "spike_cooldown_minutes": 20,
     "sma_period": 20,
     "take_profit_pct": 10.0,
     "take_profit_cost_pct": 8.0,
     "take_profit_fraction": 0.15,
-    "take_profit_cooldown_hours": 6,
+    "take_profit_cooldown_hours": 3,
     "stop_loss_pct": 12.0,
     "stop_loss_fraction": 0.2,
-    "stop_loss_cooldown_hours": 12,
+    "stop_loss_cooldown_hours": 6,
     "max_buy_pct_of_cash": 0.5,
 }
 
@@ -284,7 +286,12 @@ CAPITAL_ALLOCATOR_MIN_VS_HOLD = float(os.environ.get("CAPITAL_ALLOCATOR_MIN_VS_H
 STRATEGY_OUTCOME_EVAL_SEC = int(os.environ.get("STRATEGY_OUTCOME_EVAL_SEC", "7200"))
 EXCHANGE_PNL_SNAPSHOT_SEC = int(os.environ.get("EXCHANGE_PNL_SNAPSHOT_SEC", "300"))
 
-APP_VERSION = 31
+# Trade frequency — normal | active (shorter cooldowns, more signals)
+TRADE_MODE = os.environ.get("TRADE_MODE", "active").lower()
+ACTIVE_TRADE_ON_START = _env_bool("ACTIVE_TRADE_ON_START", True)
+ACTIVE_TRADE_RESET_TIMERS = _env_bool("ACTIVE_TRADE_RESET_TIMERS", False)
+
+APP_VERSION = 32
 
 # Security — default localhost; cloud preview needs TRADESIM_BIND_HOST=0.0.0.0
 def _default_bind_host() -> str:

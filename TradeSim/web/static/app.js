@@ -503,7 +503,7 @@ async function checkServerAndSync() {
     if (ping.market_meta?.length) applyMarketMeta(ping.market_meta);
     seedMarketsFromMeta();
     if (ping.total) updateTotal(ping.total);
-    const expectedVer = 31;
+    const expectedVer = 32;
     if (ping.version && ping.version < expectedVer) {
       const msg = `СТАРЫЙ СЕРВЕР v${ping.version}! Свечи не синхронизируются. Закрой сервер → запусти start.bat или: git pull origin cursor/tradesim-v30-candle-fix-2631 → python main.py → Ctrl+Shift+R`;
       showError(msg);
@@ -1779,6 +1779,23 @@ function bindUi() {
       showToast("Ошибка сброса Shadow Lab");
     }
   });
+  document.getElementById("btn-active-trades")?.addEventListener("click", async () => {
+    try {
+      const res = await apiFetch("/api/strategy/active", {
+        method: "POST",
+        body: JSON.stringify({ reset_timers: true }),
+      });
+      const data = await res.json();
+      if (data.error) showToast("⚠ " + data.error);
+      else {
+        showToast(`📈 Активный режим: ${data.count} рынков — больше сделок`);
+        await refreshStatus();
+      }
+    } catch (_) {
+      showToast("Ошибка активного режима");
+    }
+  });
+
   document.querySelectorAll(".preset-btn").forEach(btn => {
     btn.onclick = async () => {
       const res = await apiFetch("/api/strategy/preset", {
