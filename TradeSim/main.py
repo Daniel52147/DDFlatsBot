@@ -32,6 +32,7 @@ from learning.auto_tactics import AutoTacticsEngine
 from learning.capital_allocator import CapitalAllocator
 from learning.strategy_outcomes import evaluate_pending, log_switch
 from learning.strategy_presets import apply_strategy_preset
+from learning.profit_focus import ProfitFocusEngine, apply_profit_max_startup
 from learning.scorecard import build_scorecard
 from learning.paper_learn_mode import (
     apply_paper_learn_all,
