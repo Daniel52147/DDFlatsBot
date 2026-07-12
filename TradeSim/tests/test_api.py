@@ -71,6 +71,19 @@ class TestApiEndpoints(unittest.TestCase):
         self.assertIn("enabled", data)
         self.assertIn("markets", data)
 
+    def test_sync_paper_endpoint(self):
+        r = self.client.post("/api/exchange/sync-paper?symbol=BTCUSDT")
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertIn("ok", data)
+
+    def test_bootstrap_has_auto_tactics(self):
+        r = self.client.get("/api/bootstrap")
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertIn("auto_tactics", data)
+        self.assertIn("markets", data["auto_tactics"])
+
 
 if __name__ == "__main__":
     unittest.main()

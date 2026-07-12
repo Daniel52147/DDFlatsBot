@@ -329,7 +329,7 @@ class CentralBrain:
 
         if any(w in msg for w in ("grid", "momentum", "rsi", "scalp", "скальп", "сетк")):
             from simulator.strategies import STRATEGY_META
-            lines = ["🎯 Стратегии TradeSim v20 (авто на каждую монету):", ""]
+            lines = ["🎯 Стратегии TradeSim v22 (авто на каждую монету):", ""]
             for key, meta in STRATEGY_META.items():
                 users = [c["label"] for c in contexts if c.get("strategy_type") == key]
                 who = f" → {', '.join(users)}" if users else ""

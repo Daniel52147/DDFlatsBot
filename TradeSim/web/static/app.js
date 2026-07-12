@@ -844,26 +844,77 @@ function updateTotal(total) {
   }
 }
 
+function strategyParamsHtml(stype, p) {
+  const spike = p.spike_threshold_pct
+    ? `<p>SPIKE: +$${p.spike_extra_amount} при просадке ≥${p.spike_threshold_pct}%</p>`
+    : "";
+  const tp = p.take_profit_pct
+    ? `<p>TAKE-PROFIT: ${Math.round((p.take_profit_fraction || 0.15) * 100)}% позиции при +${p.take_profit_pct}% над SMA</p>`
+    : "";
+  const sl = p.stop_loss_pct
+    ? `<p>STOP-LOSS: −${p.stop_loss_pct}% от входа → продажа ${Math.round((p.stop_loss_fraction || 0.2) * 100)}%</p>`
+    : "";
+  switch (stype) {
+    case "grid":
+      return `<p>Grid: шаг ${p.grid_spacing_pct ?? 2.5}% · buy $${p.grid_buy_amount ?? 22} · sell ${Math.round((p.grid_sell_fraction ?? 0.18) * 100)}% (кд ${p.grid_cooldown_minutes ?? 12}м)</p>${tp}${sl}`;
+    case "momentum":
+      return `<p>Momentum: breakout +${p.breakout_pct ?? 1.8}% · trail −${p.trailing_stop_pct ?? 4.5}% · buy $${p.momentum_buy_amount ?? 38}</p>${sl}`;
+    case "rsi":
+      return `<p>RSI(${p.rsi_period ?? 14}): buy &lt;${p.rsi_oversold ?? 30} · sell &gt;${p.rsi_overbought ?? 70} · $${p.rsi_buy_amount ?? 28}</p>${tp}${sl}`;
+    case "scalper":
+      return `<p>Scalper: move ${p.scalp_move_pct ?? 0.55}% · TP ${p.scalp_tp_pct ?? 0.45}% · $${p.scalp_buy_amount ?? 16} (кд ${p.scalp_cooldown_seconds ?? 90}с)</p>${tp}${sl}`;
+    default:
+      return `<p>DCA: $${p.dca_amount ?? 25} / ${p.dca_interval_hours ?? 24}ч · DIP ${p.dip_threshold_pct ?? 3}% (кд ${p.dip_cooldown_minutes ?? 30}м)</p>${spike}${tp}${sl}`;
+  }
+}
+
+function renderAutoTacticsPanel(data) {
+  const el = document.getElementById("auto-tactics-panel");
+  if (!el) return;
+  if (!data) {
+    el.innerHTML = "<p class='muted'>Авто-тактики выключены</p>";
+    return;
+  }
+  window.lastAutoTactics = data;
+  const badge = document.getElementById("auto-tactics-badge");
+  if (badge) {
+    const on = data.enabled || data.trader_copy;
+    badge.style.opacity = on ? "1" : "0.35";
+    badge.title = on
+      ? `Авто-тактики: ${data.total_switches || 0} переключений · копирование трейдеров`
+      : "Авто выключено";
+  }
+  const switches = data.markets?.filter(m => m.last_auto) || [];
+  const switchLines = switches.slice(0, 5).map(m => {
+    const la = m.last_auto;
+    const icon = la.source === "trader" ? "👁️" : "🤖";
+    return `<li><b>${m.label}</b> · ${m.strategy_type} · ${icon} ${(la.reason || "").slice(0, 60)}</li>`;
+  }).join("") || "<li class='muted'>Пока без авто-переключений</li>";
+  const plays = (data.trader_plays || []).slice(0, 4).map(p =>
+    `<li><b>${p.trader || "?"}</b> → ${p.label || "?"}: ${(p.reason || "").slice(0, 55)}</li>`
+  ).join("") || "<li class='muted'>Следопыт ищет идеи трейдеров…</li>";
+  el.innerHTML = `
+    <p>${data.enabled ? "✅" : "⏸"} Авто-стратегии · ${data.trader_copy ? "✅" : "⏸"} Копирование · <b>${data.total_switches || 0}</b> switch</p>
+    <p class="muted">Последние авто-решения:</p>
+    <ul class="auto-tactics-list">${switchLines}</ul>
+    <p class="muted">Идеи трейдеров:</p>
+    <ul class="auto-tactics-list">${plays}</ul>`;
+}
+
+function updateExchangeControls(enabled) {
+  document.querySelectorAll(".testnet-btn").forEach(btn => {
+    btn.style.display = enabled ? "" : "none";
+  });
+}
+
 function renderBotStatus(d) {
   const el = document.getElementById("bot-status");
   if (!el || !d) return;
   const st = d.strategy || {};
   const p = st.params || {};
   const lbl = d.label || labelFor(d.symbol);
-    const vol = d.volatile ? " ⚡" : "";
-    const viralTag = d.viral ? " 🔥 VIRAL" : d.growth ? " 📈 growth" : "";
-  let spike = "";
-  if (p.spike_threshold_pct) {
-    spike = `<p>SPIKE: +$${p.spike_extra_amount} при просадке ≥${p.spike_threshold_pct}%</p>`;
-  }
-  let tp = "";
-  if (p.take_profit_pct) {
-    tp = `<p>TAKE-PROFIT: ${Math.round((p.take_profit_fraction || 0.15) * 100)}% позиции при +${p.take_profit_pct}% над SMA</p>`;
-  }
-  let sl = "";
-  if (p.stop_loss_pct) {
-    sl = `<p>STOP-LOSS: −${p.stop_loss_pct}% от входа → продажа ${Math.round((p.stop_loss_fraction || 0.2) * 100)}%</p>`;
-  }
+  const vol = d.volatile ? " ⚡" : "";
+  const viralTag = d.viral ? " 🔥 VIRAL" : d.growth ? " 📈 growth" : "";
   const avg = st.avg_entry || d.portfolio?.avg_entry;
   const stype = st.strategy_type || d.strategy_type || "dca";
   const autoInfo = window.lastAutoTactics?.markets?.find(m => m.symbol === d.symbol)?.last_auto;
@@ -880,8 +931,7 @@ function renderBotStatus(d) {
     ${autoLine}
     <p>Цена: <strong>${fmtMoney(d.price, priceDecimals(lbl))}</strong>${avg ? ` · вход ~${fmtMoney(avg, priceDecimals(lbl))}` : ""}</p>
     <p>Портфель: <strong>${fmtMoney(d.portfolio?.portfolio_value)}</strong> (${fmtPct(d.portfolio?.pnl_pct)}) · vs hold ${fmtPct(d.portfolio?.vs_hold_pct)}</p>
-    <p>DCA: $${p.dca_amount ?? 25} / ${p.dca_interval_hours ?? 24}ч · DIP ${p.dip_threshold_pct ?? 3}% (кд ${p.dip_cooldown_minutes ?? 30}м)</p>
-    ${spike}${tp}${sl}
+    ${strategyParamsHtml(stype, p)}
     <p>SMA: <strong>${st.sma ? fmtMoney(st.sma, priceDecimals(lbl)) : "—"}</strong>${st.profit_pct > 0 ? ` · над SMA +${st.profit_pct}%` : st.dip_pct > 0 ? ` · ниже SMA ${st.dip_pct}%` : ""}${st.cost_profit_pct != null ? ` · от входа ${st.cost_profit_pct >= 0 ? "+" : ""}${st.cost_profit_pct}%` : ""}</p>
   `;
   const btn = document.getElementById("btn-toggle");
@@ -1208,6 +1258,7 @@ function applyBootstrap(data) {
     });
   }
   if (data.shadow_lab) renderShadowLab(data.shadow_lab);
+  if (data.auto_tactics) renderAutoTacticsPanel(data.auto_tactics);
   renderAllTables(data);
   setLiveStatus(true);
   return Object.keys(marketsData).length > 0;
@@ -1385,6 +1436,8 @@ function bindUi() {
       showToast(`🔗 Testnet→Paper: ${data.paper_sync.side} $${Number(data.paper_sync.amount_quote).toFixed(2)} синхронизировано`);
       await refreshStatus();
       loadExchangePanel();
+    } else if (data.paper_sync && !data.paper_sync.ok) {
+      showToast(`⚠ Testnet OK, paper sync failed: ${data.paper_sync.error || data.warning || "?"}`);
     } else showToast(`🏦 ${data.mode}: ${side} ${activeSymbol} — ${data.status || "ok"}`);
   });
 
@@ -1451,6 +1504,7 @@ function bindUi() {
   document.getElementById("btn-backtest-compare")?.addEventListener("click", runBacktestCompare);
   document.getElementById("btn-strategy-apply")?.addEventListener("click", applyStrategy);
   document.getElementById("btn-exchange-refresh")?.addEventListener("click", loadExchangePanel);
+  document.getElementById("btn-auto-tactics-refresh")?.addEventListener("click", loadAutoTactics);
   document.getElementById("btn-shadow-reset")?.addEventListener("click", async () => {
     if (!confirm("Сбросить все shadow-клоны? Текущие эксперименты начнутся заново.")) return;
     try {
@@ -1573,21 +1627,14 @@ async function loadExchangePanel() {
 async function loadAutoTactics() {
   try {
     const data = await (await fetch("/api/auto-tactics")).json();
-    window.lastAutoTactics = data;
-    const badge = document.getElementById("auto-tactics-badge");
-    if (badge) {
-      const on = data.enabled || data.trader_copy;
-      badge.style.opacity = on ? "1" : "0.35";
-      badge.title = on
-        ? `Авто-тактики: ${data.total_switches || 0} переключений · копирование трейдеров`
-        : "Авто выключено";
-    }
+    renderAutoTacticsPanel(data);
   } catch (_) {}
 }
 
 async function loadExchangeBadge() {
   try {
     const st = await (await fetch("/api/exchange/status")).json();
+    updateExchangeControls(!!st.enabled);
     const el = document.getElementById("exchange-badge");
     if (!el) return;
     if (st.enabled) {

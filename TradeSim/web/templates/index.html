@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TradeSim v20 Auto — 17 рынков · авто-тактики</title>
-  <link rel="stylesheet" href="/static/style.css?v=20" />
+  <title>TradeSim v22 — 17 рынков · sync · авто-тактики</title>
+  <link rel="stylesheet" href="/static/style.css?v=22" />
   <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
 </head>
-<body class="v20">
+<body class="v22">
   <div id="version-banner" class="version-banner hidden"></div>
   <div id="alerts-ticker" class="alerts-ticker" aria-live="polite">
     <span class="alerts-label">📡 Сканер</span>
@@ -17,7 +17,7 @@
     <div class="brand">
       <span class="logo">◆</span>
       <div>
-        <h1>TradeSim <span class="ver-badge">v21 Sync</span></h1>
+        <h1>TradeSim <span class="ver-badge">v22 Polish</span></h1>
         <p class="tagline">Testnet→Paper sync · авто-тактики · копирование трейдеров</p>
       </div>
     </div>
@@ -131,6 +131,14 @@
         <ul id="activity-feed" class="activity-feed"></ul>
       </section>
 
+      <section class="card v16-card" id="auto-tactics-card">
+        <div class="card-header">
+          <h2>🤖 Авто-тактики</h2>
+          <button type="button" id="btn-auto-tactics-refresh" class="btn ghost small">Обновить</button>
+        </div>
+        <div id="auto-tactics-panel" class="auto-tactics-panel muted">Загрузка...</div>
+      </section>
+
       <section class="card v16-card">
         <div class="card-header">
           <h2 id="bot-card-title">🤖 Стратегия</h2>
@@ -174,7 +182,7 @@
       <section class="card assistant-card v16-card">
         <div class="card-header"><h2>💬 Помощник</h2></div>
         <div id="chat-messages" class="chat-messages">
-          <div class="chat-bubble chat-bot">TradeSim v20: спроси <b>авто</b> · <b>трейдеры</b> · <b>стратегии</b> · <b>vs hold</b></div>
+          <div class="chat-bubble chat-bot">TradeSim v22: спроси <b>авто</b> · <b>трейдеры</b> · <b>стратегии</b> · <b>vs hold</b></div>
         </div>
         <form id="chat-form" class="chat-form">
           <input id="chat-input" type="text" placeholder="тренд / grid / momentum / DOGE?" autocomplete="off" />
@@ -202,7 +210,7 @@
   </details>
 
   <footer class="v16-footer">
-    <span>TradeSim v20 · авто-тактики · копирование трейдеров</span>
+    <span>TradeSim v22 · testnet→paper sync · авто-тактики</span>
     <div class="footer-actions">
       <input id="api-token-input" type="password" placeholder="API-токен" class="token-input" />
       <button id="btn-save-token" class="btn ghost small">🔐</button>

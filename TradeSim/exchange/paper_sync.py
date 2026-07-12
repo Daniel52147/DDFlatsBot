@@ -115,9 +115,13 @@ async def mirror_base_from_exchange(session, exchange, tolerance: float | None =
 
     symbol = session.symbol
     price = session.feed.price or session.demo_price
-    rec = await exchange.reconcile(
-        symbol, session.engine.position.base, session.engine.position.quote,
-    )
+    try:
+        rec = await exchange.reconcile(
+            symbol, session.engine.position.base, session.engine.position.quote,
+        )
+    except Exception as e:
+        logger.warning("mirror reconcile failed for %s: %s", symbol, e)
+        return {"ok": False, "error": f"exchange reconcile failed: {e}", "symbol": symbol}
     tol = tolerance if tolerance is not None else max(1e-6, abs(rec["paper_base"]) * 0.01 + 1e-4)
     diff = rec["exchange_base"] - rec["paper_base"]
 
@@ -125,18 +129,52 @@ async def mirror_base_from_exchange(session, exchange, tolerance: float | None =
         return {"ok": True, "synced": True, "symbol": symbol, "diff": 0, "note": "already aligned"}
 
     eng = session.engine
+    reason = f"EXCHANGE MIRROR: align base Δ {diff:+.8f}"
+
     if diff > 0:
-        eng.position.base += diff
-        eng.position.cost_basis += diff * price
+        amount_quote = diff * price
+        trade = eng.apply_exchange_fill(
+            side="buy",
+            price=price,
+            amount_base=diff,
+            amount_quote=amount_quote,
+            fee=0.0,
+            reason=reason,
+            mark_price=price,
+        )
+        if not trade:
+            return {
+                "ok": False,
+                "error": "insufficient paper USDT to mirror exchange base",
+                "symbol": symbol,
+                "diff": round(diff, 8),
+                "needed_usdt": round(amount_quote, 2),
+                "paper_quote": round(eng.position.quote, 2),
+            }
     else:
         remove = min(eng.position.base, abs(diff))
-        if remove > 0:
-            frac = remove / eng.position.base
-            eng.position.cost_basis *= max(0, 1 - frac)
-            eng.position.base -= remove
-            eng.position.quote += remove * price
+        if remove <= 0:
+            return {
+                "ok": True,
+                "synced": True,
+                "symbol": symbol,
+                "label": session.label,
+                "diff": round(diff, 8),
+                "note": "no paper base to reduce",
+            }
+        trade = eng.apply_exchange_fill(
+            side="sell",
+            price=price,
+            amount_base=remove,
+            amount_quote=remove * price,
+            fee=0.0,
+            reason=reason,
+            mark_price=price,
+        )
+        if not trade:
+            return {"ok": False, "error": "paper wallet rejected mirror sell", "symbol": symbol}
 
-    await session.persist()
+    await session._log_trade(trade)
     return {
         "ok": True,
         "synced": True,
@@ -145,5 +183,11 @@ async def mirror_base_from_exchange(session, exchange, tolerance: float | None =
         "diff": round(diff, 8),
         "paper_base": eng.position.base,
         "exchange_base": rec["exchange_base"],
+        "trade": {
+            "side": trade.side,
+            "price": trade.price,
+            "amount_quote": trade.amount_quote,
+            "amount_base": trade.amount_base,
+        },
         "note": "base balance mirrored from exchange",
     }

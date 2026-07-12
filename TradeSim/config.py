@@ -227,17 +227,24 @@ PRICE_DECIMALS = {
     "DOGE": 4, "PEPE": 8, "WIF": 4,
 }
 
+def _env_bool(key: str, default: bool) -> bool:
+    v = os.environ.get(key)
+    if v is None:
+        return default
+    return v.lower() in ("1", "true", "yes")
+
+
 EXCHANGE_MAX_POSITION_PCT = 0.25
-EXCHANGE_SYNC_TO_PAPER = os.environ.get("EXCHANGE_SYNC_TO_PAPER", "true").lower() in ("1", "true", "yes")
+EXCHANGE_SYNC_TO_PAPER = _env_bool("EXCHANGE_SYNC_TO_PAPER", True)
 
-AUTO_TACTICS_ENABLED = True
-AUTO_TACTICS_MIN_INTERVAL_SEC = 1200   # 20 min cooldown per market
-AUTO_TACTICS_MIN_MARGIN = 1.5          # score gap to switch (auto mode)
-AUTO_TACTICS_MIN_TRADES = 2            # need N trades before auto switch
-AUTO_TRADER_COPY_ENABLED = True
-AUTO_TRADER_MIN_CONFIDENCE = 0.68      # copy popular trader idea when above
+AUTO_TACTICS_ENABLED = _env_bool("AUTO_TACTICS_ENABLED", True)
+AUTO_TACTICS_MIN_INTERVAL_SEC = int(os.environ.get("AUTO_TACTICS_MIN_INTERVAL_SEC", "1200"))
+AUTO_TACTICS_MIN_MARGIN = float(os.environ.get("AUTO_TACTICS_MIN_MARGIN", "1.5"))
+AUTO_TACTICS_MIN_TRADES = int(os.environ.get("AUTO_TACTICS_MIN_TRADES", "2"))
+AUTO_TRADER_COPY_ENABLED = _env_bool("AUTO_TRADER_COPY_ENABLED", True)
+AUTO_TRADER_MIN_CONFIDENCE = float(os.environ.get("AUTO_TRADER_MIN_CONFIDENCE", "0.68"))
 
-APP_VERSION = 21
+APP_VERSION = 22
 
 # Security — default localhost; cloud preview needs TRADESIM_BIND_HOST=0.0.0.0
 def _default_bind_host() -> str:
@@ -258,4 +265,3 @@ EXCHANGE_NAME = "binance"
 EXCHANGE_TESTNET = os.environ.get("EXCHANGE_TESTNET", "true").lower() in ("1", "true", "yes")
 EXCHANGE_MAX_ORDER_USD = 100.0
 EXCHANGE_MAX_DAILY_LOSS_PCT = 5.0
-EXCHANGE_MAX_POSITION_PCT = 0.25

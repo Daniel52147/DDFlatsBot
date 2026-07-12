@@ -179,7 +179,7 @@ def _learning_honesty(stats: dict) -> dict[str, Any]:
         "version": config.APP_VERSION,
         "markets_configured": len(config.MARKETS),
         "markets_active": len(sessions),
-        "project_readiness": "v20 Auto — тактики на монету + копирование трейдеров",
+        "project_readiness": "v22 — testnet→paper sync + авто-тактики + копирование трейдеров",
         "really_learns": True,
         "learning_kind": "эвристики + статистика (не нейросеть)",
         "what_is_real": [
@@ -506,8 +506,7 @@ async def _bootstrap_payload_async() -> dict[str, Any]:
     payload["markets_table"] = _markets_table_rows()
     if shadow_lab:
         payload["shadow_lab"] = shadow_lab.status()
-    if auto_tactics:
-        payload["auto_tactics"] = auto_tactics.status(sessions)
+    payload["auto_tactics"] = _auto_tactics_payload()
     return payload
 
 
@@ -776,24 +775,27 @@ async def api_shadow_apply(body: ShadowApplyRequest):
     return result
 
 
-@app.get("/api/auto-tactics")
-async def api_auto_tactics():
+def _auto_tactics_payload() -> dict[str, Any]:
     cycle = state.get("brain_cycle") or {}
     tw = cycle.get("trader_watcher", {})
-    if not auto_tactics:
-        return {
-            "enabled": config.AUTO_TACTICS_ENABLED,
-            "trader_copy": config.AUTO_TRADER_COPY_ENABLED,
-            "total_switches": 0,
-            "markets": [],
-            "trader_plays": list(tw.get("market_plays", {}).values())[:12],
-            "copy_candidates": tw.get("copy_candidates", [])[:8],
-        }
-    return {
-        **auto_tactics.status(sessions),
+    extra = {
         "trader_plays": list(tw.get("market_plays", {}).values())[:12],
         "copy_candidates": tw.get("copy_candidates", [])[:8],
     }
+    if auto_tactics:
+        return {**auto_tactics.status(sessions), **extra}
+    return {
+        "enabled": config.AUTO_TACTICS_ENABLED,
+        "trader_copy": config.AUTO_TRADER_COPY_ENABLED,
+        "total_switches": 0,
+        "markets": [],
+        **extra,
+    }
+
+
+@app.get("/api/auto-tactics")
+async def api_auto_tactics():
+    return _auto_tactics_payload()
 
 
 @app.get("/api/strategies")
@@ -1059,6 +1061,10 @@ async def api_exchange_order(body: ManualTradeRequest):
     ):
         paper_sync = await sync_order_to_paper(s, result)
         result["paper_sync"] = paper_sync
+        if paper_sync and not paper_sync.get("ok"):
+            result["warning"] = (
+                paper_sync.get("error") or "paper wallet sync failed after exchange order"
+            )
         if paper_sync and paper_sync.get("ok"):
             await broadcast({
                 "type": "trade",

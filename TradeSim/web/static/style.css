@@ -826,6 +826,15 @@ footer {
 .exchange-panel-body .data-table.compact td,
 .exchange-panel-body .data-table.compact th { padding: 0.25rem 0.4rem; font-size: 0.75rem; }
 body.v20 .ver-badge { background: linear-gradient(135deg, #22d3ee, #8b5cf6); }
+body.v22 .ver-badge { background: linear-gradient(135deg, #34d399, #6366f1); }
+.auto-tactics-panel { font-size: 0.82rem; }
+.auto-tactics-list {
+  margin: 0.25rem 0 0.5rem;
+  padding-left: 1rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+.auto-tactics-list li { margin-bottom: 0.2rem; }
 .auto-tactics-badge {
   font-size: 0.65rem;
   padding: 0.15rem 0.4rem;
