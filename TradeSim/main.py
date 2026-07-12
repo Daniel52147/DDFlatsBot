@@ -39,6 +39,7 @@ from learning.optimizer import StrategyOptimizer
 from security import SecurityMiddleware, auth_required
 from simulator.backtest import Backtester, compare_strategies
 from simulator.market_session import MarketSession
+from simulator.portfolio_benchmark import portfolio_benchmark as compute_portfolio_benchmark
 from simulator.feed_hub import FeedHub
 from simulator.shadow_lab import ShadowLab
 from simulator.strategies import STRATEGY_META, create_bot
@@ -141,31 +142,7 @@ def ensure_all_markets() -> list[str]:
 
 
 def portfolio_benchmark() -> dict[str, Any]:
-    live_total = 0.0
-    hold_total = 0.0
-    start_total = 0.0
-    for s in sessions.values():
-        price = s.feed.price or s.demo_price
-        snap = s.engine.snapshot(price)
-        live_total += snap["portfolio_value"]
-        start_total += s.engine.start_balance
-        sp = s.engine.start_price or price
-        if sp > 0:
-            hold_total += (s.engine.start_balance / sp) * price
-    alpha = live_total - hold_total
-    alpha_pct = (alpha / start_total * 100) if start_total else 0
-    hold_pnl_pct = ((hold_total - start_total) / start_total * 100) if start_total else 0
-    live_pnl_pct = ((live_total - start_total) / start_total * 100) if start_total else 0
-    return {
-        "live_value": round(live_total, 2),
-        "hold_value": round(hold_total, 2),
-        "start_value": round(start_total, 2),
-        "alpha_usd": round(alpha, 2),
-        "alpha_pct": round(alpha_pct, 2),
-        "live_pnl_pct": round(live_pnl_pct, 2),
-        "hold_pnl_pct": round(hold_pnl_pct, 2),
-        "vs_hold_pct": round(live_pnl_pct - hold_pnl_pct, 2),
-    }
+    return compute_portfolio_benchmark(sessions)
 
 
 def total_portfolio() -> dict[str, Any]:
@@ -182,6 +159,8 @@ def total_portfolio() -> dict[str, Any]:
         "markets_configured": len(config.MARKETS),
         "benchmark": bench,
         "vs_hold_pct": bench.get("vs_hold_pct", 0),
+        "benchmark_note": bench.get("benchmark_note", ""),
+        "benchmark_misleading": bench.get("benchmark_misleading", False),
     }
 
 
@@ -190,7 +169,7 @@ def _learning_honesty(stats: dict) -> dict[str, Any]:
         "version": config.APP_VERSION,
         "markets_configured": len(config.MARKETS),
         "markets_active": len(sessions),
-        "project_readiness": "v29 — синхронизация свечей после рестарта, gap-fill, умный feed",
+        "project_readiness": "v37 — честный vs Hold, авто-Testnet, путь к Live за 7 дней",
         "really_learns": True,
         "learning_kind": "эвристики + статистика (не нейросеть)",
         "what_is_real": [
@@ -777,6 +756,20 @@ async def lifespan(app: FastAPI):
         else:
             logger.warning("Binance verify failed: %s", verify.get("error") or verify.get("note"))
 
+    if config.AUTO_APPLY_TRADING_MODE_ON_START and live_exchange.enabled:
+        desired_mode = config.TRADING_MODE_DEFAULT
+        if desired_mode in ("testnet", "live") and trading_mode.mode != desired_mode:
+            readiness = await _live_readiness_payload() if desired_mode == "live" else None
+            mode_result = trading_mode.set_mode(
+                desired_mode,
+                exchange=live_exchange,
+                readiness=readiness,
+            )
+            if mode_result.get("ok"):
+                logger.info("Trading mode auto-applied: %s", desired_mode)
+            else:
+                logger.warning("Trading mode auto-apply failed: %s", mode_result.get("error"))
+
     state["running"] = True
 
     async def parallel_market_startup():
@@ -1330,6 +1323,33 @@ async def api_trading_mode_get():
 @app.get("/api/live-readiness")
 async def api_live_readiness():
     return await _live_readiness_payload()
+
+
+@app.post("/api/week-prep/start")
+async def api_week_prep_start():
+    """One-click: active trading + Testnet for the 7-day path to Live."""
+    apply_active_all(sessions, reset_timers=False)
+    for session in sessions.values():
+        await session.persist()
+    mode_result: dict[str, Any] = {"mode": trading_mode.mode, "ok": True}
+    if live_exchange.enabled:
+        mode_result = trading_mode.set_mode("testnet", exchange=live_exchange)
+    else:
+        mode_result = {
+            "ok": False,
+            "error": "Добавь BINANCE_API_KEY + EXCHANGE_ENABLED=true для Testnet",
+            "mode": trading_mode.mode,
+        }
+    readiness = await _live_readiness_payload()
+    if mode_result.get("ok"):
+        await broadcast({"type": "trading_mode", **trading_mode.status(live_exchange)})
+    return {
+        "ok": mode_result.get("ok", False),
+        "trading_mode": mode_result,
+        "active_markets": len(sessions),
+        "live_readiness": readiness,
+        "hint": "Testnet + активная торговля. Следи P&L и панель готовности к Live.",
+    }
 
 
 @app.post("/api/trading-mode")

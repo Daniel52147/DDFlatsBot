@@ -504,9 +504,9 @@ async function checkServerAndSync() {
     if (ping.market_meta?.length) applyMarketMeta(ping.market_meta);
     seedMarketsFromMeta();
     if (ping.total) updateTotal(ping.total);
-    const expectedVer = 34;
+    const expectedVer = 37;
     if (ping.version && ping.version < expectedVer) {
-      const msg = `СТАРЫЙ СЕРВЕР v${ping.version}! Обнови: git pull origin cursor/tradesim-v36-live-prep-2631 → .\\start.bat → Ctrl+Shift+R`;
+      const msg = `СТАРЫЙ СЕРВЕР v${ping.version}! Обнови: git pull origin cursor/tradesim-v37-fixes-2631 → .\\start.bat → Ctrl+Shift+R`;
       showError(msg);
       showToast("⚠️ " + msg, 15000);
     }
@@ -1048,18 +1048,29 @@ function updateLiveCandle(candle) {
 
 function updateTotal(total) {
   if (!total) return;
-  const v = document.getElementById("total-value");
-  const p = document.getElementById("total-pnl");
-  if (v) v.textContent = fmtMoney(total.total_value);
-  if (p) {
-    p.textContent = fmtPct(total.pnl_pct);
-    p.className = "value " + (total.pnl_pct >= 0 ? "positive" : "negative");
+  const valueElement = document.getElementById("total-value");
+  const pnlElement = document.getElementById("total-pnl");
+  if (valueElement) valueElement.textContent = fmtMoney(total.total_value);
+  if (pnlElement) {
+    pnlElement.textContent = fmtPct(total.pnl_pct);
+    pnlElement.className = "value " + (total.pnl_pct >= 0 ? "positive" : "negative");
   }
-  if (total.benchmark?.vs_hold_pct != null) {
-    const vh = document.getElementById("vs-hold");
-    if (vh) {
-      vh.textContent = fmtPct(total.benchmark.vs_hold_pct);
-      vh.className = "value " + (total.benchmark.vs_hold_pct >= 0 ? "positive" : "negative");
+  const benchmark = total.benchmark || {};
+  const vsHoldPct = total.vs_hold_pct ?? benchmark.vs_hold_pct;
+  if (vsHoldPct != null) {
+    const vsHoldElement = document.getElementById("vs-hold");
+    if (vsHoldElement) {
+      vsHoldElement.textContent = fmtPct(vsHoldPct);
+      vsHoldElement.className = "value " + (vsHoldPct >= 0 ? "positive" : "negative");
+      const misleading = total.benchmark_misleading || benchmark.benchmark_misleading;
+      const note = total.benchmark_note || benchmark.benchmark_note;
+      if (misleading && note) {
+        vsHoldElement.title = note;
+        vsHoldElement.classList.add("warn-metric");
+      } else {
+        vsHoldElement.title = "";
+        vsHoldElement.classList.remove("warn-metric");
+      }
     }
   }
 }
@@ -1889,6 +1900,24 @@ function bindUi() {
   document.getElementById("btn-strategy-apply")?.addEventListener("click", applyStrategy);
   document.getElementById("btn-exchange-refresh")?.addEventListener("click", loadExchangePanel);
   document.getElementById("btn-live-readiness-refresh")?.addEventListener("click", loadLiveReadiness);
+  document.getElementById("btn-week-prep")?.addEventListener("click", async () => {
+    if (!confirm("🚀 Неделя Testnet: активная торговля + режим Testnet. Продолжить?")) return;
+    try {
+      const res = await apiFetch("/api/week-prep/start", { method: "POST" });
+      const data = await res.json();
+      if (!data.ok) {
+        showToast("⚠ " + (data.trading_mode?.error || data.hint || "ошибка"), 8000);
+      } else {
+        showToast("🚀 Testnet неделя запущена — " + (data.hint || "ok"));
+        renderTradingMode(data.trading_mode);
+        if (data.live_readiness) renderLiveReadinessPanel(data.live_readiness);
+        await refreshStatus();
+        loadExchangePanel();
+      }
+    } catch (_) {
+      showToast("Ошибка запуска недели Testnet");
+    }
+  });
   document.getElementById("btn-auto-tactics-refresh")?.addEventListener("click", loadAutoTactics);
   document.getElementById("btn-profit-focus-refresh")?.addEventListener("click", loadProfitFocus);
   document.getElementById("btn-shadow-reset")?.addEventListener("click", async () => {

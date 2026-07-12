@@ -1,6 +1,14 @@
-# TradeSim v36
+# TradeSim v37
 
-**Live Prep** — 7-day path to real money with readiness checks, Live gate, and strict $25/order limits.
+**Honest vs Hold** — fixed benchmark when bot is in cash; **auto-Testnet** on startup; **one-click week prep**.
+
+## v37 — Fixes + week to Live
+
+- **Honest vs Hold** — uses candle anchor when no trades; flags misleading +58% vs −0.04% P&L cases
+- **Auto Testnet** — `TRADING_MODE_DEFAULT=testnet` when `EXCHANGE_ENABLED` + keys
+- **`POST /api/week-prep/start`** — one click: active trading + Testnet mode
+- **UI** — `🚀 Неделя Testnet` button, vs Hold warning in header
+- **Live readiness** — blocks Live if vs Hold is misleading
 
 ## v36 — Live Prep (7 days to real money)
 

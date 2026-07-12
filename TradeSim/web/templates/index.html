@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TradeSim v36 — live prep</title>
-  <link rel="stylesheet" href="/static/style.css?v=36" />
+  <title>TradeSim v37 — fixes + live week</title>
+  <link rel="stylesheet" href="/static/style.css?v=37" />
   <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
 </head>
-<body class="v33">
+<body class="v37">
   <div id="version-banner" class="version-banner hidden"></div>
   <div id="alerts-ticker" class="alerts-ticker" aria-live="polite">
     <span class="alerts-label">📡 Сканер</span>
@@ -17,8 +17,8 @@
     <div class="brand">
       <span class="logo">◆</span>
       <div>
-        <h1>TradeSim <span class="ver-badge">v36 Live Prep</span></h1>
-        <p class="tagline">7 дней к реальным деньгам · проверки · лимиты Live $25</p>
+        <h1>TradeSim <span class="ver-badge">v37 Fixes</span></h1>
+        <p class="tagline">Честный vs Hold · авто-Testnet · кнопка «Неделя Testnet»</p>
       </div>
     </div>
     <div class="header-stats">
@@ -192,6 +192,7 @@
       <section class="card v16-card" id="exchange-panel">
         <div class="card-header">
           <h2>🏦 Биржа · путь к Live</h2>
+          <button type="button" id="btn-week-prep" class="btn small" title="Активная торговля + Testnet одним кликом">🚀 Неделя Testnet</button>
           <button type="button" id="btn-live-readiness-refresh" class="btn ghost small">Проверить</button>
           <button type="button" id="btn-exchange-refresh" class="btn ghost small">Баланс</button>
         </div>
@@ -202,7 +203,7 @@
       <section class="card assistant-card v16-card">
         <div class="card-header"><h2>💬 Помощник</h2></div>
         <div id="chat-messages" class="chat-messages">
-          <div class="chat-bubble chat-bot">TradeSim v22: спроси <b>авто</b> · <b>трейдеры</b> · <b>стратегии</b> · <b>vs hold</b></div>
+          <div class="chat-bubble chat-bot">TradeSim v37: <b>неделя testnet</b> · <b>vs hold</b> · <b>live prep</b> · <b>стратегии</b></div>
         </div>
         <form id="chat-form" class="chat-form">
           <input id="chat-input" type="text" placeholder="тренд / grid / momentum / DOGE?" autocomplete="off" />
@@ -230,7 +231,7 @@
   </details>
 
   <footer class="v16-footer">
-    <span>TradeSim v36 · live prep</span>
+    <span>TradeSim v37 · fixes</span>
     <div class="footer-actions">
       <input id="api-token-input" type="password" placeholder="API-токен" class="token-input" />
       <button id="btn-save-token" class="btn ghost small">🔐</button>
@@ -269,6 +270,6 @@
   </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=36"></script>
+  <script src="/static/app.js?v=37"></script>
 </body>
 </html>

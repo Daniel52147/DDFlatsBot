@@ -133,20 +133,26 @@ async def assess_live_readiness(
         ok=pnl_pct >= config.LIVE_MIN_PNL_PCT,
         detail=f"P&L {pnl_pct:+.2f}% · ${total:,.0f}",
     )
-    _check(
-        checks,
-        cid="vs_hold",
-        label=f"vs Hold ≥ {config.LIVE_MIN_VS_HOLD}%",
-        ok=vs_hold >= config.LIVE_MIN_VS_HOLD,
-        detail=(
-            f"vs hold {vs_hold:+.1f}% (бот {live_pnl:+.2f}% · hold {hold_pnl:+.2f}%)"
-            + (
-                " · в основном кэш — hold мог бы просесть"
-                if abs(live_pnl) < 2 and abs(vs_hold) > 10
-                else ""
-            )
-        ),
-    )
+    misleading = bool(bench.get("benchmark_misleading"))
+    if misleading and vs_hold >= config.LIVE_MIN_VS_HOLD:
+        _check(
+            checks,
+            cid="vs_hold",
+            label=f"vs Hold ≥ {config.LIVE_MIN_VS_HOLD}% (честный)",
+            ok=False,
+            detail=bench.get("benchmark_note") or "vs Hold завышен — смотри P&L",
+        )
+    else:
+        _check(
+            checks,
+            cid="vs_hold",
+            label=f"vs Hold ≥ {config.LIVE_MIN_VS_HOLD}%",
+            ok=vs_hold >= config.LIVE_MIN_VS_HOLD,
+            detail=(
+                f"vs hold {vs_hold:+.1f}% (бот {live_pnl:+.2f}% · hold {hold_pnl:+.2f}%)"
+                + (f" · {bench.get('benchmark_note', '')}" if bench.get("benchmark_note") else "")
+            ),
+        )
     _check(
         checks,
         cid="drawdown",
