@@ -96,7 +96,7 @@ export BINANCE_API_SECRET="..."
 export EXCHANGE_ENABLED=true
 ```
 
-Paper bot and exchange are **separate** — testnet orders via 🏦 button or `POST /api/exchange/order`.
+Paper bot and exchange **sync automatically** when `EXCHANGE_SYNC_TO_PAPER=true` (default): testnet fills mirror into paper wallet. Manual mirror: `POST /api/exchange/sync-paper?symbol=BTCUSDT` or **🔗 Sync paper** button.
 
 ## API
 

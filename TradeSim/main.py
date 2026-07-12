@@ -23,6 +23,7 @@ from starlette.requests import Request
 import config
 from assistant.coordinator import CentralBrain
 from exchange.binance_live import BinanceLiveExchange
+from exchange.paper_sync import mirror_base_from_exchange, sync_order_to_paper
 from learning.analytics import build_portfolio_analytics
 from learning.auto_tactics import AutoTacticsEngine
 from learning.logger import LearningLogger
@@ -1044,11 +1045,60 @@ async def api_exchange_order(body: ManualTradeRequest):
     s = sessions[body.symbol]
     snap = s.engine.snapshot(s.feed.price or s.demo_price)
     price = s.feed.price or s.demo_price
-    return await live_exchange.place_market_order(
+    result = await live_exchange.place_market_order(
         body.symbol, body.side, body.amount_usd,
         snap["portfolio_value"], snap.get("pnl_pct", 0),
         price=price,
     )
+    if isinstance(result, dict) and result.get("error"):
+        return result
+    if (
+        result.get("ok")
+        and config.EXCHANGE_SYNC_TO_PAPER
+        and live_exchange.enabled
+    ):
+        paper_sync = await sync_order_to_paper(s, result)
+        result["paper_sync"] = paper_sync
+        if paper_sync and paper_sync.get("ok"):
+            await broadcast({
+                "type": "trade",
+                "symbol": body.symbol,
+                "label": s.label,
+                "trade": {
+                    "side": paper_sync.get("side"),
+                    "price": paper_sync.get("price"),
+                    "amount_quote": paper_sync.get("amount_quote"),
+                    "reason": paper_sync.get("reason"),
+                    "ts": time.time(),
+                },
+            })
+            await broadcast({
+                "type": "exchange_sync",
+                "symbol": body.symbol,
+                "label": s.label,
+                "paper_sync": paper_sync,
+                "total": total_portfolio(),
+            })
+    return result
+
+
+@app.post("/api/exchange/sync-paper")
+async def api_exchange_sync_paper(symbol: str = "BTCUSDT"):
+    """Mirror exchange base balance into paper wallet for one market."""
+    if symbol not in sessions:
+        return {"error": "unknown symbol"}
+    if not config.EXCHANGE_SYNC_TO_PAPER:
+        return {"error": "EXCHANGE_SYNC_TO_PAPER=false"}
+    result = await mirror_base_from_exchange(sessions[symbol], live_exchange)
+    if result.get("ok"):
+        await broadcast({
+            "type": "exchange_sync",
+            "symbol": symbol,
+            "label": sessions[symbol].label,
+            "mirror": result,
+            "total": total_portfolio(),
+        })
+    return result
 
 
 @app.get("/api/exchange/reconcile")

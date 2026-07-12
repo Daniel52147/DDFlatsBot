@@ -17,8 +17,8 @@
     <div class="brand">
       <span class="logo">◆</span>
       <div>
-        <h1>TradeSim <span class="ver-badge">v20 Auto</span></h1>
-        <p class="tagline">Авто-тактики на монету · копирование трейдеров · 5 стратегий · мозг 45с</p>
+        <h1>TradeSim <span class="ver-badge">v21 Sync</span></h1>
+        <p class="tagline">Testnet→Paper sync · авто-тактики · копирование трейдеров</p>
       </div>
     </div>
     <div class="header-stats">
@@ -159,6 +159,7 @@
             <button type="button" class="btn ghost small manual-btn" data-side="sell">Продать ~$25</button>
           </div>
           <button type="button" id="btn-testnet-order" class="btn ghost small testnet-btn">🏦 Testnet $10</button>
+          <button type="button" id="btn-sync-paper" class="btn ghost small testnet-btn">🔗 Sync paper</button>
         </div>
       </section>
 
@@ -240,6 +241,6 @@
   </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=20"></script>
+  <script src="/static/app.js?v=21"></script>
 </body>
 </html>

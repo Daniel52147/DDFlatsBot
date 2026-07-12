@@ -119,6 +119,54 @@ class SimulatorEngine:
         self.trades.append(trade)
         return trade
 
+    def apply_exchange_fill(
+        self,
+        side: str,
+        price: float,
+        amount_base: float,
+        amount_quote: float,
+        fee: float,
+        reason: str,
+        mark_price: float | None = None,
+    ) -> Trade | None:
+        """Mirror real exchange fill — no extra paper slippage/fees."""
+        side = side.lower()
+        pv_price = mark_price if mark_price and mark_price > 0 else price
+        if side == "buy":
+            if amount_quote <= 0 or amount_base <= 0:
+                return None
+            if self.position.quote < amount_quote:
+                return None
+            self.position.quote -= amount_quote
+            self.position.base += amount_base
+            self.position.cost_basis += max(0, amount_quote - fee)
+        elif side == "sell":
+            if amount_base <= 0 or self.position.base < amount_base:
+                return None
+            sold_frac = amount_base / self.position.base
+            self.position.cost_basis *= max(0, 1 - sold_frac)
+            self.position.base -= amount_base
+            self.position.quote += max(0, amount_quote)
+        else:
+            return None
+
+        self._trade_counter += 1
+        trade = Trade(
+            id=self._trade_counter,
+            ts=time.time(),
+            side=side,
+            price=price,
+            amount_quote=amount_quote,
+            amount_base=amount_base,
+            fee=fee,
+            reason=reason,
+            balance_quote=self.position.quote,
+            balance_base=self.position.base,
+            portfolio_value=self.position.total_value(pv_price),
+        )
+        self.trades.append(trade)
+        return trade
+
     def avg_entry_price(self) -> float | None:
         if self.position.base <= 0 or self.position.cost_basis <= 0:
             return None

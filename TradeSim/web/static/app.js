@@ -1112,10 +1112,22 @@ function connectWs() {
         if (msg.symbol === activeSymbol) renderBotStatus(marketsData[msg.symbol]);
         loadLearning();
       }
+      if (msg.type === "exchange_sync") {
+        if (msg.paper_sync?.ok) {
+          showToast(`🔗 ${msg.label}: testnet → paper синхронизирован`);
+        } else if (msg.mirror?.ok) {
+          showToast(`🔗 ${msg.label}: base mirrored (Δ ${msg.mirror.diff})`);
+        }
+        if (msg.total) updateTotal(msg.total);
+        await refreshStatus();
+        loadExchangePanel();
+      }
       if (msg.type === "trade" && msg.trade) {
         const icon = msg.trade.side === "sell" ? "💵" : "💰";
         showToast(`${icon} ${msg.label || labelFor(msg.symbol)}: ${msg.trade.reason}`);
         pushActivity(`${msg.label || labelFor(msg.symbol)} ${msg.trade.side.toUpperCase()}: ${msg.trade.reason}`);
+        renderAllTrades();
+        refreshStatus();
       }
       if (msg.type === "shadow_promote") {
         showToast(`🔬 ${msg.label}: клон #${msg.clone_id} → живой бот`);
@@ -1133,10 +1145,6 @@ function connectWs() {
         }
         loadAutoTactics();
         loadLearning();
-      }
-      if (msg.type === "trade") {
-        renderAllTrades();
-        refreshStatus();
       }
     } catch (e) { console.error(e); }
   };
@@ -1373,7 +1381,25 @@ function bindUi() {
     const data = await res.json();
     if (data.error) showToast("⚠ " + data.error);
     else if (data.mode === "paper" || data.ok === false) showToast("📄 Paper: " + (data.note || "биржа выключена"));
-    else showToast(`🏦 ${data.mode}: ${side} ${activeSymbol} — ${data.status || "ok"}`);
+    else if (data.paper_sync?.ok) {
+      showToast(`🔗 Testnet→Paper: ${data.paper_sync.side} $${Number(data.paper_sync.amount_quote).toFixed(2)} синхронизировано`);
+      await refreshStatus();
+      loadExchangePanel();
+    } else showToast(`🏦 ${data.mode}: ${side} ${activeSymbol} — ${data.status || "ok"}`);
+  });
+
+  document.getElementById("btn-sync-paper")?.addEventListener("click", async () => {
+    try {
+      const res = await apiFetch(`/api/exchange/sync-paper?symbol=${activeSymbol}`, { method: "POST" });
+      const data = await res.json();
+      if (data.error) showToast("⚠ " + data.error);
+      else if (data.note === "already aligned") showToast(`✅ ${labelFor(activeSymbol)}: paper = exchange`);
+      else showToast(`🔗 Sync ${labelFor(activeSymbol)}: Δ base ${data.diff}`);
+      await refreshStatus();
+      loadExchangePanel();
+    } catch (_) {
+      showToast("Ошибка sync paper");
+    }
   });
 
   document.getElementById("btn-save-token")?.addEventListener("click", () => {
@@ -1524,11 +1550,15 @@ async function loadExchangePanel() {
       el.innerHTML = `<p>Paper режим. Задай <code>BINANCE_API_KEY</code> + <code>EXCHANGE_ENABLED=true</code> для testnet.</p>`;
       return;
     }
+    const syncNote = st.sync_to_paper
+      ? "<p class='muted'>🔗 Testnet ордера автоматически синхронизируются с paper</p>"
+      : "";
     const rows = (bal.balances || []).slice(0, 8).map(b =>
       `<tr><td><b>${b.asset}</b></td><td>${Number(b.free).toFixed(6)}</td><td>${Number(b.locked).toFixed(6)}</td></tr>`
     ).join("") || "<tr><td colspan=3>Нет балансов</td></tr>";
     const syncCls = (rec.base_synced ?? rec.synced) ? "up" : "down";
     el.innerHTML = `
+      ${syncNote}
       <p><b>${st.testnet ? "TESTNET" : "LIVE"}</b> · ордер до $${st.max_order_usd} · сегодня ${st.orders_today || 0}</p>
       <table class="data-table compact"><thead><tr><th>Asset</th><th>Free</th><th>Locked</th></tr></thead><tbody>${rows}</tbody></table>
       <p class="muted" style="margin-top:0.5rem">Reconcile <b>${labelFor(activeSymbol)}</b>:</p>

@@ -91,10 +91,13 @@ class BinanceLiveExchange:
             "max_position_pct": config.EXCHANGE_MAX_POSITION_PCT,
             "orders_today": self.risk.orders_today,
             "mode": "live-testnet" if self.enabled else "paper-only",
+            "sync_to_paper": config.EXCHANGE_SYNC_TO_PAPER,
             "note": (
-                "Paper-бот и биржа раздельны — ордера только через /api/exchange/order"
+                "Testnet ордера автоматически синхронизируются с paper-кошельком"
+                if self.enabled and config.EXCHANGE_SYNC_TO_PAPER
+                else "Задай BINANCE_API_KEY + EXCHANGE_ENABLED=true"
                 if not self.enabled
-                else "Testnet активен — сверяй баланс вручную"
+                else "Синхронизация с paper выключена (EXCHANGE_SYNC_TO_PAPER=false)"
             ),
         }
 

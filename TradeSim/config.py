@@ -227,6 +227,9 @@ PRICE_DECIMALS = {
     "DOGE": 4, "PEPE": 8, "WIF": 4,
 }
 
+EXCHANGE_MAX_POSITION_PCT = 0.25
+EXCHANGE_SYNC_TO_PAPER = os.environ.get("EXCHANGE_SYNC_TO_PAPER", "true").lower() in ("1", "true", "yes")
+
 AUTO_TACTICS_ENABLED = True
 AUTO_TACTICS_MIN_INTERVAL_SEC = 1200   # 20 min cooldown per market
 AUTO_TACTICS_MIN_MARGIN = 1.5          # score gap to switch (auto mode)
@@ -234,7 +237,7 @@ AUTO_TACTICS_MIN_TRADES = 2            # need N trades before auto switch
 AUTO_TRADER_COPY_ENABLED = True
 AUTO_TRADER_MIN_CONFIDENCE = 0.68      # copy popular trader idea when above
 
-APP_VERSION = 20
+APP_VERSION = 21
 
 # Security — default localhost; cloud preview needs TRADESIM_BIND_HOST=0.0.0.0
 def _default_bind_host() -> str:
