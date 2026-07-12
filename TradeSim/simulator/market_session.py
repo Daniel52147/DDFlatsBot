@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import logging
 import time
@@ -51,6 +52,7 @@ class MarketSession:
         self._restored = False
         self._candles_ready = False
         self.on_after_trade = None
+        self._candle_refresh_lock = asyncio.Lock()
 
     def set_params_bounded(self, updates: dict):
         merged = {**self.bot.get_params(), **updates}
@@ -180,6 +182,10 @@ class MarketSession:
 
     async def refresh_candles(self, force: bool = False) -> dict[str, Any]:
         """Reload klines from exchange; paginated backfill until chart is current."""
+        async with self._candle_refresh_lock:
+            return await self._refresh_candles_inner(force)
+
+    async def _refresh_candles_inner(self, force: bool = False) -> dict[str, Any]:
         from simulator.candle_sync import gap_start_ts, needs_backfill
         from simulator.feed_hub import cached_klines, invalidate_klines_cache
 
@@ -381,13 +387,13 @@ class MarketSession:
                 })
         return msgs
 
-    async def push_candle_ui(self, price: float) -> dict[str, Any] | None:
+    async def push_candle_ui(self, price: float, *, update_candles: bool = True) -> dict[str, Any] | None:
         """Update candles and return a lightweight tick for the chart (no trading)."""
         if not self._candles_ready or price <= 0:
             return None
         tick_ts = time.time()
         self.engine.note_price(price)
-        closed = self.candles.add_tick(price, tick_ts)
+        closed = self.candles.add_tick(price, tick_ts) if update_candles else None
         closed_dict = closed.to_dict() if closed else None
         sma_period = int(self.bot.params.get("sma_period", 20))
         sma = self.candles.sma(sma_period)

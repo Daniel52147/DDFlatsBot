@@ -40,6 +40,32 @@ def _check(
     })
 
 
+async def _portfolio_drawdown_ok(
+    sessions: dict,
+    logger_db,
+    max_dd_pct: float,
+    *,
+    portfolio_peak: float = 0.0,
+) -> tuple[bool, float, float]:
+    """Drawdown from portfolio peak (equity curve + in-memory peak), not single-market max."""
+    total = sum(
+        s.engine.snapshot(s.feed.price or s.demo_price)["portfolio_value"]
+        for s in sessions.values()
+    )
+    start = sum(s.engine.start_balance for s in sessions.values())
+    peak = max(portfolio_peak, start, total)
+
+    try:
+        curve = await logger_db.equity_curve(hours=168)
+        if curve:
+            peak = max(peak, max(float(p.get("value", 0)) for p in curve))
+    except Exception:
+        pass
+
+    dd = (peak - total) / peak * 100 if peak > 0 else 0.0
+    return dd <= max_dd_pct, round(dd, 2), round(peak, 2)
+
+
 async def assess_live_readiness(
     sessions: dict,
     exchange,
@@ -48,6 +74,7 @@ async def assess_live_readiness(
     *,
     benchmark: dict[str, Any],
     verify: dict[str, Any] | None = None,
+    portfolio_peak: float = 0.0,
 ) -> dict[str, Any]:
     """Score readiness for Binance LIVE — conservative defaults for first real money."""
     checks: list[dict[str, Any]] = []
@@ -58,7 +85,6 @@ async def assess_live_readiness(
     start = sum(s.engine.start_balance for s in sessions.values())
     pnl_pct = ((total - start) / start * 100) if start else 0.0
 
-    from main import portfolio_benchmark
     bench = benchmark
     vs_hold = float(bench.get("vs_hold_pct", 0))
     live_pnl = float(bench.get("live_pnl_pct", 0))
@@ -153,12 +179,16 @@ async def assess_live_readiness(
                 + (f" · {bench.get('benchmark_note', '')}" if bench.get("benchmark_note") else "")
             ),
         )
+
+    dd_ok, dd_pct, peak_val = await _portfolio_drawdown_ok(
+        sessions, logger_db, config.LIVE_MAX_DRAWDOWN_PCT, portfolio_peak=portfolio_peak,
+    )
     _check(
         checks,
         cid="drawdown",
         label=f"Просадка ≤ {config.LIVE_MAX_DRAWDOWN_PCT}%",
-        ok=_portfolio_drawdown_ok(sessions, config.LIVE_MAX_DRAWDOWN_PCT),
-        detail="Считается от пика портфеля по рынкам",
+        ok=dd_ok,
+        detail=f"Просадка портфеля {dd_pct:.1f}% от пика ${peak_val:,.0f}",
     )
 
     required = [c for c in checks if c.get("required", True)]
@@ -179,19 +209,11 @@ async def assess_live_readiness(
             "trade_count": trade_count,
             "pnl_pct": round(pnl_pct, 2),
             "vs_hold_pct": round(vs_hold, 2),
-            "live_pnl_pct": round(live_pnl, 2),
-            "hold_pnl_pct": round(hold_pnl, 2),
-            "portfolio_usd": round(total, 2),
-            "current_mode": mode_mgr.mode,
-        },
-        "limits_if_live": {
-            "max_order_usd": config.LIVE_MAX_ORDER_USD,
-            "max_daily_loss_pct": config.LIVE_MAX_DAILY_LOSS_PCT,
-            "max_position_pct": config.LIVE_MAX_POSITION_PCT,
+            "portfolio_value": round(total, 2),
+            "drawdown_pct": dd_pct,
         },
         "week_plan": _week_plan(paper_days, testnet_days, trade_count, mode_mgr.mode),
-        "bypass": config.LIVE_BYPASS_READINESS,
-        "note": (
+        "summary": (
             "Все проверки пройдены — можно включать Live с малыми лимитами"
             if ready
             else "Доработай пункты ниже перед реальными деньгами"
@@ -199,31 +221,13 @@ async def assess_live_readiness(
     }
 
 
-def _portfolio_drawdown_ok(sessions: dict, max_dd_pct: float) -> bool:
-    peak = 0.0
-    for s in sessions.values():
-        price = s.feed.price or s.demo_price
-        snap = s.engine.snapshot(price)
-        start = s.engine.start_balance
-        pv = snap["portfolio_value"]
-        peak = max(peak, start, pv)
-    if peak <= 0:
-        return True
-    total = sum(
-        s.engine.snapshot(s.feed.price or s.demo_price)["portfolio_value"]
-        for s in sessions.values()
-    )
-    dd = (peak - total) / peak * 100 if peak else 0
-    return dd <= max_dd_pct
-
-
 def _week_plan(paper_days: float, testnet_days: float, trades: int, mode: str) -> list[dict[str, str]]:
     """7-day path paper → testnet → live."""
     plan = [
         {
             "day": "1–2",
-            "task": "Paper + v36",
-            "action": "git pull → start.bat → Ctrl+Shift+R. Смотри vs Hold и сделки.",
+            "task": "Paper + Paper Learn",
+            "action": "git pull → start.bat → Ctrl+Shift+R. Режим 📄 Paper, кнопка 📚 Paper учёба.",
             "done": paper_days >= 1,
         },
         {

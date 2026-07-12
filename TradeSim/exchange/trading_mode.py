@@ -101,7 +101,10 @@ class TradingModeManager:
                 "mode": self._mode,
             }
 
-        if mode == "live" and config.LIVE_REQUIRE_READINESS and not force and not config.LIVE_BYPASS_READINESS:
+        allow_force = force and config.LIVE_ALLOW_FORCE
+        if force and not config.LIVE_ALLOW_FORCE:
+            logger.warning("Live force ignored — set LIVE_ALLOW_FORCE=true in .env to bypass readiness")
+        if mode == "live" and config.LIVE_REQUIRE_READINESS and not allow_force and not config.LIVE_BYPASS_READINESS:
             if not readiness or not readiness.get("ready_for_live"):
                 score = readiness.get("score_pct", 0) if readiness else 0
                 failed = [

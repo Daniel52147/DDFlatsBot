@@ -24,12 +24,20 @@ class ExchangeRiskManager:
         self.daily_loss_usd = 0.0
         self.daily_reset_ts = time.time()
         self.orders_today = 0
+        self.day_start_value = 0.0
 
     def _roll_day(self):
         if time.time() - self.daily_reset_ts > 86400:
             self.daily_loss_usd = 0.0
             self.orders_today = 0
+            self.day_start_value = 0.0
             self.daily_reset_ts = time.time()
+
+    def note_portfolio_value(self, portfolio_value: float):
+        """Track day-start portfolio for true daily drawdown."""
+        self._roll_day()
+        if portfolio_value > 0 and self.day_start_value <= 0:
+            self.day_start_value = portfolio_value
 
     def check_order(
         self,
@@ -38,11 +46,13 @@ class ExchangeRiskManager:
         portfolio_value: float,
         pnl_pct: float,
         *,
+        portfolio_pnl_pct: float | None = None,
         max_order_usd: float | None = None,
         max_daily_loss_pct: float | None = None,
         max_position_pct: float | None = None,
     ) -> tuple[bool, str]:
         self._roll_day()
+        self.note_portfolio_value(portfolio_value)
         max_order = max_order_usd if max_order_usd is not None else config.EXCHANGE_MAX_ORDER_USD
         daily_loss_pct = (
             max_daily_loss_pct if max_daily_loss_pct is not None else config.EXCHANGE_MAX_DAILY_LOSS_PCT
@@ -59,8 +69,13 @@ class ExchangeRiskManager:
                     f"Позиция {pos_pct * 100:.0f}% > лимита "
                     f"{pos_pct_limit * 100:.0f}%"
                 )
-        if pnl_pct <= -daily_loss_pct:
-            return False, f"Дневная просадка {pnl_pct:.1f}% — торговля заблокирована"
+        book_pnl = portfolio_pnl_pct if portfolio_pnl_pct is not None else pnl_pct
+        if book_pnl <= -daily_loss_pct:
+            return False, f"Просадка портфеля {book_pnl:.1f}% — торговля заблокирована"
+        if self.day_start_value > 0 and portfolio_value > 0:
+            daily_dd = (self.day_start_value - portfolio_value) / self.day_start_value * 100
+            if daily_dd >= daily_loss_pct:
+                return False, f"Дневная просадка портфеля {daily_dd:.1f}% — лимит {daily_loss_pct:.0f}%"
         if self.daily_loss_usd >= portfolio_value * daily_loss_pct / 100:
             return False, "Дневной лимит убытка исчерпан"
         return True, "ok"
@@ -280,6 +295,7 @@ class BinanceLiveExchange:
         pnl_pct: float,
         price: float | None = None,
         from_paper_sync: bool = False,
+        portfolio_pnl_pct: float | None = None,
     ) -> dict[str, Any]:
         side = side.lower()
         if side not in ("buy", "sell"):
@@ -287,7 +303,9 @@ class BinanceLiveExchange:
 
         limits = self.order_limits()
         ok, reason = self.risk.check_order(
-            side, amount_usd, portfolio_value, pnl_pct, **limits,
+            side, amount_usd, portfolio_value, pnl_pct,
+            portfolio_pnl_pct=portfolio_pnl_pct,
+            **limits,
         )
         if not ok:
             return {"ok": False, "error": reason, "mode": "blocked"}

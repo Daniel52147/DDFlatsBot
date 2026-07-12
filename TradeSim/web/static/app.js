@@ -24,6 +24,12 @@ let marketMeta = [
 ];
 let startBalance = 10000;
 
+function formatUnixTs(sec, opts) {
+  const ts = Number(sec || 0);
+  if (!ts || ts < 1e9) return "—";
+  return new Date(ts * 1000).toLocaleString("ru-RU", opts);
+}
+
 function apiHeaders(json = true) {
   const h = {};
   if (json) h["Content-Type"] = "application/json";
@@ -248,7 +254,7 @@ function renderDepositsTable(deposits) {
     return;
   }
   el.innerHTML = `<table class="data-table"><thead><tr><th>Время</th><th>Сумма</th><th>Куда</th><th>Итого портфель</th></tr></thead><tbody>
-    ${deposits.map(d => `<tr><td>${new Date(d.ts * 1000).toLocaleString("ru-RU")}</td>
+    ${deposits.map(d => `<tr><td>${formatUnixTs(d.ts)}</td>
       <td><b>$${Number(d.amount).toLocaleString()}</b></td><td>${d.note || d.target}</td>
       <td>${fmtMoney(d.total_after)}</td></tr>`).join("")}
   </tbody></table>`;
@@ -506,9 +512,9 @@ async function checkServerAndSync() {
     if (ping.market_meta?.length) applyMarketMeta(ping.market_meta);
     seedMarketsFromMeta();
     if (ping.total) updateTotal(ping.total);
-    const expectedVer = 39;
+    const expectedVer = 40;
     if (ping.version && ping.version < expectedVer) {
-      const msg = `СТАРЫЙ СЕРВЕР v${ping.version}! Обнови: git pull origin cursor/tradesim-v39-paper-learn-2631 → .\\start.bat → Ctrl+Shift+R`;
+      const msg = `СТАРЫЙ СЕРВЕР v${ping.version}! Обнови: git pull origin cursor/tradesim-v40-fixes-2631 → .\\start.bat → Ctrl+Shift+R`;
       showError(msg);
       showToast("⚠️ " + msg, 15000);
     }

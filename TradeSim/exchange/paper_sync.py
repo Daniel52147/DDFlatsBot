@@ -156,11 +156,12 @@ async def mirror_base_from_exchange(session, exchange, tolerance: float | None =
         remove = min(eng.position.base, abs(diff))
         if remove <= 0:
             return {
-                "ok": True,
-                "synced": True,
+                "ok": False,
+                "synced": False,
                 "symbol": symbol,
                 "label": session.label,
                 "diff": round(diff, 8),
+                "error": "paper base below exchange — cannot mirror sell",
                 "note": "no paper base to reduce",
             }
         trade = eng.apply_exchange_fill(
@@ -198,7 +199,14 @@ def _is_exchange_origin_trade(trade) -> bool:
     return (getattr(trade, "reason", "") or "").startswith("EXCHANGE")
 
 
-async def sync_trade_to_exchange(session, trade, exchange) -> dict[str, Any] | None:
+async def sync_trade_to_exchange(
+    session,
+    trade,
+    exchange,
+    *,
+    portfolio_value: float = 0.0,
+    portfolio_pnl_pct: float | None = None,
+) -> dict[str, Any] | None:
     """Mirror a paper bot/manual trade to testnet/live (paper → exchange)."""
     if not config.EXCHANGE_SYNC_FROM_PAPER or not exchange.enabled:
         return None
@@ -214,14 +222,17 @@ async def sync_trade_to_exchange(session, trade, exchange) -> dict[str, Any] | N
     if amount_usd <= 0:
         return None
 
+    book_value = portfolio_value or snap.get("portfolio_value", 0)
+    book_pnl = portfolio_pnl_pct if portfolio_pnl_pct is not None else snap.get("pnl_pct", 0)
     result = await exchange.place_market_order(
         session.symbol,
         trade.side,
         amount_usd,
-        snap.get("portfolio_value", 0),
+        book_value,
         snap.get("pnl_pct", 0),
         price=price,
         from_paper_sync=True,
+        portfolio_pnl_pct=book_pnl,
     )
     if not result.get("ok"):
         logger.warning(

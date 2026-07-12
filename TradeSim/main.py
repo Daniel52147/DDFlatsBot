@@ -67,6 +67,10 @@ logger_db = LearningLogger()
 brain = CentralBrain()
 live_exchange = BinanceLiveExchange()
 
+def api_fail(error: str, **extra: Any) -> dict[str, Any]:
+    return {"ok": False, "error": error, **extra}
+
+
 state: dict[str, Any] = {
     "connected_clients": set(),
     "running": False,
@@ -155,12 +159,19 @@ def total_portfolio() -> dict[str, Any]:
     total = sum(s.engine.snapshot(s.feed.price or s.demo_price)["portfolio_value"] for s in sessions.values())
     start = sum(s.engine.start_balance for s in sessions.values())
     pnl = total - start
+    peak = float(state.get("portfolio_peak", 0) or 0)
+    peak = max(peak, start, total)
+    if total > peak:
+        peak = total
+    state["portfolio_peak"] = peak
     bench = portfolio_benchmark()
     return {
         "total_value": round(total, 2),
         "pnl": round(pnl, 2),
         "pnl_pct": round(pnl / start * 100, 2) if start else 0,
         "start_balance": round(start, 2),
+        "portfolio_peak": round(peak, 2),
+        "drawdown_pct": round((peak - total) / peak * 100, 2) if peak else 0,
         "markets_count": len(sessions),
         "markets_configured": len(config.MARKETS),
         "benchmark": bench,
@@ -175,7 +186,7 @@ def _learning_honesty(stats: dict) -> dict[str, Any]:
         "version": config.APP_VERSION,
         "markets_configured": len(config.MARKETS),
         "markets_active": len(sessions),
-        "project_readiness": "v37 — честный vs Hold, авто-Testnet, путь к Live за 7 дней",
+        "project_readiness": "v40 — безопасность Live, честный drawdown, Paper Learn",
         "really_learns": True,
         "learning_kind": "эвристики + статистика (не нейросеть)",
         "what_is_real": [
@@ -290,7 +301,7 @@ async def run_session_loop(session: MarketSession):
                 except Exception as e:
                     logger.warning("[%s] lag heal failed: %s", session.symbol, e)
             if feed_hub and session._candles_ready and (session.feed.price or 0) > 0:
-                ui_tick = await session.push_candle_ui(session.feed.price)
+                ui_tick = await session.push_candle_ui(session.feed.price, update_candles=False)
                 if ui_tick:
                     await broadcast(ui_tick)
             elif not feed_hub and now - session.feed.last_update > 2:
@@ -315,6 +326,7 @@ async def brain_loop():
         try:
             ctx = all_contexts()
             total = total_portfolio()
+            live_exchange.risk.note_portfolio_value(total["total_value"])
             from learning.paper_learn_mode import (
                 effective_portfolio_max_drawdown_pct,
                 is_paper_learn_mode,
@@ -567,6 +579,7 @@ async def _live_readiness_payload() -> dict[str, Any]:
     verify = None
     if live_exchange.enabled:
         verify = await live_exchange.verify_connection()
+    tot = total_portfolio()
     return await assess_live_readiness(
         sessions,
         live_exchange,
@@ -574,6 +587,7 @@ async def _live_readiness_payload() -> dict[str, Any]:
         trading_mode,
         benchmark=portfolio_benchmark(),
         verify=verify,
+        portfolio_peak=tot.get("portfolio_peak", 0),
     )
 
 
@@ -711,7 +725,12 @@ def _brain_public(cycle: dict) -> dict:
 async def after_paper_trade(session, trade):
     result = None
     if trading_mode.should_mirror_to_exchange() and config.EXCHANGE_SYNC_FROM_PAPER:
-        result = await sync_trade_to_exchange(session, trade, live_exchange)
+        tot = total_portfolio()
+        result = await sync_trade_to_exchange(
+            session, trade, live_exchange,
+            portfolio_value=tot["total_value"],
+            portfolio_pnl_pct=tot["pnl_pct"],
+        )
     payload = {
         "type": "exchange_sync",
         "symbol": session.symbol,
@@ -942,7 +961,7 @@ async def api_markets():
         "markets": [m for m in config.MARKETS],
         "market_meta": _market_meta(),
         "total": total_portfolio(),
-        "mode": "paper",
+        "mode": trading_mode.mode,
     }
 
 
@@ -981,9 +1000,9 @@ async def api_shadow_reset(symbol: str | None = None):
 @app.post("/api/shadow-lab/apply")
 async def api_shadow_apply(body: ShadowApplyRequest):
     if not shadow_lab:
-        return {"error": "shadow lab disabled"}
+        return api_fail("shadow lab disabled")
     if body.symbol not in sessions:
-        return {"error": "unknown symbol"}
+        return api_fail("unknown symbol")
     result = shadow_lab.apply_clone(body.symbol, body.clone_id)
     if result.get("ok"):
         await sessions[body.symbol].persist()
@@ -1021,9 +1040,9 @@ async def api_strategies():
 @app.post("/api/strategy/switch")
 async def api_strategy_switch(body: StrategySwitchRequest):
     if body.symbol not in sessions:
-        return {"error": "unknown symbol"}
+        return api_fail("unknown symbol")
     if body.strategy_type not in STRATEGY_META:
-        return {"error": f"unknown strategy {body.strategy_type}"}
+        return api_fail(f"unknown strategy {body.strategy_type}")
     s = sessions[body.symbol]
     old_type = s.strategy_type
     price = s.feed.price or s.demo_price
@@ -1031,7 +1050,7 @@ async def api_strategy_switch(body: StrategySwitchRequest):
     try:
         result = s.switch_strategy(body.strategy_type)
     except ValueError as e:
-        return {"error": str(e)}
+        return api_fail(str(e))
     await log_switch(
         logger_db,
         symbol=body.symbol,
@@ -1076,7 +1095,7 @@ async def api_strategy_paper_learn(body: ActiveTradeRequest | None = None):
     body = body or ActiveTradeRequest()
     if body.symbol:
         if body.symbol not in sessions:
-            return {"error": "unknown symbol"}
+            return api_fail("unknown symbol")
         info = apply_paper_learn_trading(
             sessions[body.symbol], reset_timers=body.reset_timers,
         )
@@ -1095,7 +1114,7 @@ async def api_strategy_active(body: ActiveTradeRequest | None = None):
     body = body or ActiveTradeRequest()
     if body.symbol:
         if body.symbol not in sessions:
-            return {"error": "unknown symbol"}
+            return api_fail("unknown symbol")
         info = apply_active_trading(
             sessions[body.symbol], reset_timers=body.reset_timers,
         )
@@ -1111,10 +1130,10 @@ async def api_strategy_active(body: ActiveTradeRequest | None = None):
 @app.post("/api/strategy/preset")
 async def api_strategy_preset(body: StrategyPresetRequest):
     if body.symbol not in sessions:
-        return {"error": "unknown symbol"}
+        return api_fail("unknown symbol")
     s = sessions[body.symbol]
     if not apply_strategy_preset(s, body.preset):
-        return {"error": f"unknown preset {body.preset}"}
+        return api_fail(f"unknown preset {body.preset}")
     await s.persist()
     return {
         "ok": True,
@@ -1262,7 +1281,7 @@ async def api_all_trades(symbol: str | None = None, limit: int = 200):
 async def api_candles(symbol: str, limit: int = 200, refresh: bool = False):
     """Historical OHLC for chart — auto backfill if lagging."""
     if symbol not in sessions:
-        return {"error": "unknown symbol"}
+        return api_fail("unknown symbol")
     s = sessions[symbol]
     lim = min(max(limit, 10), config.CANDLE_STARTUP_LIMIT)
     lag = s.candles.lag_sec()
@@ -1297,12 +1316,12 @@ async def api_candles(symbol: str, limit: int = 200, refresh: bool = False):
 async def api_backtest(body: BacktestRequest):
     sym = body.symbol
     if sym not in sessions:
-        return {"error": f"unknown symbol {sym}"}
+        return api_fail(f"unknown symbol {sym}")
     s = sessions[sym]
     try:
         candles = await s.feed.fetch_klines(interval=config.CANDLE_INTERVAL, limit=min(body.limit, 1000))
     except Exception as e:
-        return {"error": f"klines failed: {e}"}
+        return api_fail(f"klines failed: {e}")
     market = next(m for m in config.MARKETS if m["symbol"] == sym)
     stype = body.strategy_type or getattr(s, "strategy_type", market.get("strategy_type", "dca"))
     params = s.bot.get_params()
@@ -1322,12 +1341,12 @@ async def api_backtest(body: BacktestRequest):
 async def api_backtest_compare(body: BacktestCompareRequest):
     sym = body.symbol
     if sym not in sessions:
-        return {"error": f"unknown symbol {sym}"}
+        return api_fail(f"unknown symbol {sym}")
     s = sessions[sym]
     try:
         candles = await s.feed.fetch_klines(interval=config.CANDLE_INTERVAL, limit=min(body.limit, 1000))
     except Exception as e:
-        return {"error": f"klines failed: {e}"}
+        return api_fail(f"klines failed: {e}")
     strategies = [st for st in body.strategies if st in STRATEGY_META] or list(STRATEGY_META.keys())
     results = compare_strategies(
         candles,
@@ -1423,14 +1442,16 @@ async def api_trading_mode_set(body: TradingModeRequest):
 @app.post("/api/exchange/order")
 async def api_exchange_order(body: ManualTradeRequest):
     if body.symbol not in sessions:
-        return {"error": "unknown symbol"}
+        return api_fail("unknown symbol")
     s = sessions[body.symbol]
     snap = s.engine.snapshot(s.feed.price or s.demo_price)
     price = s.feed.price or s.demo_price
+    tot = total_portfolio()
     result = await live_exchange.place_market_order(
         body.symbol, body.side, body.amount_usd,
-        snap["portfolio_value"], snap.get("pnl_pct", 0),
+        tot["total_value"], snap.get("pnl_pct", 0),
         price=price,
+        portfolio_pnl_pct=tot["pnl_pct"],
     )
     if isinstance(result, dict) and result.get("error"):
         return result
@@ -1443,9 +1464,12 @@ async def api_exchange_order(body: ManualTradeRequest):
         paper_sync = await sync_order_to_paper(s, result)
         result["paper_sync"] = paper_sync
         if paper_sync and not paper_sync.get("ok"):
-            result["warning"] = (
+            result["ok"] = False
+            result["error"] = (
                 paper_sync.get("error") or "paper wallet sync failed after exchange order"
             )
+            result["exchange_order_placed"] = True
+            result["warning"] = result["error"]
         if paper_sync and paper_sync.get("ok"):
             await broadcast({
                 "type": "trade",
@@ -1473,9 +1497,9 @@ async def api_exchange_order(body: ManualTradeRequest):
 async def api_exchange_sync_paper(symbol: str = "BTCUSDT"):
     """Mirror exchange base balance into paper wallet for one market."""
     if symbol not in sessions:
-        return {"error": "unknown symbol"}
+        return api_fail("unknown symbol")
     if not config.EXCHANGE_SYNC_TO_PAPER:
-        return {"error": "EXCHANGE_SYNC_TO_PAPER=false"}
+        return api_fail("EXCHANGE_SYNC_TO_PAPER=false")
     result = await mirror_base_from_exchange(sessions[symbol], live_exchange)
     if result.get("ok"):
         await broadcast({
@@ -1491,7 +1515,7 @@ async def api_exchange_sync_paper(symbol: str = "BTCUSDT"):
 @app.get("/api/exchange/reconcile")
 async def api_exchange_reconcile(symbol: str = "BTCUSDT"):
     if symbol not in sessions:
-        return {"error": "unknown symbol"}
+        return api_fail("unknown symbol")
     s = sessions[symbol]
     return await live_exchange.reconcile(
         symbol, s.engine.position.base, s.engine.position.quote,
@@ -1545,7 +1569,7 @@ async def api_market_sync_strategy(symbol: str):
     """Re-apply config strategy + refresh price feed for one market."""
     market = next((m for m in config.MARKETS if m["symbol"] == symbol), None)
     if not market or symbol not in sessions:
-        return {"error": "unknown symbol"}
+        return api_fail("unknown symbol")
     s = sessions[symbol]
     stype = market.get("strategy_type", "dca")
     params = market.get("strategy") or {}
@@ -1609,11 +1633,11 @@ async def api_deposit(body: DepositRequest):
     ensure_all_markets()
     amount = float(body.amount)
     if amount < 1 or amount > 100_000:
-        return {"error": "Сумма от $1 до $100,000"}
+        return api_fail("Сумма от $1 до $100,000")
     target = (body.target or "split").lower()
     if target == "symbol":
         if not body.symbol or body.symbol not in sessions:
-            return {"error": "Укажи symbol, например BTCUSDT"}
+            return api_fail("Укажи symbol, например BTCUSDT")
         await sessions[body.symbol].deposit(amount)
         note = body.note or f"На {body.symbol}"
     else:
@@ -1691,25 +1715,25 @@ async def api_chat(body: ChatRequest):
 @app.post("/api/bot/toggle")
 async def toggle_bot(symbol: str = config.MARKETS[0]["symbol"]):
     if symbol not in sessions:
-        return {"error": "unknown symbol"}
+        return api_fail("unknown symbol")
     s = sessions[symbol]
     s.bot.enabled = not s.bot.enabled
     await s.persist()
-    return {"symbol": symbol, "enabled": s.bot.enabled}
+    return {"ok": True, "symbol": symbol, "enabled": s.bot.enabled}
 
 
 @app.post("/api/trade")
 async def manual_trade(body: ManualTradeRequest):
     if body.symbol not in sessions:
-        return {"error": "unknown symbol"}
+        return api_fail("unknown symbol")
     if body.side not in ("buy", "sell"):
-        return {"error": "side must be buy or sell"}
+        return api_fail("side must be buy or sell")
     if body.amount_usd <= 0 or body.amount_usd > 500:
-        return {"error": "amount_usd must be 1–500"}
+        return api_fail("amount_usd must be 1–500")
     s = sessions[body.symbol]
     trade = await s.manual_trade(body.side, body.amount_usd, body.reason)
     if not trade:
-        return {"error": "trade failed — insufficient balance or price"}
+        return api_fail("trade failed — insufficient balance or price")
     await broadcast({
         "type": "trade",
         "symbol": body.symbol,
@@ -1746,10 +1770,11 @@ async def reset_portfolio(full: bool = False):
         await s.persist()
     state["chat_history"] = []
     state["brain_cycle"] = None
+    state["portfolio_peak"] = 0.0
     if shadow_lab:
         shadow_lab.reset_clones()
         shadow_lab.total_shadow_trades = 0
-    return {"total": total_portfolio(), "full": full}
+    return {"ok": True, "total": total_portfolio(), "full": full}
 
 
 @app.websocket("/ws")

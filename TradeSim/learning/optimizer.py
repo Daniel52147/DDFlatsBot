@@ -61,6 +61,27 @@ class StrategyOptimizer:
     "stop_loss_cooldown_hours": (0.25, 6),
   }
 
+  BOUNDS_EXTENDED = {
+    "grid_spacing_pct": (0.5, 5.0),
+    "grid_cooldown_minutes": (0.0, 30.0),
+    "grid_buy_amount": (5.0, 80.0),
+    "grid_sell_fraction": (0.05, 0.5),
+    "scalp_cooldown_seconds": (1, 120),
+    "scalp_move_pct": (0.1, 3.0),
+    "scalp_tp_pct": (0.1, 2.0),
+    "scalp_buy_amount": (5.0, 60.0),
+    "breakout_pct": (0.3, 5.0),
+    "trailing_stop_pct": (1.0, 12.0),
+    "momentum_buy_amount": (5.0, 80.0),
+    "entry_cooldown_minutes": (0.0, 30.0),
+    "rsi_oversold": (20, 45),
+    "rsi_overbought": (55, 80),
+    "rsi_buy_amount": (5.0, 60.0),
+    "rsi_buy_cooldown_minutes": (0.0, 30.0),
+    "rsi_sell_cooldown_minutes": (0.0, 30.0),
+    "stop_loss_cooldown_hours": (0.25, 12.0),
+  }
+
   @classmethod
   def bounds_for_paper_learn(cls, volatile: bool = False) -> dict:
     base = cls.BOUNDS_VOLATILE if volatile else cls.BOUNDS
@@ -131,11 +152,17 @@ class StrategyOptimizer:
     )
 
     if deltas:
+      from learning.paper_learn_mode import is_paper_learn_mode
+      paper_float_dca = is_paper_learn_mode() or isinstance(
+          self.params.get("dca_interval_hours"), float,
+      )
       for key, delta in deltas.items():
         if key not in p:
           continue
         old = p[key]
-        if isinstance(old, int) or key in ("sma_period", "dca_interval_hours"):
+        if key == "dca_interval_hours" and paper_float_dca:
+          p[key] = float(old) + float(delta)
+        elif isinstance(old, int) or key in ("sma_period",):
           p[key] = int(old + delta)
         else:
           p[key] = float(old) + delta
@@ -162,11 +189,18 @@ class StrategyOptimizer:
     return self.get_params(), reason
 
   def apply_params(self, params: dict) -> dict:
+    from learning.paper_learn_mode import is_paper_learn_mode
     for k, v in params.items():
       if k not in self.params:
         continue
-      lo, hi = self.bounds.get(k, (v, v))
-      if isinstance(v, int) or isinstance(self.params.get(k), int):
+      bounds = self.bounds
+      if k in self.BOUNDS_EXTENDED:
+        lo, hi = self.BOUNDS_EXTENDED[k]
+      else:
+        lo, hi = bounds.get(k, (v, v))
+      if k == "dca_interval_hours" and (is_paper_learn_mode() or isinstance(v, float)):
+        self.params[k] = max(lo, min(hi, float(v)))
+      elif isinstance(v, int) or (isinstance(self.params.get(k), int) and k != "dca_interval_hours"):
         self.params[k] = int(max(lo, min(hi, int(v))))
       else:
         self.params[k] = max(lo, min(hi, float(v)))
