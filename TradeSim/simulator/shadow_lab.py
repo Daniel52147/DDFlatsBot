@@ -42,7 +42,7 @@ _JITTER_PROFILES = [
 class ShadowClone:
     """Lightweight paper bot — same price feed, different params."""
 
-    __slots__ = ("clone_id", "symbol", "label", "volatile", "engine", "bot", "optimizer", "trades")
+    __slots__ = ("clone_id", "symbol", "label", "volatile", "strategy_type", "engine", "bot", "optimizer", "trades")
 
     def __init__(
         self,
