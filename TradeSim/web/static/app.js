@@ -1231,7 +1231,7 @@ function connectWs() {
           showToast(`🔗 ${msg.label}: base mirrored (Δ ${msg.mirror.diff})`);
         }
         if (msg.total) updateTotal(msg.total);
-        await refreshStatus();
+        void refreshStatus();
         loadExchangePanel();
       }
       if (msg.type === "trade" && msg.trade) {
