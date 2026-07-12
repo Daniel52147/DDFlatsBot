@@ -6,7 +6,10 @@ cd /d "%~dp0"
 echo.
 echo [1/4] Обновление кода...
 git fetch origin
-git pull origin cursor/tradesim-v33-chart-exchange-2631 2>nul
+git pull origin cursor/tradesim-v35-profit-focus-2631 2>nul
+if errorlevel 1 (
+  git pull origin cursor/tradesim-v33-chart-exchange-2631 2>nul
+)
 if errorlevel 1 (
   git pull origin cursor/tradesim-v32-more-trades-2631 2>nul
 )
@@ -40,7 +43,7 @@ echo.
 echo [4/4] Запуск сервера...
 echo.
 echo   ЛОКАЛЬНО открой:  http://127.0.0.1:8765
-echo   Должна быть версия v30+ в заголовке
+echo   Должна быть версия v35 в заголовке (Profit Focus)
 echo   Ctrl+Shift+R в браузере если старая версия
 echo   НЕ закрывай это окно — иначе сайт не откроется
 echo.

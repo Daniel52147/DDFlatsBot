@@ -506,7 +506,7 @@ async function checkServerAndSync() {
     if (ping.total) updateTotal(ping.total);
     const expectedVer = 34;
     if (ping.version && ping.version < expectedVer) {
-      const msg = `СТАРЫЙ СЕРВЕР v${ping.version}! Свечи не синхронизируются. Закрой сервер → запусти start.bat или: git pull origin cursor/tradesim-v30-candle-fix-2631 → python main.py → Ctrl+Shift+R`;
+      const msg = `СТАРЫЙ СЕРВЕР v${ping.version}! Обнови код: git pull origin cursor/tradesim-v35-profit-focus-2631 → .\\start.bat → Ctrl+Shift+R`;
       showError(msg);
       showToast("⚠️ " + msg, 15000);
     }
