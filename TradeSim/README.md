@@ -1,6 +1,20 @@
-# TradeSim v27
+# TradeSim v28
 
-**Paper trading** with **walk-forward Shadow Lab**, **strategy performance report**, and **correlation risk gate**.
+**Paper + testnet** with **PnL dashboard**, **strategy switch tracking**, and **dynamic capital allocation**.
+
+## v28 — Allocator & testnet PnL
+
+- **Testnet PnL dashboard** — `GET /api/exchange/pnl` compares exchange wallet vs paper; UI in exchange panel
+- **Exchange snapshots** — logged every 5 min for 48h curve
+- **Strategy outcomes** — tracks vs_hold before/after each strategy switch (auto + manual); `GET /api/strategy-outcomes`
+- **Capital allocator** — top 25% vs-hold markets get +15% buy size; bottom laggards −15% (`CAPITAL_ALLOCATOR_*`)
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `CAPITAL_ALLOCATOR_BOOST` | 1.15 | Buy size multiplier for leaders |
+| `CAPITAL_ALLOCATOR_CUT` | 0.85 | Buy size cut for laggards |
+| `STRATEGY_OUTCOME_EVAL_SEC` | 7200 | Hours before measuring switch outcome |
+| `EXCHANGE_PNL_SNAPSHOT_SEC` | 300 | Exchange vs paper snapshot interval |
 
 ## v27 — Walk-forward & alpha report
 

@@ -112,6 +112,26 @@ class LearningLogger:
           note TEXT, total_after REAL
         )
       """)
+      await db.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_switches (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          ts REAL, symbol TEXT,
+          old_type TEXT, new_type TEXT,
+          vs_hold_at REAL, pnl_at REAL,
+          vs_hold_after REAL, outcome_pp REAL,
+          evaluated INTEGER DEFAULT 0,
+          reason TEXT
+        )
+      """)
+      await db.execute("""
+        CREATE TABLE IF NOT EXISTS exchange_snapshots (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          ts REAL,
+          exchange_total REAL, paper_total REAL,
+          delta_usd REAL, usdt_free REAL,
+          paper_vs_hold_pct REAL
+        )
+      """)
       await self._migrate(db)
       await db.commit()
 
@@ -293,6 +313,7 @@ class LearningLogger:
       for table in (
         "trades", "snapshots", "strategy_versions", "assistant_messages",
         "sessions", "total_snapshots", "brain_cycles", "deposits",
+        "strategy_switches", "exchange_snapshots",
       ):
         await db.execute(f"DELETE FROM {table}")
       await db.commit()
@@ -452,5 +473,85 @@ class LearningLogger:
       cur = await db.execute(
         "SELECT * FROM trades WHERE ts >= ? ORDER BY ts DESC LIMIT ?",
         (since_ts, limit),
+      )
+      return [dict(r) for r in await cur.fetchall()]
+
+  async def log_strategy_switch(
+      self,
+      *,
+      symbol: str,
+      old_type: str,
+      new_type: str,
+      vs_hold_at: float,
+      pnl_at: float,
+      reason: str,
+  ):
+    async with self._connect() as db:
+      await db.execute(
+        """INSERT INTO strategy_switches
+           (ts, symbol, old_type, new_type, vs_hold_at, pnl_at, reason, evaluated)
+           VALUES (?,?,?,?,?,?,?,0)""",
+        (time.time(), symbol, old_type, new_type, vs_hold_at, pnl_at, reason),
+      )
+      await db.commit()
+
+  async def pending_strategy_switches(self, min_age_sec: float) -> list[dict[str, Any]]:
+    cutoff = time.time() - min_age_sec
+    async with self._connect() as db:
+      db.row_factory = aiosqlite.Row
+      cur = await db.execute(
+        """SELECT * FROM strategy_switches
+           WHERE evaluated = 0 AND ts <= ? ORDER BY ts ASC LIMIT 20""",
+        (cutoff,),
+      )
+      return [dict(r) for r in await cur.fetchall()]
+
+  async def complete_strategy_switch(
+      self, switch_id: int, vs_hold_after: float, outcome_pp: float,
+  ):
+    async with self._connect() as db:
+      await db.execute(
+        """UPDATE strategy_switches
+           SET vs_hold_after = ?, outcome_pp = ?, evaluated = 1 WHERE id = ?""",
+        (vs_hold_after, outcome_pp, switch_id),
+      )
+      await db.commit()
+
+  async def strategy_switch_history(self, limit: int = 30) -> list[dict[str, Any]]:
+    async with self._connect() as db:
+      db.row_factory = aiosqlite.Row
+      cur = await db.execute(
+        """SELECT * FROM strategy_switches ORDER BY ts DESC LIMIT ?""",
+        (limit,),
+      )
+      return [dict(r) for r in await cur.fetchall()]
+
+  async def log_exchange_snapshot(
+      self,
+      exchange_total: float,
+      paper_total: float,
+      usdt_free: float,
+      paper_vs_hold_pct: float,
+  ):
+    async with self._connect() as db:
+      await db.execute(
+        """INSERT INTO exchange_snapshots
+           (ts, exchange_total, paper_total, delta_usd, usdt_free, paper_vs_hold_pct)
+           VALUES (?,?,?,?,?,?)""",
+        (
+          time.time(), exchange_total, paper_total,
+          exchange_total - paper_total, usdt_free, paper_vs_hold_pct,
+        ),
+      )
+      await db.commit()
+
+  async def exchange_pnl_curve(self, hours: int = 48) -> list[dict[str, Any]]:
+    since = time.time() - hours * 3600
+    async with self._connect() as db:
+      db.row_factory = aiosqlite.Row
+      cur = await db.execute(
+        """SELECT ts, exchange_total, paper_total, delta_usd, paper_vs_hold_pct
+           FROM exchange_snapshots WHERE ts >= ? ORDER BY ts ASC""",
+        (since,),
       )
       return [dict(r) for r in await cur.fetchall()]

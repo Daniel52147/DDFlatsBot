@@ -24,8 +24,11 @@ import config
 from assistant.coordinator import CentralBrain
 from exchange.binance_live import BinanceLiveExchange
 from exchange.paper_sync import mirror_base_from_exchange, sync_order_to_paper, sync_trade_to_exchange
+from exchange.pnl_tracker import snapshot_exchange_portfolio
 from learning.analytics import build_portfolio_analytics
 from learning.auto_tactics import AutoTacticsEngine
+from learning.capital_allocator import CapitalAllocator
+from learning.strategy_outcomes import evaluate_pending, log_switch
 from learning.strategy_presets import apply_strategy_preset
 from learning.logger import LearningLogger
 from learning.optimizer import StrategyOptimizer
@@ -47,6 +50,7 @@ sessions: dict[str, MarketSession] = {
 shadow_lab: ShadowLab | None = None
 feed_hub: FeedHub | None = None
 auto_tactics: AutoTacticsEngine | None = None
+capital_allocator: CapitalAllocator | None = None
 logger_db = LearningLogger()
 brain = CentralBrain()
 live_exchange = BinanceLiveExchange()
@@ -181,7 +185,7 @@ def _learning_honesty(stats: dict) -> dict[str, Any]:
         "version": config.APP_VERSION,
         "markets_configured": len(config.MARKETS),
         "markets_active": len(sessions),
-        "project_readiness": "v27 — walk-forward Shadow Lab, отчёт стратегий, корреляционный риск",
+        "project_readiness": "v28 — testnet PnL, исходы смен стратегий, аллокатор капитала",
         "really_learns": True,
         "learning_kind": "эвристики + статистика (не нейросеть)",
         "what_is_real": [
@@ -329,6 +333,14 @@ async def brain_loop():
                 )
                 for ch in tactic_changes:
                     await broadcast({"type": "auto_tactic", **ch})
+            outcomes = await evaluate_pending(logger_db, sessions)
+            if outcomes:
+                state["strategy_outcomes"] = outcomes[-5:]
+            if capital_allocator:
+                alloc_changed = capital_allocator.apply(sessions, ctx)
+                for sym in alloc_changed:
+                    await sessions[sym].persist()
+                state["capital_allocation"] = capital_allocator.status(sessions)
             await logger_db.log_brain_cycle(cycle["decision"], cycle["verdict"])
             await logger_db.log_assistant("brain", cycle["summary"])
             await broadcast({"type": "brain_update", "cycle": _brain_public(cycle)})
@@ -381,9 +393,19 @@ async def snapshot_loop():
                 t["total_value"], t["pnl_pct"],
                 hold_value=bench["hold_value"], hold_pnl_pct=bench["hold_pnl_pct"],
             )
+            if live_exchange.enabled:
+                ex = await snapshot_exchange_portfolio(sessions, live_exchange)
+                if ex.get("enabled") and not ex.get("error"):
+                    await logger_db.log_exchange_snapshot(
+                        ex["exchange_total_usd"],
+                        ex["paper_total_usd"],
+                        ex.get("usdt_free", 0),
+                        ex.get("paper_vs_hold_pct", 0),
+                    )
+                    state["exchange_pnl"] = ex
         except Exception as e:
             logger.warning("snapshot loop error: %s", e)
-        await asyncio.sleep(300)
+        await asyncio.sleep(config.EXCHANGE_PNL_SNAPSHOT_SEC)
 
 
 def collect_alerts() -> list[dict[str, Any]]:
@@ -628,10 +650,11 @@ async def after_paper_trade(session, trade):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global shadow_lab, feed_hub, auto_tactics
+    global shadow_lab, feed_hub, auto_tactics, capital_allocator
 
     await logger_db.init()
     auto_tactics = AutoTacticsEngine()
+    capital_allocator = CapitalAllocator()
     added = ensure_all_markets()
     shadow_lab = ShadowLab(sessions)
     feed_hub = FeedHub(list(sessions.keys()))
@@ -854,10 +877,22 @@ async def api_strategy_switch(body: StrategySwitchRequest):
     if body.strategy_type not in STRATEGY_META:
         return {"error": f"unknown strategy {body.strategy_type}"}
     s = sessions[body.symbol]
+    old_type = s.strategy_type
+    price = s.feed.price or s.demo_price
+    snap_before = s.engine.snapshot(price)
     try:
         result = s.switch_strategy(body.strategy_type)
     except ValueError as e:
         return {"error": str(e)}
+    await log_switch(
+        logger_db,
+        symbol=body.symbol,
+        old_type=old_type,
+        new_type=body.strategy_type,
+        vs_hold_at=float(snap_before.get("vs_hold_pct", 0)),
+        pnl_at=float(snap_before.get("pnl_pct", 0)),
+        reason="manual UI switch",
+    )
     if shadow_lab:
         shadow_lab.reset_clones(body.symbol)
     await s.persist()
@@ -927,6 +962,30 @@ async def api_heatmap():
         })
     cells.sort(key=lambda x: x["vs_hold_pct"], reverse=True)
     return {"cells": cells, "benchmark": portfolio_benchmark()}
+
+
+@app.get("/api/strategy-outcomes")
+async def api_strategy_outcomes(limit: int = 25):
+    history = await logger_db.strategy_switch_history(min(limit, 50))
+    labels = {s.symbol: s.label for s in sessions.values()}
+    for row in history:
+        row["label"] = labels.get(row.get("symbol", ""), "")
+    wins = sum(1 for h in history if h.get("evaluated") and (h.get("outcome_pp") or 0) > 0)
+    evaluated = sum(1 for h in history if h.get("evaluated"))
+    return {
+        "version": config.APP_VERSION,
+        "history": history,
+        "evaluated": evaluated,
+        "wins": wins,
+        "win_rate_pct": round(wins / evaluated * 100, 1) if evaluated else 0,
+    }
+
+
+@app.get("/api/capital-allocation")
+async def api_capital_allocation():
+    if not capital_allocator:
+        return {"enabled": False}
+    return capital_allocator.status(sessions)
 
 
 @app.get("/api/strategy-report")
@@ -1063,6 +1122,14 @@ async def api_backtest_compare(body: BacktestCompareRequest):
         "results": results,
         "winner": results[0]["strategy_type"] if results else None,
     }
+
+
+@app.get("/api/exchange/pnl")
+async def api_exchange_pnl():
+    snap = await snapshot_exchange_portfolio(sessions, live_exchange)
+    snap["version"] = config.APP_VERSION
+    snap["curve"] = await logger_db.exchange_pnl_curve(48)
+    return snap
 
 
 @app.get("/api/exchange/status")

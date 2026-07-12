@@ -10,6 +10,7 @@ from typing import Any
 
 import config
 from learning.strategy_presets import apply_strategy_preset
+from learning.strategy_outcomes import log_switch
 from simulator.backtest import Backtester
 from simulator.strategies import STRATEGY_META
 
@@ -251,10 +252,22 @@ class AutoTacticsEngine:
                 continue
 
             old_type = session.strategy_type
+            price = session.feed.price or session.demo_price
+            snap_before = session.engine.snapshot(price)
             session.switch_strategy(proposal["strategy_type"])
             if proposal.get("preset"):
                 self._apply_preset(session, proposal["preset"])
             # Keep shadow clones learning — reset wiped useful A/B data
+
+            await log_switch(
+                logger_db,
+                symbol=sym,
+                old_type=old_type,
+                new_type=proposal["strategy_type"],
+                vs_hold_at=float(snap_before.get("vs_hold_pct", 0)),
+                pnl_at=float(snap_before.get("pnl_pct", 0)),
+                reason=proposal.get("reason", "auto-tactics"),
+            )
 
             self.last_switch_ts[sym] = time.time()
             self.last_reasons[sym] = proposal

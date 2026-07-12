@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TradeSim v27 — walk-forward · отчёт стратегий</title>
-  <link rel="stylesheet" href="/static/style.css?v=27" />
+  <title>TradeSim v28 — testnet PnL · аллокатор</title>
+  <link rel="stylesheet" href="/static/style.css?v=28" />
   <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
 </head>
-<body class="v27">
+<body class="v28">
   <div id="version-banner" class="version-banner hidden"></div>
   <div id="alerts-ticker" class="alerts-ticker" aria-live="polite">
     <span class="alerts-label">📡 Сканер</span>
@@ -17,8 +17,8 @@
     <div class="brand">
       <span class="logo">◆</span>
       <div>
-        <h1>TradeSim <span class="ver-badge">v27 Alpha</span></h1>
-        <p class="tagline">Walk-forward Shadow Lab · отчёт стратегий · корреляционный риск</p>
+        <h1>TradeSim <span class="ver-badge">v28 Allocator</span></h1>
+        <p class="tagline">Testnet PnL · исходы смен стратегий · аллокатор капитала</p>
       </div>
     </div>
     <div class="header-stats">
@@ -212,7 +212,7 @@
   </details>
 
   <footer class="v16-footer">
-    <span>TradeSim v27 · walk-forward alpha</span>
+    <span>TradeSim v28 · allocator</span>
     <div class="footer-actions">
       <input id="api-token-input" type="password" placeholder="API-токен" class="token-input" />
       <button id="btn-save-token" class="btn ghost small">🔐</button>
@@ -251,6 +251,6 @@
   </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=27"></script>
+  <script src="/static/app.js?v=28"></script>
 </body>
 </html>

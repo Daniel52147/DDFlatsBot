@@ -503,7 +503,7 @@ async function checkServerAndSync() {
     if (ping.market_meta?.length) applyMarketMeta(ping.market_meta);
     seedMarketsFromMeta();
     if (ping.total) updateTotal(ping.total);
-    const expectedVer = 27;
+    const expectedVer = 28;
     if (ping.version && ping.version < expectedVer) {
       showError(`Старый сервер v${ping.version} на порту 8765. Ctrl+C → python main.py → Ctrl+Shift+R`);
     }
@@ -629,7 +629,11 @@ async function renderStrategyReport() {
   if (!el) return;
   el.innerHTML = "<p class='muted'>Считаю рейтинг стратегий...</p>";
   try {
-    const r = await (await fetch("/api/strategy-report")).json();
+    const [r, outcomes, alloc] = await Promise.all([
+      fetch("/api/strategy-report").then(res => res.json()),
+      fetch("/api/strategy-outcomes?limit=12").then(res => res.json()),
+      fetch("/api/capital-allocation").then(res => res.json()),
+    ]);
     const risk = r.risk_gate || {};
     const corr = r.correlation_risk || {};
     const riskLine = risk.blocks_buys
@@ -641,6 +645,14 @@ async function renderStrategyReport() {
     const mktRows = (r.markets || []).map(m =>
       `<tr data-sym="${m.symbol}"><td><b>${m.label}</b></td><td>${m.strategy_type}</td><td class="${m.vs_hold_pct >= 0 ? "up" : "down"}">${fmtPct(m.vs_hold_pct)}</td><td>${fmtPct(m.pnl_pct)}</td><td>${m.trade_count}</td><td>${m.win_rate_pct}%</td></tr>`
     ).join("");
+    const outcomeRows = (outcomes.history || []).slice(0, 10).map(h => {
+      const ev = h.evaluated ? fmtPct(h.outcome_pp || 0) : "…";
+      const cls = h.evaluated && (h.outcome_pp || 0) >= 0 ? "up" : "down";
+      return `<tr><td>${h.label || h.symbol}</td><td>${h.old_type}→${h.new_type}</td><td>${fmtPct(h.vs_hold_at || 0)}</td><td class="${cls}">${ev}</td></tr>`;
+    }).join("");
+    const allocRows = (alloc.markets || []).filter(m => m.multiplier !== 1).slice(0, 8).map(m =>
+      `<li>${m.label}: ×${m.multiplier} (${m.strategy_type}, buy $${m.buy_amount})</li>`
+    ).join("");
     el.innerHTML = `${riskLine}
       ${corr.bearish_markets ? `<p class="muted">🔗 Корреляция: падают ${corr.bearish_markets} рынков · sync-пар ${corr.sync_pairs || 0}</p>` : ""}
       <h4>🏆 По типу стратегии (avg vs hold)</h4>
@@ -648,7 +660,11 @@ async function renderStrategyReport() {
       <tbody>${stratRows || "<tr><td colspan=6>—</td></tr>"}</tbody></table>
       <h4>📊 Все рынки</h4>
       <table class="data-table"><thead><tr><th>Монета</th><th>Стратегия</th><th>vs hold</th><th>P&L</th><th>Сделки</th><th>Win%</th></tr></thead>
-      <tbody>${mktRows || "<tr><td colspan=6>—</td></tr>"}</tbody></table>`;
+      <tbody>${mktRows || "<tr><td colspan=6>—</td></tr>"}</tbody></table>
+      <h4>🔄 Исходы смен стратегий ${outcomes.win_rate_pct != null ? `(win ${outcomes.win_rate_pct}%)` : ""}</h4>
+      <table class="data-table compact"><thead><tr><th>Монета</th><th>Смена</th><th>vs hold до</th><th>Δ после</th></tr></thead>
+      <tbody>${outcomeRows || "<tr><td colspan=4>Ещё нет смен</td></tr>"}</tbody></table>
+      ${allocRows ? `<h4>⚖️ Аллокатор</h4><ul>${allocRows}</ul>` : ""}`;
     el.querySelectorAll("tr[data-sym]").forEach(row => {
       row.style.cursor = "pointer";
       row.onclick = () => switchMarket(row.dataset.sym);
@@ -1728,13 +1744,17 @@ async function loadExchangePanel() {
   const el = document.getElementById("exchange-panel-body");
   if (!el) return;
   try {
-    const [st, bal, rec] = await Promise.all([
+    const [st, bal, rec, pnl] = await Promise.all([
       fetch("/api/exchange/status").then(r => r.json()),
       fetch("/api/exchange/balances").then(r => r.json()),
       fetch(`/api/exchange/reconcile?symbol=${activeSymbol}`).then(r => r.json()),
+      fetch("/api/exchange/pnl").then(r => r.json()),
     ]);
     if (!st.enabled) {
-      el.innerHTML = `<p>Paper режим. Задай <code>BINANCE_API_KEY</code> + <code>EXCHANGE_ENABLED=true</code> для testnet.</p>`;
+      const paperLine = pnl.paper_total_usd
+        ? `<p>Paper: <b>${fmtMoney(pnl.paper_total_usd)}</b> · vs hold <b>${fmtPct(pnl.paper_vs_hold_pct || 0)}</b></p>`
+        : "";
+      el.innerHTML = `<p>Paper режим. Задай <code>BINANCE_API_KEY</code> + <code>EXCHANGE_ENABLED=true</code> для testnet.</p>${paperLine}`;
       return;
     }
     const syncParts = [];
@@ -1743,13 +1763,23 @@ async function loadExchangePanel() {
     const syncNote = syncParts.length
       ? `<p class='muted'>🔗 Sync: ${syncParts.join(" · ")}</p>`
       : "";
+    const delta = pnl.delta_usd != null ? pnl.delta_usd : 0;
+    const deltaCls = delta >= 0 ? "up" : "down";
+    const pnlBlock = `
+      <div class="honesty-box ok" style="margin-bottom:0.5rem">
+        <p><b>Testnet PnL</b> · ${pnl.mode?.toUpperCase() || "TESTNET"}</p>
+        <p>Биржа <b>${fmtMoney(pnl.exchange_total_usd)}</b> · Paper <b>${fmtMoney(pnl.paper_total_usd)}</b>
+          <span class="${deltaCls}">Δ ${fmtMoney(delta)}</span></p>
+        <p class="muted">Paper vs hold ${fmtPct(pnl.paper_vs_hold_pct || 0)} · USDT ${fmtMoney(pnl.usdt_free || 0)} · ордеров ${pnl.orders_today || 0}</p>
+      </div>`;
     const rows = (bal.balances || []).slice(0, 8).map(b =>
       `<tr><td><b>${b.asset}</b></td><td>${Number(b.free).toFixed(6)}</td><td>${Number(b.locked).toFixed(6)}</td></tr>`
     ).join("") || "<tr><td colspan=3>Нет балансов</td></tr>";
     const syncCls = (rec.base_synced ?? rec.synced) ? "up" : "down";
     el.innerHTML = `
+      ${pnlBlock}
       ${syncNote}
-      <p><b>${st.testnet ? "TESTNET" : "LIVE"}</b> · ордер до $${st.max_order_usd} · сегодня ${st.orders_today || 0}</p>
+      <p><b>${st.testnet ? "TESTNET" : "LIVE"}</b> · лимит $${st.max_order_usd} · daily loss ${st.max_daily_loss_pct}%</p>
       <table class="data-table compact"><thead><tr><th>Asset</th><th>Free</th><th>Locked</th></tr></thead><tbody>${rows}</tbody></table>
       <p class="muted" style="margin-top:0.5rem">Reconcile <b>${labelFor(activeSymbol)}</b>:</p>
       <p>Base paper <b>${rec.paper_base ?? "—"}</b> · exchange <b>${rec.exchange_base ?? "—"}</b>

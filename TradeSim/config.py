@@ -265,7 +265,18 @@ CORRELATION_RISK_MOMENTUM_PCT = float(os.environ.get("CORRELATION_RISK_MOMENTUM_
 CORRELATION_RISK_MIN_BEARISH = int(os.environ.get("CORRELATION_RISK_MIN_BEARISH", "6"))
 CORRELATION_RISK_MIN_SYNC_PAIRS = int(os.environ.get("CORRELATION_RISK_MIN_SYNC_PAIRS", "8"))
 
-APP_VERSION = 27
+# Capital allocator — tilt buy sizes to winners (v28)
+CAPITAL_ALLOCATOR_ENABLED = _env_bool("CAPITAL_ALLOCATOR_ENABLED", True)
+CAPITAL_ALLOCATOR_INTERVAL_SEC = int(os.environ.get("CAPITAL_ALLOCATOR_INTERVAL_SEC", "1800"))
+CAPITAL_ALLOCATOR_BOOST = float(os.environ.get("CAPITAL_ALLOCATOR_BOOST", "1.15"))
+CAPITAL_ALLOCATOR_CUT = float(os.environ.get("CAPITAL_ALLOCATOR_CUT", "0.85"))
+CAPITAL_ALLOCATOR_MIN_VS_HOLD = float(os.environ.get("CAPITAL_ALLOCATOR_MIN_VS_HOLD", "0.5"))
+
+# Strategy switch outcome tracking (v28)
+STRATEGY_OUTCOME_EVAL_SEC = int(os.environ.get("STRATEGY_OUTCOME_EVAL_SEC", "7200"))
+EXCHANGE_PNL_SNAPSHOT_SEC = int(os.environ.get("EXCHANGE_PNL_SNAPSHOT_SEC", "300"))
+
+APP_VERSION = 28
 
 # Security — default localhost; cloud preview needs TRADESIM_BIND_HOST=0.0.0.0
 def _default_bind_host() -> str:
