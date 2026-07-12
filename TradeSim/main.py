@@ -777,10 +777,17 @@ async def api_shadow_apply(body: ShadowApplyRequest):
 
 @app.get("/api/auto-tactics")
 async def api_auto_tactics():
-    if not auto_tactics:
-        return {"enabled": False}
     cycle = state.get("brain_cycle") or {}
     tw = cycle.get("trader_watcher", {})
+    if not auto_tactics:
+        return {
+            "enabled": config.AUTO_TACTICS_ENABLED,
+            "trader_copy": config.AUTO_TRADER_COPY_ENABLED,
+            "total_switches": 0,
+            "markets": [],
+            "trader_plays": list(tw.get("market_plays", {}).values())[:12],
+            "copy_candidates": tw.get("copy_candidates", [])[:8],
+        }
     return {
         **auto_tactics.status(sessions),
         "trader_plays": list(tw.get("market_plays", {}).values())[:12],
