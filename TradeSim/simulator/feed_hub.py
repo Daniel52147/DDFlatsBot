@@ -100,6 +100,25 @@ class FeedHub:
             await feed._set_price(price, source)
             await feed._notify(price, feed.last_update)
 
+    async def _rest_poll_all(self) -> None:
+        """Poll each symbol via PriceFeed REST chain (bybit/kraken/coingecko fallback)."""
+        if not self.symbols:
+            return
+        logger.info("FeedHub: REST fallback poll (%d symbols)", len(self.symbols))
+        for sym in self.symbols:
+            if not self._running:
+                break
+            feeds = self._feeds.get(sym, [])
+            feed = feeds[0] if feeds else None
+            if not feed:
+                continue
+            try:
+                price = await feed.fetch_price()
+                if price > 0:
+                    await self._dispatch(sym, price, f"hub-rest-{feed.source}")
+            except Exception as e:
+                logger.warning("FeedHub REST %s failed: %s", sym, e)
+
     async def _run_multiplex(self) -> None:
         import websockets
 
@@ -139,6 +158,8 @@ class FeedHub:
                     logger.warning("FeedHub multiplex failed (%s): %s", base, e)
 
             if self._running:
+                if not connected:
+                    await self._rest_poll_all()
                 await asyncio.sleep(_RECONNECT_DELAY_SEC)
 
 

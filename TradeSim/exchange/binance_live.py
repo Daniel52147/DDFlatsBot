@@ -92,8 +92,11 @@ class BinanceLiveExchange:
             "orders_today": self.risk.orders_today,
             "mode": "live-testnet" if self.enabled else "paper-only",
             "sync_to_paper": config.EXCHANGE_SYNC_TO_PAPER,
+            "sync_from_paper": config.EXCHANGE_SYNC_FROM_PAPER,
             "note": (
-                "Testnet ордера автоматически синхронизируются с paper-кошельком"
+                "Двусторонняя sync: testnet↔paper"
+                if self.enabled and config.EXCHANGE_SYNC_TO_PAPER and config.EXCHANGE_SYNC_FROM_PAPER
+                else "Testnet ордера автоматически синхронизируются с paper-кошельком"
                 if self.enabled and config.EXCHANGE_SYNC_TO_PAPER
                 else "Задай BINANCE_API_KEY + EXCHANGE_ENABLED=true"
                 if not self.enabled
@@ -212,6 +215,7 @@ class BinanceLiveExchange:
         portfolio_value: float,
         pnl_pct: float,
         price: float | None = None,
+        from_paper_sync: bool = False,
     ) -> dict[str, Any]:
         side = side.lower()
         if side not in ("buy", "sell"):
@@ -278,6 +282,7 @@ class BinanceLiveExchange:
         return {
             "ok": True,
             "mode": "live",
+            "from_paper_sync": from_paper_sync,
             "order": data,
             "order_id": data.get("orderId"),
             "status": data.get("status"),

@@ -1165,6 +1165,8 @@ function connectWs() {
       if (msg.type === "exchange_sync") {
         if (msg.paper_sync?.ok) {
           showToast(`🔗 ${msg.label}: testnet → paper синхронизирован`);
+        } else if (msg.paper_to_exchange?.ok) {
+          showToast(`📤 ${msg.label}: paper → testnet (${msg.paper_to_exchange.side} $${Number(msg.paper_to_exchange.amount_usd).toFixed(0)})`);
         } else if (msg.mirror?.ok) {
           showToast(`🔗 ${msg.label}: base mirrored (Δ ${msg.mirror.diff})`);
         }
@@ -1604,8 +1606,11 @@ async function loadExchangePanel() {
       el.innerHTML = `<p>Paper режим. Задай <code>BINANCE_API_KEY</code> + <code>EXCHANGE_ENABLED=true</code> для testnet.</p>`;
       return;
     }
-    const syncNote = st.sync_to_paper
-      ? "<p class='muted'>🔗 Testnet ордера автоматически синхронизируются с paper</p>"
+    const syncParts = [];
+    if (st.sync_to_paper) syncParts.push("testnet → paper");
+    if (st.sync_from_paper) syncParts.push("paper → testnet");
+    const syncNote = syncParts.length
+      ? `<p class='muted'>🔗 Sync: ${syncParts.join(" · ")}</p>`
       : "";
     const rows = (bal.balances || []).slice(0, 8).map(b =>
       `<tr><td><b>${b.asset}</b></td><td>${Number(b.free).toFixed(6)}</td><td>${Number(b.locked).toFixed(6)}</td></tr>`

@@ -191,3 +191,56 @@ async def mirror_base_from_exchange(session, exchange, tolerance: float | None =
         },
         "note": "base balance mirrored from exchange",
     }
+
+
+def _is_exchange_origin_trade(trade) -> bool:
+    return (getattr(trade, "reason", "") or "").startswith("EXCHANGE")
+
+
+async def sync_trade_to_exchange(session, trade, exchange) -> dict[str, Any] | None:
+    """Mirror a paper bot/manual trade to testnet/live (paper → exchange)."""
+    if not config.EXCHANGE_SYNC_FROM_PAPER or not exchange.enabled:
+        return None
+    if _is_exchange_origin_trade(trade):
+        return None
+
+    price = session.feed.price or session.demo_price
+    if price <= 0:
+        return {"ok": False, "error": "no price for exchange sync"}
+
+    snap = session.engine.snapshot(price)
+    amount_usd = float(getattr(trade, "amount_quote", 0) or 0)
+    if amount_usd <= 0:
+        return None
+
+    result = await exchange.place_market_order(
+        session.symbol,
+        trade.side,
+        amount_usd,
+        snap.get("portfolio_value", 0),
+        snap.get("pnl_pct", 0),
+        price=price,
+        from_paper_sync=True,
+    )
+    if not result.get("ok"):
+        logger.warning(
+            "[%s] paper→exchange sync failed: %s",
+            session.symbol,
+            result.get("error", "unknown"),
+        )
+        return {
+            "ok": False,
+            "error": result.get("error"),
+            "side": trade.side,
+            "amount_usd": amount_usd,
+        }
+
+    return {
+        "ok": True,
+        "synced": True,
+        "direction": "paper_to_exchange",
+        "side": trade.side,
+        "amount_usd": amount_usd,
+        "order_id": result.get("order_id"),
+        "mode": result.get("mode"),
+    }

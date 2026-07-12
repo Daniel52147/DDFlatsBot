@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from exchange.paper_sync import mirror_base_from_exchange, parse_binance_order, sync_order_to_paper
+import config
+from exchange.paper_sync import mirror_base_from_exchange, parse_binance_order, sync_order_to_paper, sync_trade_to_exchange
 from simulator.engine import SimulatorEngine
 
 
@@ -133,6 +134,38 @@ class TestSyncOrderToPaper(unittest.IsolatedAsyncioTestCase):
         assert result is not None
         self.assertFalse(result["ok"])
         self.assertIn("rejected", result["error"].lower())
+
+
+class TestPaperToExchange(unittest.IsolatedAsyncioTestCase):
+    async def test_skips_exchange_origin_trades(self):
+        session = MockSession()
+        exchange = MockExchange(exchange_base=0.0)
+        trade = session.engine.apply_exchange_fill(
+            "buy", 100, 0.1, 10, 0, "EXCHANGE TESTNET: order #1",
+        )
+        assert trade is not None
+        with patch.object(config, "EXCHANGE_SYNC_FROM_PAPER", True):
+            result = await sync_trade_to_exchange(session, trade, exchange)
+        self.assertIsNone(result)
+
+    async def test_syncs_paper_trade_when_enabled(self):
+        session = MockSession()
+        trade = session.engine.buy(100.0, 25.0, "DCA scheduled")
+        assert trade is not None
+
+        class RecordingExchange(MockExchange):
+            async def place_market_order(self, *args, **kwargs):
+                self.last_call = kwargs
+                return {"ok": True, "mode": "live", "order_id": 42, "from_paper_sync": True}
+
+        exchange = RecordingExchange(exchange_base=0.0)
+        with patch.object(config, "EXCHANGE_SYNC_FROM_PAPER", True):
+            result = await sync_trade_to_exchange(session, trade, exchange)
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["direction"], "paper_to_exchange")
+        self.assertTrue(exchange.last_call.get("from_paper_sync"))
 
 
 if __name__ == "__main__":

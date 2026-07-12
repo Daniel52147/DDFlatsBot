@@ -236,6 +236,7 @@ def _env_bool(key: str, default: bool) -> bool:
 
 EXCHANGE_MAX_POSITION_PCT = 0.25
 EXCHANGE_SYNC_TO_PAPER = _env_bool("EXCHANGE_SYNC_TO_PAPER", True)
+EXCHANGE_SYNC_FROM_PAPER = _env_bool("EXCHANGE_SYNC_FROM_PAPER", False)
 
 AUTO_TACTICS_ENABLED = _env_bool("AUTO_TACTICS_ENABLED", True)
 AUTO_TACTICS_MIN_INTERVAL_SEC = int(os.environ.get("AUTO_TACTICS_MIN_INTERVAL_SEC", "1200"))
@@ -244,7 +245,7 @@ AUTO_TACTICS_MIN_TRADES = int(os.environ.get("AUTO_TACTICS_MIN_TRADES", "2"))
 AUTO_TRADER_COPY_ENABLED = _env_bool("AUTO_TRADER_COPY_ENABLED", True)
 AUTO_TRADER_MIN_CONFIDENCE = float(os.environ.get("AUTO_TRADER_MIN_CONFIDENCE", "0.68"))
 
-APP_VERSION = 22
+APP_VERSION = 23
 
 # Security — default localhost; cloud preview needs TRADESIM_BIND_HOST=0.0.0.0
 def _default_bind_host() -> str:

@@ -1,6 +1,18 @@
-# TradeSim v22
+# TradeSim v23
 
-**Paper trading** with **testnet→paper sync**, **automatic per-coin tactics**, and **popular trader idea copying**.
+**Paper trading** with **bidirectional testnet sync**, **FeedHub REST fallback**, and **automatic per-coin tactics**.
+
+## v23 — Sync + FeedHub
+
+- **FeedHub REST fallback** — when multiplex WebSocket fails, polls via Bybit/Kraken/Coingecko (same chain as `PriceFeed`)
+- **Paper → exchange sync** — bot/manual paper trades mirror to testnet when `EXCHANGE_SYNC_FROM_PAPER=true` (opt-in, default `false`)
+- **No sync loops** — exchange-originated fills skip paper→exchange; paper-originated orders skip paper re-sync (`from_paper_sync`)
+- **Shared strategy presets** — `learning/strategy_presets.py` used by API and auto-tactics (no duplicate tables)
+
+| Setting | Default | Direction |
+|---------|---------|-----------|
+| `EXCHANGE_SYNC_TO_PAPER` | true | testnet → paper |
+| `EXCHANGE_SYNC_FROM_PAPER` | false | paper → testnet (opt-in) |
 
 ## v22 — Polish
 
@@ -23,7 +35,7 @@ Testnet fills mirror into the paper wallet (one-way: exchange → paper):
 
 Manual mirror: `POST /api/exchange/sync-paper?symbol=BTCUSDT` or **🔗 Sync paper** button.
 
-Paper bot trades do **not** go to the exchange automatically.
+Paper bot trades do **not** go to the exchange unless `EXCHANGE_SYNC_FROM_PAPER=true`.
 
 ## v20 — Auto Tactics
 

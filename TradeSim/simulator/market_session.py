@@ -48,6 +48,7 @@ class MarketSession:
         self.last_snapshot_ts = 0.0
         self._trades_at_last_tune = 0
         self._restored = False
+        self.on_after_trade = None
 
     def set_params_bounded(self, updates: dict):
         merged = {**self.bot.get_params(), **updates}
@@ -167,6 +168,11 @@ class MarketSession:
                 trade, self.bot.get_params(), symbol=self.symbol,
             )
         await self.persist()
+        if self.on_after_trade:
+            try:
+                await self.on_after_trade(self, trade)
+            except Exception:
+                logger.exception("[%s] on_after_trade failed", self.symbol)
 
     async def startup(self):
         try:

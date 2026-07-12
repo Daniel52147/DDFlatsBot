@@ -23,9 +23,10 @@ from starlette.requests import Request
 import config
 from assistant.coordinator import CentralBrain
 from exchange.binance_live import BinanceLiveExchange
-from exchange.paper_sync import mirror_base_from_exchange, sync_order_to_paper
+from exchange.paper_sync import mirror_base_from_exchange, sync_order_to_paper, sync_trade_to_exchange
 from learning.analytics import build_portfolio_analytics
 from learning.auto_tactics import AutoTacticsEngine
+from learning.strategy_presets import apply_strategy_preset
 from learning.logger import LearningLogger
 from learning.optimizer import StrategyOptimizer
 from security import SecurityMiddleware, auth_required
@@ -123,6 +124,7 @@ def ensure_all_markets() -> list[str]:
         if sym not in sessions:
             s = MarketSession(m)
             s.learning_logger = logger_db
+            s.on_after_trade = after_paper_trade
             sessions[sym] = s
             added.append(sym)
             logger.info("Added new market session: %s", sym)
@@ -179,7 +181,7 @@ def _learning_honesty(stats: dict) -> dict[str, Any]:
         "version": config.APP_VERSION,
         "markets_configured": len(config.MARKETS),
         "markets_active": len(sessions),
-        "project_readiness": "v22 — testnet→paper sync + авто-тактики + копирование трейдеров",
+        "project_readiness": "v23 — FeedHub REST fallback + двусторонняя sync + авто-тактики",
         "really_learns": True,
         "learning_kind": "эвристики + статистика (не нейросеть)",
         "what_is_real": [
@@ -591,9 +593,22 @@ def _brain_public(cycle: dict) -> dict:
     }
 
 
+async def after_paper_trade(session, trade):
+    result = await sync_trade_to_exchange(session, trade, live_exchange)
+    if result and result.get("ok"):
+        await broadcast({
+            "type": "exchange_sync",
+            "symbol": session.symbol,
+            "label": session.label,
+            "paper_to_exchange": result,
+            "total": total_portfolio(),
+        })
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global shadow_lab, feed_hub, auto_tactics
+
     await logger_db.init()
     auto_tactics = AutoTacticsEngine()
     added = ensure_all_markets()
@@ -602,6 +617,7 @@ async def lifespan(app: FastAPI):
     for session in sessions.values():
         feed_hub.register(session.symbol, session.feed)
         session.learning_logger = logger_db
+        session.on_after_trade = after_paper_trade
     for session in sessions.values():
         await session.restore_from_db()
     for session in sessions.values():
@@ -836,52 +852,22 @@ async def api_analytics():
     return await _analytics_payload_db(equity)
 
 
-STRATEGY_PRESETS: dict[str, dict[str, dict[str, float]]] = {
-    "dca": {
-        "aggressive": {"dca_amount": 1.35, "dip_extra_amount": 1.4, "dip_threshold_pct": 0.85, "take_profit_fraction": 0.85},
-        "conservative": {"dca_amount": 0.75, "dip_extra_amount": 0.8, "dip_threshold_pct": 1.15, "stop_loss_pct": 0.9},
-        "balanced": {"dca_amount": 1.0, "dip_extra_amount": 1.0, "dip_threshold_pct": 1.0},
-    },
-    "grid": {
-        "aggressive": {"grid_spacing_pct": 0.85, "grid_buy_amount": 1.3, "grid_sell_fraction": 0.9},
-        "conservative": {"grid_spacing_pct": 1.15, "grid_buy_amount": 0.8, "grid_sell_fraction": 1.1},
-        "balanced": {"grid_spacing_pct": 1.0, "grid_buy_amount": 1.0},
-    },
-    "momentum": {
-        "aggressive": {"breakout_pct": 0.85, "momentum_buy_amount": 1.25, "trailing_stop_pct": 0.9},
-        "conservative": {"breakout_pct": 1.15, "momentum_buy_amount": 0.8, "trailing_stop_pct": 1.1},
-        "balanced": {"breakout_pct": 1.0, "momentum_buy_amount": 1.0},
-    },
-    "rsi": {
-        "aggressive": {"rsi_buy_amount": 1.3, "rsi_oversold": 1.05, "rsi_overbought": 0.95},
-        "conservative": {"rsi_buy_amount": 0.8, "rsi_oversold": 0.95, "rsi_overbought": 1.05},
-        "balanced": {"rsi_buy_amount": 1.0},
-    },
-    "scalper": {
-        "aggressive": {"scalp_buy_amount": 1.25, "scalp_move_pct": 0.9, "scalp_tp_pct": 0.85},
-        "conservative": {"scalp_buy_amount": 0.8, "scalp_move_pct": 1.1, "scalp_tp_pct": 1.1},
-        "balanced": {"scalp_buy_amount": 1.0, "scalp_move_pct": 1.0},
-    },
-}
-
 
 @app.post("/api/strategy/preset")
 async def api_strategy_preset(body: StrategyPresetRequest):
     if body.symbol not in sessions:
         return {"error": "unknown symbol"}
     s = sessions[body.symbol]
-    stype = getattr(s, "strategy_type", "dca")
-    type_presets = STRATEGY_PRESETS.get(stype, STRATEGY_PRESETS["dca"])
-    preset = type_presets.get(body.preset)
-    if not preset:
+    if not apply_strategy_preset(s, body.preset):
         return {"error": f"unknown preset {body.preset}"}
-    merged = dict(s.bot.get_params())
-    for k, mult in preset.items():
-        if k in merged and isinstance(merged[k], (int, float)):
-            merged[k] = type(merged[k])(merged[k] * mult)
-    s.set_params_bounded(merged)
     await s.persist()
-    return {"ok": True, "symbol": body.symbol, "preset": body.preset, "strategy_type": stype, "params": s.bot.get_params()}
+    return {
+        "ok": True,
+        "symbol": body.symbol,
+        "preset": body.preset,
+        "strategy_type": getattr(s, "strategy_type", "dca"),
+        "params": s.bot.get_params(),
+    }
 
 
 @app.get("/api/fees")
@@ -1058,6 +1044,7 @@ async def api_exchange_order(body: ManualTradeRequest):
         result.get("ok")
         and config.EXCHANGE_SYNC_TO_PAPER
         and live_exchange.enabled
+        and not result.get("from_paper_sync")
     ):
         paper_sync = await sync_order_to_paper(s, result)
         result["paper_sync"] = paper_sync

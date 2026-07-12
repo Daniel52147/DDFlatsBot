@@ -9,6 +9,7 @@ import time
 from typing import Any
 
 import config
+from learning.strategy_presets import apply_strategy_preset
 from simulator.strategies import STRATEGY_META
 
 logger = logging.getLogger(__name__)
@@ -236,44 +237,7 @@ class AutoTacticsEngine:
         return changes
 
     def _apply_preset(self, session, preset_name: str) -> bool:
-        """Apply preset without importing main — duplicate minimal logic."""
-        presets_by_type: dict[str, dict[str, dict[str, float]]] = {
-            "dca": {
-                "aggressive": {"dca_amount": 1.35, "dip_extra_amount": 1.4},
-                "conservative": {"dca_amount": 0.75, "dip_extra_amount": 0.8},
-                "balanced": {},
-            },
-            "grid": {
-                "aggressive": {"grid_spacing_pct": 0.85, "grid_buy_amount": 1.3},
-                "conservative": {"grid_spacing_pct": 1.15, "grid_buy_amount": 0.8},
-                "balanced": {},
-            },
-            "momentum": {
-                "aggressive": {"breakout_pct": 0.85, "momentum_buy_amount": 1.25},
-                "conservative": {"breakout_pct": 1.15, "momentum_buy_amount": 0.8},
-                "balanced": {},
-            },
-            "rsi": {
-                "aggressive": {"rsi_buy_amount": 1.3},
-                "conservative": {"rsi_buy_amount": 0.8},
-                "balanced": {},
-            },
-            "scalper": {
-                "aggressive": {"scalp_buy_amount": 1.25, "scalp_move_pct": 0.9},
-                "conservative": {"scalp_buy_amount": 0.8, "scalp_move_pct": 1.1},
-                "balanced": {},
-            },
-        }
-        stype = getattr(session, "strategy_type", "dca")
-        preset = presets_by_type.get(stype, {}).get(preset_name, {})
-        if not preset:
-            return False
-        merged = dict(session.bot.get_params())
-        for k, mult in preset.items():
-            if k in merged and isinstance(merged[k], (int, float)):
-                merged[k] = type(merged[k])(merged[k] * mult)
-        session.set_params_bounded(merged)
-        return True
+        return apply_strategy_preset(session, preset_name)
 
     def status(self, sessions: dict) -> dict[str, Any]:
         markets = []
