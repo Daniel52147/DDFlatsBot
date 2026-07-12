@@ -319,3 +319,25 @@ class ShadowLab:
                 })
         rows.sort(key=lambda x: (-x["vs_hold_pct"], -x["trades"]))
         return rows[:limit]
+
+    def apply_clone(self, symbol: str, clone_id: int) -> dict[str, Any]:
+        clones = self.clones.get(symbol, [])
+        session = self.sessions.get(symbol)
+        if not session:
+            return {"error": "unknown symbol"}
+        match = next((c for c in clones if c.clone_id == clone_id), None)
+        if not match:
+            return {"error": f"clone {clone_id} not found"}
+        session.set_params_bounded(match.bot.get_params())
+        session.base_params = copy.deepcopy(session.bot.get_params())
+        price = session.feed.price or session.demo_price
+        snap = session.engine.snapshot(price)
+        return {
+            "ok": True,
+            "symbol": symbol,
+            "label": session.label,
+            "clone_id": clone_id,
+            "vs_hold_pct": match.snapshot(price)["vs_hold_pct"],
+            "live_vs_hold": snap.get("vs_hold_pct", 0),
+            "params": session.bot.get_params(),
+        }

@@ -114,13 +114,14 @@ function renderMarketsTable(rows) {
   const rowHtml = (r) => {
     const cls = (r.pnl_pct ?? 0) >= 0 ? "up" : "down";
     const tier = r.viral ? "🔥 viral" : r.growth ? "📈 growth" : r.tier === "volatile" ? "⚡ meme" : "🏦 major";
-    if (!r.active) return `<tr class="inactive"><td>${r.label}</td><td>${tier}</td><td colspan="6">не подключён</td></tr>`;
-    return `<tr><td><b>${r.label}</b></td><td>${tier}</td><td>${fmtMoney(r.price, priceDecimals(r.label))}</td>
+    if (!r.active) return `<tr class="inactive"><td>${r.label}</td><td>${tier}</td><td colspan="7">не подключён</td></tr>`;
+    const stype = r.strategy_type || "dca";
+    return `<tr><td><b>${r.label}</b></td><td>${tier}</td><td><span class="strategy-tag">${stype}</span></td><td>${fmtMoney(r.price, priceDecimals(r.label))}</td>
       <td>${fmtMoney(r.portfolio_value)}</td><td class="${cls}">${fmtPct(r.pnl_pct)}</td>
       <td>${fmtPct(r.vs_hold_pct)}</td><td>${r.trades}</td><td>${r.bot_enabled ? "✅" : "⏸"}</td></tr>`;
   };
   const head = `<table class="data-table"><thead><tr>
-    <th>Монета</th><th>Тип</th><th>Цена</th><th>Портфель</th><th>P&L</th><th>vs hold</th><th>Сделок</th><th>Бот</th>
+    <th>Монета</th><th>Тип</th><th>Стратегия</th><th>Цена</th><th>Портфель</th><th>P&L</th><th>vs hold</th><th>Сделок</th><th>Бот</th>
   </tr></thead><tbody>`;
   let html = "";
   for (const t of tiers) {
@@ -131,7 +132,7 @@ function renderMarketsTable(rows) {
       (!r.growth && !r.volatile && !r.viral && r.tier === "major")
     );
     if (!group.length) continue;
-    html += `<tr class="tier-header"><td colspan="8">${t.title}</td></tr>${group.map(rowHtml).join("")}`;
+    html += `<tr class="tier-header"><td colspan="9">${t.title}</td></tr>${group.map(rowHtml).join("")}`;
   }
   const other = rows.filter(r => !tiers.some(t => {
     if (t.key === "viral") return r.viral;
@@ -261,6 +262,122 @@ async function runBacktestTable() {
     <p class="muted" style="margin-top:0.5rem">Та же OHLC-логика что у live бота и Shadow Lab</p>`;
   } catch (e) {
     el.innerHTML = "<p class='muted'>Не удалось запустить бэктест</p>";
+  }
+}
+
+async function runBacktestCompare() {
+  const el = document.getElementById("table-backtest");
+  if (!el) return;
+  const sym = document.getElementById("backtest-symbol")?.value || activeSymbol;
+  el.innerHTML = "<p class='muted'>⏱ Сравнение 4 стратегий на одних свечах...</p>";
+  try {
+    const res = await apiFetch("/api/backtest/compare", {
+      method: "POST",
+      body: JSON.stringify({ symbol: sym, limit: 500, strategies: ["dca", "grid", "momentum", "rsi"] }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      el.innerHTML = `<p class="muted">Ошибка: ${data.error}</p>`;
+      return;
+    }
+    const rows = (data.results || []).map((r, i) => {
+      const cls = r.pnl_pct >= 0 ? "up" : "down";
+      const win = i === 0 ? " compare-winner" : "";
+      return `<tr class="${win}"><td><b>${r.strategy_type}</b>${i === 0 ? " 🏆" : ""}</td>
+        <td class="${cls}">${fmtPct(r.pnl_pct)}</td><td>${fmtPct(r.vs_hold_pct)}</td>
+        <td>${r.trades}</td><td>${fmtMoney(r.portfolio_value)}</td></tr>`;
+    }).join("");
+    el.innerHTML = `<div class="honesty-box ok">
+      <p><b>${data.label}</b> · ${data.candles} свечей · победитель: <b>${data.winner}</b></p>
+    </div>
+    <table class="data-table"><thead><tr>
+      <th>Стратегия</th><th>P&L</th><th>vs hold</th><th>Сделок</th><th>Портфель</th>
+    </tr></thead><tbody>${rows}</tbody></table>
+    <div class="backtest-controls" style="margin-top:0.75rem">
+      <button type="button" id="btn-backtest-run" class="btn small">Один прогон</button>
+      <button type="button" id="btn-backtest-compare" class="btn small ghost">Сравнить 4 стратегии</button>
+    </div>`;
+    document.getElementById("btn-backtest-run")?.addEventListener("click", runBacktestTable);
+    document.getElementById("btn-backtest-compare")?.addEventListener("click", runBacktestCompare);
+  } catch (_) {
+    el.innerHTML = "<p class='muted'>Не удалось сравнить стратегии</p>";
+  }
+}
+
+async function renderShadowLeaderboard() {
+  const el = document.getElementById("table-shadow");
+  if (!el) return;
+  el.innerHTML = "<p class='muted'>Загрузка Shadow Lab...</p>";
+  try {
+    const data = await (await fetch("/api/shadow-lab")).json();
+    const rows = data.leaderboard || [];
+    if (!rows.length) {
+      el.innerHTML = "<p class='muted'>Shadow Lab копит данные...</p>";
+      return;
+    }
+    el.innerHTML = `<table class="data-table"><thead><tr>
+      <th>#</th><th>Рынок</th><th>Клон</th><th>vs hold</th><th>P&L</th><th>Сделок</th><th></th>
+    </tr></thead><tbody>${rows.map((r, i) => `<tr>
+      <td>${i + 1}</td><td><b>${r.label}</b></td><td>#${r.clone_id}</td>
+      <td class="${r.vs_hold_pct >= 0 ? "up" : "down"}">${fmtPct(r.vs_hold_pct)}</td>
+      <td>${fmtPct(r.pnl_pct)}</td><td>${r.trades}</td>
+      <td><button class="shadow-apply-btn" data-sym="${r.symbol}" data-clone="${r.clone_id}">Применить</button></td>
+    </tr>`).join("")}</tbody></table>`;
+    el.querySelectorAll(".shadow-apply-btn").forEach(btn => {
+      btn.onclick = async () => {
+        const res = await apiFetch("/api/shadow-lab/apply", {
+          method: "POST",
+          body: JSON.stringify({ symbol: btn.dataset.sym, clone_id: Number(btn.dataset.clone) }),
+        });
+        const d = await res.json();
+        if (d.error) showToast("⚠ " + d.error);
+        else {
+          showToast(`🔬 ${d.label}: клон #${d.clone_id} применён (vs hold ${fmtPct(d.vs_hold_pct)})`);
+          await refreshStatus();
+        }
+      };
+    });
+  } catch (_) {
+    el.innerHTML = "<p class='muted'>Shadow Lab недоступен</p>";
+  }
+}
+
+async function loadAlerts() {
+  try {
+    const data = await (await fetch("/api/alerts")).json();
+    const scroll = document.getElementById("alerts-scroll");
+    if (!scroll) return;
+    const items = data.alerts || [];
+    if (!items.length) {
+      scroll.innerHTML = "<span>Всё спокойно — агенты на связи</span>";
+    } else {
+      scroll.innerHTML = items.map(a => {
+        const cls = a.level === "warn" ? "alert-warn" : a.level === "good" ? "alert-good" : a.level === "halt" ? "alert-halt" : "";
+        return `<span class="${cls}">${escapeHtml(a.text)}</span>`;
+      }).join("");
+    }
+    const vh = document.getElementById("vs-hold");
+    const bm = data.benchmark;
+    if (vh && bm) {
+      vh.textContent = fmtPct(bm.vs_hold_pct);
+      vh.className = "value " + (bm.vs_hold_pct >= 0 ? "positive" : "negative");
+    }
+  } catch (_) {}
+}
+
+async function applyStrategy() {
+  const sel = document.getElementById("strategy-select");
+  const stype = sel?.value;
+  if (!stype) return;
+  const res = await apiFetch("/api/strategy/switch", {
+    method: "POST",
+    body: JSON.stringify({ symbol: activeSymbol, strategy_type: stype }),
+  });
+  const data = await res.json();
+  if (data.error) showToast("⚠ " + data.error);
+  else {
+    showToast(`🔄 ${labelFor(activeSymbol)} → стратегия ${stype}`);
+    await refreshStatus();
   }
 }
 
@@ -614,6 +731,13 @@ function updateTotal(total) {
     p.textContent = fmtPct(total.pnl_pct);
     p.className = "value " + (total.pnl_pct >= 0 ? "positive" : "negative");
   }
+  if (total.benchmark?.vs_hold_pct != null) {
+    const vh = document.getElementById("vs-hold");
+    if (vh) {
+      vh.textContent = fmtPct(total.benchmark.vs_hold_pct);
+      vh.className = "value " + (total.benchmark.vs_hold_pct >= 0 ? "positive" : "negative");
+    }
+  }
 }
 
 function renderBotStatus(d) {
@@ -637,8 +761,14 @@ function renderBotStatus(d) {
     sl = `<p>STOP-LOSS: −${p.stop_loss_pct}% от входа → продажа ${Math.round((p.stop_loss_fraction || 0.2) * 100)}%</p>`;
   }
   const avg = st.avg_entry || d.portfolio?.avg_entry;
+  const stype = st.strategy_type || d.strategy_type || "dca";
+  const title = document.getElementById("bot-card-title");
+  if (title) title.textContent = `🤖 ${stype.toUpperCase()} · ${lbl}`;
+  const sel = document.getElementById("strategy-select");
+  if (sel && sel.value !== stype) sel.value = stype;
   el.innerHTML = `
     <p>Рынок: <strong>${lbl}</strong>${viralTag}${vol}${d.restored ? " · 💾 восстановлен" : ""} · ${st.enabled !== false ? "✅ активен" : "⏸ пауза"}</p>
+    <p>Стратегия: <span class="strategy-tag">${stype}</span>${st.rsi != null ? ` · RSI ${st.rsi}` : ""}${st.in_trend ? " · 🚀 в тренде" : ""}</p>
     <p>Цена: <strong>${fmtMoney(d.price, priceDecimals(lbl))}</strong>${avg ? ` · вход ~${fmtMoney(avg, priceDecimals(lbl))}` : ""}</p>
     <p>Портфель: <strong>${fmtMoney(d.portfolio?.portfolio_value)}</strong> (${fmtPct(d.portfolio?.pnl_pct)}) · vs hold ${fmtPct(d.portfolio?.vs_hold_pct)}</p>
     <p>DCA: $${p.dca_amount ?? 25} / ${p.dca_interval_hours ?? 24}ч · DIP ${p.dip_threshold_pct ?? 3}% (кд ${p.dip_cooldown_minutes ?? 30}м)</p>
@@ -1162,8 +1292,13 @@ function bindUi() {
       document.getElementById(`table-${id}`)?.classList.remove("hidden");
       if (id === "backtest") runBacktestTable();
       if (id === "trades") loadTradesTable(activeSymbol);
+      if (id === "shadow") renderShadowLeaderboard();
     };
   });
+
+  document.getElementById("btn-backtest-run")?.addEventListener("click", runBacktestTable);
+  document.getElementById("btn-backtest-compare")?.addEventListener("click", runBacktestCompare);
+  document.getElementById("btn-strategy-apply")?.addEventListener("click", applyStrategy);
 
   const depModal = document.getElementById("deposit-modal");
   const depTarget = document.getElementById("deposit-target");
@@ -1251,12 +1386,14 @@ async function main() {
     initEquityChart();
     await loadInitial();
     await loadExchangeBadge();
+    await loadAlerts();
     await loadShadowLab();
     connectWs();
     setInterval(refreshStatus, 5000);
     setInterval(loadBrain, 15000);
     setInterval(loadLearning, 60000);
     setInterval(loadShadowLab, 30000);
+    setInterval(loadAlerts, 20000);
   } catch (e) {
     showError(e.message);
   }

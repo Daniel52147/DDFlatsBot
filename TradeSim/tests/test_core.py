@@ -152,5 +152,35 @@ class TestBacktest(unittest.TestCase):
         self.assertIn("pnl_pct", result)
 
 
+class TestVsHoldBenchmark(unittest.TestCase):
+    def test_vs_hold_differs_when_price_moves(self):
+        eng = SimulatorEngine(initial_balance=1000.0)
+        eng.note_price(100.0)
+        snap_flat = eng.snapshot(100.0)
+        self.assertAlmostEqual(snap_flat["vs_hold_pct"], 0.0, places=1)
+        eng.buy(100.0, 200.0, reason="test")
+        snap_up = eng.snapshot(110.0)
+        self.assertNotEqual(snap_up["pnl_pct"], snap_up.get("hold_pnl_pct", 0))
+        self.assertIsNotNone(snap_up.get("start_price"))
+
+
+class TestStrategies(unittest.TestCase):
+    def test_create_all_strategy_types(self):
+        from simulator.strategies import create_bot, STRATEGY_META
+        for st in STRATEGY_META:
+            eng = SimulatorEngine(initial_balance=500.0)
+            bot = create_bot(eng, st)
+            trade = bot.maybe_trade(100.0, 105.0)
+            self.assertTrue(hasattr(bot, "maybe_trade"))
+            status = bot.status(100.0, 105.0)
+            self.assertIn("params", status)
+
+    def test_backtest_compare(self):
+        from simulator.backtest import compare_strategies
+        candles = [{"open": 100, "low": 99, "high": 101, "close": 100 + i * 0.1} for i in range(50)]
+        results = compare_strategies(candles, ["dca", "grid"], initial_balance=1000.0)
+        self.assertEqual(len(results), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

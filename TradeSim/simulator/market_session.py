@@ -11,10 +11,10 @@ import config
 from learning.logger import LearningLogger
 from learning.optimizer import StrategyOptimizer
 from simulator.candles import CandleBuilder
-from simulator.engine import SimulatorEngine, Trade, Trade
+from simulator.engine import SimulatorEngine, Trade
 from simulator.feed import PriceFeed
 from simulator.price_walk import prices_for_tick, run_strategy_prices
-from simulator.strategy import StrategyBot
+from simulator.strategies import create_bot, STRATEGY_META
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +29,11 @@ class MarketSession:
         self.growth = market.get("growth", False)
         self.viral = market.get("viral", False)
         self.tier = market.get("tier", "major")
+        self.strategy_type = market.get("strategy_type", "dca")
         self.feed = PriceFeed(self.symbol)
         self.candles = CandleBuilder(interval=config.CANDLE_INTERVAL, max_candles=config.MAX_CANDLES)
         self.engine = SimulatorEngine(initial_balance=config.BALANCE_PER_MARKET)
-        self.bot = StrategyBot(self.engine, params=market.get("strategy"))
+        self.bot = create_bot(self.engine, self.strategy_type, params=market.get("strategy"))
         self.base_params = copy.deepcopy(self.bot.get_params())
         bounds = (
             StrategyOptimizer.BOUNDS_VOLATILE
@@ -64,6 +65,14 @@ class MarketSession:
             self.base_params, bounds=bounds, volatile=(self.volatile or self.growth),
         )
 
+    def switch_strategy(self, strategy_type: str) -> dict[str, Any]:
+        if strategy_type not in STRATEGY_META:
+            raise ValueError(f"unknown strategy {strategy_type}")
+        self.strategy_type = strategy_type
+        self.bot = create_bot(self.engine, strategy_type, params=self.base_params)
+        self.sync_base_params()
+        return {"strategy_type": strategy_type, "params": self.bot.get_params()}
+
     async def restore_from_db(self) -> bool:
         if not self.learning_logger:
             return False
@@ -78,8 +87,10 @@ class MarketSession:
             start_ts=saved["start_ts"],
             trades=saved.get("trades"),
             cost_basis=saved.get("cost_basis", 0),
+            start_price=saved.get("start_price", 0),
         )
-        self.bot.update_params(saved["bot_params"])
+        self.strategy_type = saved.get("strategy_type", self.strategy_type)
+        self.bot = create_bot(self.engine, self.strategy_type, params=saved["bot_params"])
         self.bot.last_dca_ts = saved.get("last_dca_ts", 0)
         self.bot.last_take_profit_ts = saved.get("last_take_profit_ts", 0)
         self.bot.last_dip_ts = saved.get("last_dip_ts", 0)
@@ -96,6 +107,7 @@ class MarketSession:
                 start_ts=saved["start_ts"],
                 trades=db_trades,
                 cost_basis=saved.get("cost_basis", 0),
+                start_price=saved.get("start_price", 0),
             )
         self.sync_base_params()
         self._restored = True
@@ -115,6 +127,8 @@ class MarketSession:
             "trade_counter": len(self.engine.trades),
             "start_balance": self.engine.start_balance,
             "start_ts": self.engine.start_ts,
+            "start_price": self.engine.start_price,
+            "strategy_type": self.strategy_type,
             "bot_params": self.bot.get_params(),
             "last_dca_ts": self.bot.last_dca_ts,
             "last_take_profit_ts": self.bot.last_take_profit_ts,
@@ -149,6 +163,7 @@ class MarketSession:
         if history:
             self.feed.price = history[-1]["close"]
             self.feed.last_update = time.time()
+            self.engine.note_price(self.feed.price)
 
         if self._restored:
             return
@@ -179,6 +194,7 @@ class MarketSession:
 
     async def on_tick(self, price: float, ts: float) -> list[dict[str, Any]]:
         msgs: list[dict[str, Any]] = []
+        self.engine.note_price(price)
         closed = self.candles.add_tick(price, ts)
         sma_period = int(self.bot.params.get("sma_period", 20))
         sma = self.candles.sma(sma_period)
@@ -261,6 +277,7 @@ class MarketSession:
             "growth": self.growth,
             "viral": self.viral,
             "tier": self.tier,
+            "strategy_type": self.strategy_type,
             "restored": self._restored,
             "price": price,
             "portfolio": self.engine.snapshot(price),

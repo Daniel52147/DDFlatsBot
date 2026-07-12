@@ -21,6 +21,8 @@ WRITE_PREFIXES = (
     "/api/trade",
     "/api/exchange/",
     "/api/shadow-lab/reset",
+    "/api/shadow-lab/apply",
+    "/api/strategy/switch",
     "/api/sync-markets",
     "/api/bot/toggle",
     "/api/backtest",

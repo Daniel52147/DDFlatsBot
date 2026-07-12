@@ -27,9 +27,10 @@ from learning.analytics import build_portfolio_analytics
 from learning.logger import LearningLogger
 from learning.optimizer import StrategyOptimizer
 from security import SecurityMiddleware, auth_required
-from simulator.backtest import Backtester
+from simulator.backtest import Backtester, compare_strategies
 from simulator.market_session import MarketSession
 from simulator.shadow_lab import ShadowLab
+from simulator.strategies import STRATEGY_META
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("tradesim")
@@ -75,6 +76,24 @@ class BacktestRequest(BaseModel):
     symbol: str = "BTCUSDT"
     limit: int = 500
     initial_balance: float | None = None
+    strategy_type: str | None = None
+
+
+class BacktestCompareRequest(BaseModel):
+    symbol: str = "BTCUSDT"
+    limit: int = 500
+    strategies: list[str] = ["dca", "grid", "momentum", "rsi"]
+    initial_balance: float | None = None
+
+
+class StrategySwitchRequest(BaseModel):
+    symbol: str
+    strategy_type: str
+
+
+class ShadowApplyRequest(BaseModel):
+    symbol: str
+    clone_id: int
 
 
 async def broadcast(data: dict):
@@ -105,10 +124,39 @@ def ensure_all_markets() -> list[str]:
     return added
 
 
+def portfolio_benchmark() -> dict[str, Any]:
+    live_total = 0.0
+    hold_total = 0.0
+    start_total = 0.0
+    for s in sessions.values():
+        price = s.feed.price or s.demo_price
+        snap = s.engine.snapshot(price)
+        live_total += snap["portfolio_value"]
+        start_total += s.engine.start_balance
+        sp = s.engine.start_price or price
+        if sp > 0:
+            hold_total += (s.engine.start_balance / sp) * price
+    alpha = live_total - hold_total
+    alpha_pct = (alpha / start_total * 100) if start_total else 0
+    hold_pnl_pct = ((hold_total - start_total) / start_total * 100) if start_total else 0
+    live_pnl_pct = ((live_total - start_total) / start_total * 100) if start_total else 0
+    return {
+        "live_value": round(live_total, 2),
+        "hold_value": round(hold_total, 2),
+        "start_value": round(start_total, 2),
+        "alpha_usd": round(alpha, 2),
+        "alpha_pct": round(alpha_pct, 2),
+        "live_pnl_pct": round(live_pnl_pct, 2),
+        "hold_pnl_pct": round(hold_pnl_pct, 2),
+        "vs_hold_pct": round(live_pnl_pct - hold_pnl_pct, 2),
+    }
+
+
 def total_portfolio() -> dict[str, Any]:
     total = sum(s.engine.snapshot(s.feed.price or s.demo_price)["portfolio_value"] for s in sessions.values())
     start = sum(s.engine.start_balance for s in sessions.values())
     pnl = total - start
+    bench = portfolio_benchmark()
     return {
         "total_value": round(total, 2),
         "pnl": round(pnl, 2),
@@ -116,6 +164,8 @@ def total_portfolio() -> dict[str, Any]:
         "start_balance": round(start, 2),
         "markets_count": len(sessions),
         "markets_configured": len(config.MARKETS),
+        "benchmark": bench,
+        "vs_hold_pct": bench.get("vs_hold_pct", 0),
     }
 
 
@@ -124,14 +174,15 @@ def _learning_honesty(stats: dict) -> dict[str, Any]:
         "version": config.APP_VERSION,
         "markets_configured": len(config.MARKETS),
         "markets_active": len(sessions),
-        "project_readiness": "beta ~75% — paper lab + бэктест, не production биржа",
+        "project_readiness": "v16 Pro ~85% — 4 стратегии, benchmark hold, shadow apply",
         "really_learns": True,
         "learning_kind": "эвристики + статистика (не нейросеть)",
         "what_is_real": [
             "Сделки на живых ценах Binance/Bybit",
-            "Параметры DCA/DIP/TP меняются по vs_hold и сделкам",
-            "Shadow Lab: 12 клонов тестируют настройки параллельно",
-            "Всё пишется в SQLite — можно проверить",
+            "4 стратегии: DCA, Grid, Momentum, RSI",
+            "vs hold benchmark с реальной start_price",
+            "Shadow Lab: применить лучший клон вручную",
+            "Бэктест: сравнение стратегий на одних свечах",
         ],
         "what_is_not": [
             "Это не настоящие деньги и не гарантия прибыли",
@@ -161,6 +212,7 @@ def _markets_table_rows() -> list[dict[str, Any]]:
                 "portfolio_value": snap["portfolio_value"],
                 "pnl_pct": snap["pnl_pct"],
                 "vs_hold_pct": snap.get("vs_hold_pct", 0),
+                "strategy_type": getattr(s, "strategy_type", m.get("strategy_type", "dca")),
                 "trades": snap["trade_count"],
                 "bot_enabled": st.get("enabled", True),
                 "active": True,
@@ -282,6 +334,36 @@ async def snapshot_loop():
         await asyncio.sleep(300)
 
 
+def collect_alerts() -> list[dict[str, Any]]:
+    alerts: list[dict[str, Any]] = []
+    cycle = state.get("brain_cycle")
+    if cycle:
+        for key in ("risk", "guardian", "volatility"):
+            rep = cycle.get(key, {})
+            for w in rep.get("warnings", [])[:2]:
+                alerts.append({"level": "warn", "source": key, "text": str(w)[:120]})
+            for h in rep.get("halts", [])[:1]:
+                alerts.append({"level": "halt", "source": key, "text": str(h)[:120]})
+        for w in cycle.get("trader_watcher", {}).get("warnings", [])[:2]:
+            alerts.append({"level": "info", "source": "trader", "text": str(w)[:120]})
+    for sym, s in sessions.items():
+        price = s.feed.price or s.demo_price
+        snap = s.engine.snapshot(price)
+        if snap.get("vs_hold_pct", 0) < -3:
+            alerts.append({
+                "level": "warn",
+                "source": sym,
+                "text": f"{s.label}: отстаёт от hold {snap['vs_hold_pct']:+.1f}%",
+            })
+        if snap.get("pnl_pct", 0) > 5:
+            alerts.append({
+                "level": "good",
+                "source": sym,
+                "text": f"{s.label}: +{snap['pnl_pct']:.1f}% P&L",
+            })
+    return alerts[:12]
+
+
 def _market_meta() -> list[dict[str, Any]]:
     return [
         {
@@ -292,6 +374,7 @@ def _market_meta() -> list[dict[str, Any]]:
             "growth": m.get("growth", False),
             "viral": m.get("viral", False),
             "tier": m.get("tier", "major"),
+            "strategy_type": m.get("strategy_type", "dca"),
             "price_decimals": config.PRICE_DECIMALS.get(m["label"], 2),
         }
         for m in config.MARKETS
@@ -591,6 +674,48 @@ async def api_shadow_reset(symbol: str | None = None):
     return {"ok": True, "status": shadow_lab.status() if shadow_lab else {}}
 
 
+@app.post("/api/shadow-lab/apply")
+async def api_shadow_apply(body: ShadowApplyRequest):
+    if not shadow_lab:
+        return {"error": "shadow lab disabled"}
+    if body.symbol not in sessions:
+        return {"error": "unknown symbol"}
+    result = shadow_lab.apply_clone(body.symbol, body.clone_id)
+    if result.get("ok"):
+        await sessions[body.symbol].persist()
+    return result
+
+
+@app.get("/api/strategies")
+async def api_strategies():
+    return {"strategies": STRATEGY_META, "version": config.APP_VERSION}
+
+
+@app.post("/api/strategy/switch")
+async def api_strategy_switch(body: StrategySwitchRequest):
+    if body.symbol not in sessions:
+        return {"error": "unknown symbol"}
+    if body.strategy_type not in STRATEGY_META:
+        return {"error": f"unknown strategy {body.strategy_type}"}
+    s = sessions[body.symbol]
+    try:
+        result = s.switch_strategy(body.strategy_type)
+    except ValueError as e:
+        return {"error": str(e)}
+    await s.persist()
+    return {"ok": True, "symbol": body.symbol, **result}
+
+
+@app.get("/api/alerts")
+async def api_alerts():
+    return {"alerts": collect_alerts(), "benchmark": portfolio_benchmark()}
+
+
+@app.get("/api/benchmark")
+async def api_benchmark():
+    return portfolio_benchmark()
+
+
 @app.get("/api/analytics")
 async def api_analytics():
     equity = await logger_db.equity_curve(48)
@@ -646,13 +771,43 @@ async def api_backtest(body: BacktestRequest):
     except Exception as e:
         return {"error": f"klines failed: {e}"}
     market = next(m for m in config.MARKETS if m["symbol"] == sym)
+    stype = body.strategy_type or getattr(s, "strategy_type", market.get("strategy_type", "dca"))
     params = s.bot.get_params()
-    bt = Backtester(params=params, initial_balance=body.initial_balance or config.BALANCE_PER_MARKET)
+    bt = Backtester(
+        params=params,
+        initial_balance=body.initial_balance or config.BALANCE_PER_MARKET,
+        strategy_type=stype,
+    )
     result = bt.run(candles)
     result["symbol"] = sym
     result["label"] = s.label
     result["market_tier"] = market.get("tier", "major")
     return result
+
+
+@app.post("/api/backtest/compare")
+async def api_backtest_compare(body: BacktestCompareRequest):
+    sym = body.symbol
+    if sym not in sessions:
+        return {"error": f"unknown symbol {sym}"}
+    s = sessions[sym]
+    try:
+        candles = await s.feed.fetch_klines(interval=config.CANDLE_INTERVAL, limit=min(body.limit, 1000))
+    except Exception as e:
+        return {"error": f"klines failed: {e}"}
+    strategies = [st for st in body.strategies if st in STRATEGY_META] or list(STRATEGY_META.keys())
+    results = compare_strategies(
+        candles,
+        strategies,
+        initial_balance=body.initial_balance or config.BALANCE_PER_MARKET,
+    )
+    return {
+        "symbol": sym,
+        "label": s.label,
+        "candles": len(candles),
+        "results": results,
+        "winner": results[0]["strategy_type"] if results else None,
+    }
 
 
 @app.get("/api/exchange/status")

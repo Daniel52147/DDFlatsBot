@@ -42,6 +42,19 @@ class SimulatorEngine:
         self._trade_counter = 0
         self.start_balance = bal
         self.start_ts = time.time()
+        self.start_price: float = 0.0
+
+    def note_price(self, price: float) -> None:
+        """Record benchmark price for buy-and-hold comparison."""
+        if price > 0 and self.start_price <= 0:
+            self.start_price = price
+
+    def _hold_pnl_pct(self, price: float) -> float:
+        if not self.start_balance or not price or self.start_price <= 0:
+            return 0.0
+        hold_coins = self.start_balance / self.start_price
+        hold_value = hold_coins * price
+        return (hold_value - self.start_balance) / self.start_balance * 100
 
     def _apply_slippage(self, price: float, side: str) -> float:
         slip = config.SLIPPAGE_RATE
@@ -112,11 +125,11 @@ class SimulatorEngine:
         return self.position.cost_basis / self.position.base
 
     def snapshot(self, price: float) -> dict[str, Any]:
+        self.note_price(price)
         pv = self.position.total_value(price)
         pnl = pv - self.start_balance
         pnl_pct = (pnl / self.start_balance * 100) if self.start_balance else 0
-        hold_value = self.start_balance / price if price else 0
-        hold_pnl_pct = ((price * hold_value - self.start_balance) / self.start_balance * 100) if self.start_balance else 0
+        hold_pnl_pct = self._hold_pnl_pct(price)
         avg = self.avg_entry_price()
         return {
             "quote": round(self.position.quote, 2),
@@ -126,6 +139,8 @@ class SimulatorEngine:
             "pnl": round(pnl, 2),
             "pnl_pct": round(pnl_pct, 2),
             "vs_hold_pct": round(pnl_pct - hold_pnl_pct, 2),
+            "hold_pnl_pct": round(hold_pnl_pct, 2),
+            "start_price": round(self.start_price, 8) if self.start_price else None,
             "trade_count": len(self.trades),
             "start_balance": self.start_balance,
             "avg_entry": round(avg, 8) if avg else None,
@@ -139,6 +154,7 @@ class SimulatorEngine:
         self._trade_counter = 0
         self.start_balance = bal
         self.start_ts = time.time()
+        self.start_price = 0.0
 
     def restore(
         self,
@@ -149,10 +165,12 @@ class SimulatorEngine:
         start_ts: float,
         trades: list[dict] | None = None,
         cost_basis: float = 0.0,
+        start_price: float = 0.0,
     ):
         self.position = Position(quote=quote, base=base, cost_basis=cost_basis or 0.0)
         self.start_balance = start_balance
         self.start_ts = start_ts
+        self.start_price = start_price or 0.0
         self._trade_counter = trade_counter
         self.trades.clear()
         for row in trades or []:

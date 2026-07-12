@@ -37,6 +37,8 @@ class LearningLogger:
       "ALTER TABLE sessions ADD COLUMN last_dip_ts REAL DEFAULT 0",
       "ALTER TABLE sessions ADD COLUMN last_spike_ts REAL DEFAULT 0",
       "ALTER TABLE sessions ADD COLUMN last_stop_loss_ts REAL DEFAULT 0",
+      "ALTER TABLE sessions ADD COLUMN start_price REAL DEFAULT 0",
+      "ALTER TABLE sessions ADD COLUMN strategy_type TEXT DEFAULT 'dca'",
     ):
       try:
         await db.execute(stmt)
@@ -228,8 +230,8 @@ class LearningLogger:
         """INSERT INTO sessions
            (symbol, quote, base, trade_counter, start_balance, start_ts,
             bot_params, last_dca_ts, last_take_profit_ts, bot_enabled, trades_json, updated_ts,
-            cost_basis, last_dip_ts, last_spike_ts, last_stop_loss_ts)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            cost_basis, last_dip_ts, last_spike_ts, last_stop_loss_ts, start_price, strategy_type)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(symbol) DO UPDATE SET
              quote=excluded.quote, base=excluded.base, trade_counter=excluded.trade_counter,
              start_balance=excluded.start_balance, start_ts=excluded.start_ts,
@@ -237,7 +239,8 @@ class LearningLogger:
              last_take_profit_ts=excluded.last_take_profit_ts, bot_enabled=excluded.bot_enabled,
              trades_json=excluded.trades_json, updated_ts=excluded.updated_ts,
              cost_basis=excluded.cost_basis, last_dip_ts=excluded.last_dip_ts,
-             last_spike_ts=excluded.last_spike_ts, last_stop_loss_ts=excluded.last_stop_loss_ts""",
+             last_spike_ts=excluded.last_spike_ts, last_stop_loss_ts=excluded.last_stop_loss_ts,
+             start_price=excluded.start_price, strategy_type=excluded.strategy_type""",
         (
           symbol, data["quote"], data["base"], data["trade_counter"],
           data["start_balance"], data["start_ts"],
@@ -249,6 +252,8 @@ class LearningLogger:
           data.get("last_dip_ts", 0),
           data.get("last_spike_ts", 0),
           data.get("last_stop_loss_ts", 0),
+          data.get("start_price", 0),
+          data.get("strategy_type", "dca"),
         ),
       )
       await db.commit()
