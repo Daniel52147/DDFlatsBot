@@ -7,6 +7,7 @@ import unittest
 
 from simulator.candle_sync import (
     candle_lag_sec,
+    gap_pages_needed,
     gap_start_ts,
     merge_candles,
     needs_backfill,
@@ -30,6 +31,11 @@ class TestCandleSync(unittest.TestCase):
         merged = merge_candles(a, b)
         self.assertEqual(len(merged), 2)
         self.assertEqual(merged[0]["close"], 2.0)
+
+    def test_gap_pages(self):
+        self.assertEqual(gap_pages_needed(0, "1m"), 0)
+        self.assertEqual(gap_pages_needed(300, "1m", page_size=500), 1)
+        self.assertEqual(gap_pages_needed(36000, "1m", page_size=500), 2)
 
     def test_gap_start(self):
         candles = [{"time": 1000, "open": 1, "high": 1, "low": 1, "close": 1}]

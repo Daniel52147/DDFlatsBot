@@ -385,7 +385,7 @@ async def shadow_eval_loop():
 
 async def candle_health_loop():
     """Detect stale candles and backfill gaps (e.g. after long downtime)."""
-    await asyncio.sleep(90)
+    await asyncio.sleep(10)
     while state["running"]:
         try:
             stale = []
@@ -705,9 +705,19 @@ async def lifespan(app: FastAPI):
             return_exceptions=True,
         )
         ready = sum(1 for s in sessions.values() if s._candles_ready)
-        logger.info("Candles ready: %d/%d markets", ready, len(sessions))
+        max_lag = max((s.candles.lag_sec() for s in sessions.values()), default=0.0)
+        logger.info("Candles ready: %d/%d markets (max lag %.0fs)", ready, len(sessions), max_lag)
+        await broadcast({
+            "type": "candles_ready",
+            "ready": ready,
+            "total": len(sessions),
+            "max_lag_sec": round(max_lag, 1),
+        })
 
-    asyncio.create_task(parallel_market_startup())
+    try:
+        await asyncio.wait_for(parallel_market_startup(), timeout=config.CANDLE_STARTUP_TIMEOUT_SEC)
+    except asyncio.TimeoutError:
+        logger.warning("Candle startup timeout (%ss) — торговля стартует с частичными данными", config.CANDLE_STARTUP_TIMEOUT_SEC)
 
     tasks: list[asyncio.Task] = []
     tasks.append(feed_hub.start())
@@ -720,7 +730,7 @@ async def lifespan(app: FastAPI):
     tasks.append(asyncio.create_task(candle_health_loop()))
 
     logger.info(
-        "TradeSim v%s HTTP ready — загрузка свечей в фоне — http://127.0.0.1:8765",
+        "TradeSim v%s HTTP ready — свечи синхронизированы — http://127.0.0.1:8765",
         config.APP_VERSION,
     )
 
@@ -1125,6 +1135,7 @@ async def api_candles(symbol: str, limit: int = 200, refresh: bool = False):
         "count": len(candles),
         "candle_lag_sec": round(lag, 1),
         "candles_ready": s._candles_ready,
+        "candle_source": s.feed.source,
         "server_time": int(time.time()),
     }
 

@@ -503,7 +503,7 @@ async function checkServerAndSync() {
     if (ping.market_meta?.length) applyMarketMeta(ping.market_meta);
     seedMarketsFromMeta();
     if (ping.total) updateTotal(ping.total);
-    const expectedVer = 29;
+    const expectedVer = 30;
     if (ping.version && ping.version < expectedVer) {
       showError(`Старый сервер v${ping.version} на порту 8765. Ctrl+C → python main.py → Ctrl+Shift+R`);
     }
@@ -904,31 +904,80 @@ function renderTabs() {
   renderPortfolioGrid();
 }
 
+function formatCandleLag(sec) {
+  if (sec == null || sec <= 90) return sec != null && sec <= 90 ? " · свечи актуальны" : "";
+  if (sec > 86400) return " · ⚠️ отставание >24ч";
+  const hours = Math.floor(sec / 3600);
+  const mins = Math.round((sec % 3600) / 60);
+  if (hours > 0) return ` · ⚠️ отставание ~${hours}ч ${mins}м`;
+  return ` · ⚠️ отставание ~${mins} мин`;
+}
+
+function updateChartTitle(symbol) {
+  const d = marketsData[symbol];
+  const title = document.getElementById("chart-title");
+  if (title) {
+    title.textContent = `${d?.label || labelFor(symbol)}/USDT — свечи (${lastCandles.length})${formatCandleLag(marketsData[symbol]?.candle_lag_sec)}`;
+  }
+}
+
 async function loadCandlesForSymbol(symbol, force = false) {
   try {
     const d = marketsData[symbol];
     const lag = d?.candle_lag_sec ?? 0;
-    const refresh = force || lag > 120 || !(d?.candles?.length >= 40);
+    const refresh = force || lag > 90 || !d?.candles_ready || !(d?.candles?.length >= 40);
     const url = `/api/candles?symbol=${symbol}&limit=200${refresh ? "&refresh=1" : ""}`;
     const res = await fetch(url);
     const data = await res.json();
     if (data.candles?.length) {
+      const serverLag = data.candle_lag_sec ?? 0;
+      const lastTs = data.candles[data.candles.length - 1]?.time || 0;
+      const clientLag = data.server_time ? Math.max(0, data.server_time - lastTs - 60) : serverLag;
       if (marketsData[symbol]) {
         marketsData[symbol].candles = data.candles;
-        marketsData[symbol].candle_lag_sec = data.candle_lag_sec;
+        marketsData[symbol].candle_lag_sec = serverLag;
         marketsData[symbol].candles_ready = data.candles_ready;
+        marketsData[symbol].candle_source = data.candle_source;
+      }
+      if (serverLag > 120 || clientLag > 120) {
+        console.warn(`[candles] ${symbol} lag server=${serverLag}s client=${clientLag}s src=${data.candle_source}`);
       }
       return data.candles;
     }
-  } catch (_) {}
+  } catch (e) {
+    console.warn("loadCandles", symbol, e);
+  }
   return marketsData[symbol]?.candles || [];
 }
 
-function formatCandleLag(sec) {
-  if (sec == null || sec > 3600) return "";
-  if (sec <= 90) return " · свечи актуальны";
-  const mins = Math.round(sec / 60);
-  return ` · ⚠️ отставание ~${mins} мин`;
+async function ensureFreshCandles(symbol) {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const candles = await loadCandlesForSymbol(symbol, true);
+    const lag = marketsData[symbol]?.candle_lag_sec ?? 9999;
+    const ready = marketsData[symbol]?.candles_ready !== false;
+    if (candles.length >= 30 && lag <= 120 && ready) {
+      lastCandles = candles;
+      if (candleSeries) {
+        candleSeries.setData(candles);
+        updateSMA(candles, smaPeriod(symbol));
+        if (chart) chart.timeScale().fitContent();
+      }
+      updateChartTitle(symbol);
+      return candles;
+    }
+    if (attempt < 7) await new Promise(r => setTimeout(r, 1500));
+  }
+  const fallback = await loadCandlesForSymbol(symbol, true);
+  if (fallback.length) {
+    lastCandles = fallback;
+    if (candleSeries) {
+      candleSeries.setData(fallback);
+      updateSMA(fallback, smaPeriod(symbol));
+    }
+    updateChartTitle(symbol);
+    showToast("⚠️ Свечи отстают — проверь интернет или перезапусти сервер");
+  }
+  return lastCandles;
 }
 
 async function switchMarket(symbol) {
@@ -938,21 +987,17 @@ async function switchMarket(symbol) {
     document.getElementById("bot-status").innerHTML = "<p>Загрузка данных с сервера...</p>";
     return;
   }
-  lastCandles = await loadCandlesForSymbol(symbol, true);
+  lastCandles = await ensureFreshCandles(symbol);
   const period = smaPeriod(symbol);
   if (candleSeries && lastCandles.length) {
-    candleSeries.setData(lastCandles);
-    updateSMA(lastCandles, period);
     try {
       const tr = await (await fetch(`/api/trades?symbol=${symbol}&limit=30`)).json();
       updateTradeMarkers(tr.trades || d.trades || []);
     } catch (_) {
       updateTradeMarkers(d.trades || []);
     }
-    if (chart) chart.timeScale().fitContent();
   }
-  const title = document.getElementById("chart-title");
-  if (title) title.textContent = `${d.label || labelFor(symbol)}/USDT — свечи (${lastCandles.length})${formatCandleLag(marketsData[symbol]?.candle_lag_sec)}`;
+  updateChartTitle(symbol);
   renderBotStatus(d);
   renderTabs();
   loadExchangePanel();
@@ -1238,6 +1283,7 @@ function mergeMarket(sym, patch) {
   if (patch?.symbol && patch.symbol !== sym) return;
   const prev = marketsData[sym] || { symbol: sym, label };
   const safe = { ...patch };
+  delete safe.candles;
   if (safe.price != null && !priceOk(label, safe.price)) {
     delete safe.price;
   }
@@ -1253,7 +1299,7 @@ function applyWsInit(msg) {
   }
   updateTotal(msg.total);
   renderTabs();
-  switchMarket(activeSymbol);
+  void ensureFreshCandles(activeSymbol);
   if (msg.brain) renderBrain(msg.brain);
   if (msg.assistant) renderChat([{ role: "assistant", content: msg.assistant }]);
   renderAllTrades();
@@ -1284,6 +1330,19 @@ function connectWs() {
         renderBrain(msg.cycle);
         if (msg.cycle.verdict) {
           pushActivity(`Мозг: ${msg.cycle.verdict.slice(0, 80)}`);
+        }
+      }
+      if (msg.type === "candles_ready") {
+        showToast(`📊 Свечи готовы: ${msg.ready}/${msg.total} рынков`);
+        if (activeSymbol) {
+          ensureFreshCandles(activeSymbol).then(c => {
+            if (candleSeries && c?.length) {
+              lastCandles = c;
+              candleSeries.setData(c);
+              updateSMA(c, smaPeriod(activeSymbol));
+              updateChartTitle(activeSymbol);
+            }
+          });
         }
       }
       if (msg.type === "candles_refreshed" && msg.symbols?.length) {
@@ -1409,7 +1468,6 @@ function applyBootstrap(data) {
   }
   updateTotal(parsed?.total || computeTotal());
   renderTabs();
-  switchMarket(activeSymbol);
   if (parsed?.brain) renderBrain(parsed.brain);
   if (data.chat) renderChat([{ role: "assistant", content: data.chat }]);
   if (data.trades?.length) renderTradesList(data.trades);
@@ -1485,7 +1543,12 @@ async function refreshStatus() {
     }
     updateTotal(data?.total || computeTotal());
     renderTabs();
-    switchMarket(activeSymbol);
+    const d = marketsData[activeSymbol];
+    if (d) renderBotStatus(d);
+    const lag = d?.candle_lag_sec ?? 9999;
+    if (lag > 120 || !d?.candles_ready || lastCandles.length < 30) {
+      await ensureFreshCandles(activeSymbol);
+    }
     await renderAllTrades();
     setLiveStatus("live");
   } catch (e) {

@@ -212,4 +212,9 @@ async def fetch_all_klines_parallel(
         *[one(sym, s) for sym, s in sessions.items()],
         return_exceptions=False,
     )
-    return dict(results)
+    out = dict(results)
+    for sym, rows in out.items():
+        if sym in sessions and rows:
+            sessions[sym].candles.load_history(rows)
+            sessions[sym]._candles_ready = len(rows) > 0
+    return out

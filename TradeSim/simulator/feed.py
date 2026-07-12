@@ -309,6 +309,13 @@ class PriceFeed:
                         return candles
                 except Exception as e:
                     errors.append(f"binance.us: {e}")
+                try:
+                    candles = await self._klines_bybit_since(client, interval, since_ms, limit)
+                    if candles:
+                        self.source = "bybit-gap"
+                        return candles
+                except Exception as e:
+                    errors.append(f"bybit: {e}")
             if attempt == 0 and not use_insecure_ssl() and is_ssl_verify_error("; ".join(errors)):
                 enable_insecure_ssl()
                 errors.clear()
@@ -398,16 +405,25 @@ class PriceFeed:
         return candles
 
     async def _klines_bybit(self, client: httpx.AsyncClient, interval: str, limit: int):
+        return await self._klines_bybit_since(client, interval, None, limit)
+
+    async def _klines_bybit_since(
+        self,
+        client: httpx.AsyncClient,
+        interval: str,
+        since_ms: int | None,
+        limit: int,
+    ):
         bybit_interval = {"1m": "1", "5m": "5", "15m": "15", "1h": "60"}.get(interval, "1")
-        r = await client.get(
-            f"{BYBIT_REST}/kline",
-            params={
-                "category": "spot",
-                "symbol": self.symbol,
-                "interval": bybit_interval,
-                "limit": min(limit, 1000),
-            },
-        )
+        params: dict[str, Any] = {
+            "category": "spot",
+            "symbol": self.symbol,
+            "interval": bybit_interval,
+            "limit": min(limit, 1000),
+        }
+        if since_ms is not None:
+            params["start"] = since_ms
+        r = await client.get(f"{BYBIT_REST}/kline", params=params)
         r.raise_for_status()
         data = r.json()
         if data.get("retCode") != 0:
@@ -415,8 +431,11 @@ class PriceFeed:
         rows = list(reversed(data["result"]["list"]))
         candles = []
         for row in rows:
+            t = int(row[0]) // 1000
+            if since_ms is not None and t * 1000 < since_ms:
+                continue
             candles.append({
-                "time": int(row[0]) // 1000,
+                "time": t,
                 "open": float(row[1]),
                 "high": float(row[2]),
                 "low": float(row[3]),

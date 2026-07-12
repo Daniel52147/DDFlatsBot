@@ -176,7 +176,7 @@ class MarketSession:
                 logger.exception("[%s] on_after_trade failed", self.symbol)
 
     async def refresh_candles(self, force: bool = False) -> dict[str, Any]:
-        """Reload klines from exchange; backfill gap if chart lags behind clock."""
+        """Reload klines from exchange; paginated backfill until chart is current."""
         from simulator.candle_sync import gap_start_ts, needs_backfill
         from simulator.feed_hub import cached_klines, invalidate_klines_cache
 
@@ -186,30 +186,56 @@ class MarketSession:
             price = self.feed.price or self.demo_price
 
         max_lag = config.CANDLE_MAX_LAG_SEC
+        max_pages = config.CANDLE_GAP_MAX_PAGES
         existing = self.candles.all_candles()
-        lag = self.candles.lag_sec()
+        lag = self.candles.lag_sec() if existing else 999999.0
 
         if force or not existing or needs_backfill(existing, config.CANDLE_INTERVAL, max_lag):
             invalidate_klines_cache(self.symbol)
-            limit = config.CANDLE_STARTUP_LIMIT
             history = await cached_klines(
-                self.feed, interval=config.CANDLE_INTERVAL, limit=limit, force=True,
+                self.feed, interval=config.CANDLE_INTERVAL, limit=config.CANDLE_STARTUP_LIMIT, force=True,
             )
             self.candles.load_history(history)
             lag = self.candles.lag_sec()
+            logger.info("[%s] candle reload: %d rows lag=%.0fs src=%s", self.label, len(self.candles.all_candles()), lag, self.feed.source)
 
-        if needs_backfill(self.candles.all_candles(), config.CANDLE_INTERVAL, max_lag):
+        pages = 0
+        while needs_backfill(self.candles.all_candles(), config.CANDLE_INTERVAL, max_lag) and pages < max_pages:
             since = gap_start_ts(self.candles.all_candles(), config.CANDLE_INTERVAL)
-            if since:
-                gap_rows = await self.feed.fetch_klines_since(
-                    interval=config.CANDLE_INTERVAL,
-                    since_ts=since,
-                    limit=config.CANDLE_GAP_FETCH_LIMIT,
+            if not since:
+                break
+            gap_rows = await self.feed.fetch_klines_since(
+                interval=config.CANDLE_INTERVAL,
+                since_ts=since,
+                limit=config.CANDLE_GAP_FETCH_LIMIT,
+            )
+            if not gap_rows:
+                invalidate_klines_cache(self.symbol)
+                history = await self.feed.fetch_klines(
+                    interval=config.CANDLE_INTERVAL, limit=config.CANDLE_STARTUP_LIMIT,
                 )
-                if gap_rows:
-                    merged = self.candles.merge_history(gap_rows)
-                    logger.info("[%s] candle gap fill: +%d rows since %s", self.label, merged, since)
+                self.candles.load_history(history)
+                lag = self.candles.lag_sec()
+                pages += 1
+                if not needs_backfill(self.candles.all_candles(), config.CANDLE_INTERVAL, max_lag):
+                    break
+                continue
+            merged = self.candles.merge_history(gap_rows)
             lag = self.candles.lag_sec()
+            pages += 1
+            logger.info("[%s] candle gap fill p%d: +%d lag=%.0fs", self.label, pages, merged, lag)
+            if merged <= 0:
+                break
+
+        if needs_backfill(self.candles.all_candles(), config.CANDLE_INTERVAL, max_lag) and price > 0:
+            since = gap_start_ts(self.candles.all_candles(), config.CANDLE_INTERVAL)
+            since_ts = since or int(time.time()) - 3600
+            tail = self.feed._synthetic_candles(price, 120)
+            tail = [c for c in tail if c["time"] >= since_ts]
+            if tail:
+                self.candles.merge_history(tail)
+                lag = self.candles.lag_sec()
+                logger.warning("[%s] synthetic candle tail (%d rows) lag=%.0fs", self.label, len(tail), lag)
 
         if price > 0:
             self.feed.price = price
@@ -220,7 +246,12 @@ class MarketSession:
         self._candles_ready = True
         if lag > max_lag:
             logger.warning("[%s] candles still lag %.0fs (last %s)", self.label, lag, self.candles.last_time())
-        return {"lag_sec": round(lag, 1), "count": len(self.candles.all_candles()), "ready": True}
+        return {
+            "lag_sec": round(lag, 1),
+            "count": len(self.candles.all_candles()),
+            "ready": True,
+            "source": self.feed.source,
+        }
 
     async def startup(self):
         try:

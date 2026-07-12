@@ -269,7 +269,9 @@ CORRELATION_RISK_MIN_SYNC_PAIRS = int(os.environ.get("CORRELATION_RISK_MIN_SYNC_
 CANDLE_MAX_LAG_SEC = int(os.environ.get("CANDLE_MAX_LAG_SEC", "120"))
 CANDLE_STARTUP_LIMIT = int(os.environ.get("CANDLE_STARTUP_LIMIT", "500"))
 CANDLE_GAP_FETCH_LIMIT = int(os.environ.get("CANDLE_GAP_FETCH_LIMIT", "500"))
+CANDLE_GAP_MAX_PAGES = int(os.environ.get("CANDLE_GAP_MAX_PAGES", "5"))
 CANDLE_HEALTH_SEC = int(os.environ.get("CANDLE_HEALTH_SEC", "60"))
+CANDLE_STARTUP_TIMEOUT_SEC = int(os.environ.get("CANDLE_STARTUP_TIMEOUT_SEC", "90"))
 
 # Capital allocator — tilt buy sizes to winners (v28)
 CAPITAL_ALLOCATOR_ENABLED = _env_bool("CAPITAL_ALLOCATOR_ENABLED", True)
@@ -282,7 +284,7 @@ CAPITAL_ALLOCATOR_MIN_VS_HOLD = float(os.environ.get("CAPITAL_ALLOCATOR_MIN_VS_H
 STRATEGY_OUTCOME_EVAL_SEC = int(os.environ.get("STRATEGY_OUTCOME_EVAL_SEC", "7200"))
 EXCHANGE_PNL_SNAPSHOT_SEC = int(os.environ.get("EXCHANGE_PNL_SNAPSHOT_SEC", "300"))
 
-APP_VERSION = 29
+APP_VERSION = 30
 
 # Security — default localhost; cloud preview needs TRADESIM_BIND_HOST=0.0.0.0
 def _default_bind_host() -> str:

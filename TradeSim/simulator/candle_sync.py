@@ -76,3 +76,16 @@ def gap_start_ts(
     if last is None:
         return None
     return last + interval_seconds(interval)
+
+
+def gap_pages_needed(
+    lag_sec: float,
+    interval: str = "1m",
+    page_size: int = 500,
+) -> int:
+    """How many paginated gap-fill requests may be required."""
+    if lag_sec <= 0:
+        return 0
+    step = interval_seconds(interval)
+    candles_needed = int(lag_sec // step) + 2
+    return max(1, (candles_needed + page_size - 1) // page_size)

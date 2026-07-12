@@ -1,6 +1,19 @@
-# TradeSim v29
+# TradeSim v30
 
-**Smart candle sync** — charts stay current after server restart; gap-fill from Binance.
+**Smart candle sync** — server waits for fresh candles before trading; paginated gap-fill; UI polls until current.
+
+## v30 — Stronger candle sync
+
+- **Blocking startup** — server loads & gap-fills all markets **before** trading loops start (up to 90s)
+- **Paginated gap-fill** — up to 5 pages × 500 candles; Bybit fallback for `startTime`
+- **Synthetic tail** — if APIs fail, builds current-minute candles from live price
+- **UI** — ignores stale candles from `/api/status`; polls `/api/candles` until lag ≤ 2 min
+- **Lag warning** — chart title shows hours+minutes when behind (not hidden after 1h)
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `CANDLE_GAP_MAX_PAGES` | 5 | Paginated gap-fill rounds |
+| `CANDLE_STARTUP_TIMEOUT_SEC` | 90 | Max boot wait for candles |
 
 ## v29 — Candle sync (fix lag after restart)
 
