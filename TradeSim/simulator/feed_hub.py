@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 _klines_cache: dict[tuple[str, str, int], tuple[float, list]] = {}
 _KLINES_TTL = 45.0
+_RECONNECT_DELAY_SEC = 5.0
 
 
 class FeedHub:
@@ -34,20 +35,30 @@ class FeedHub:
         self._task: asyncio.Task | None = None
         self._shared_client: httpx.AsyncClient | None = None
 
-    def register(self, symbol: str, feed) -> None:
+    def register(self, symbol: str, feed) -> bool:
+        """Register feed once per symbol — returns True if newly added."""
         sym = symbol.upper()
-        self._feeds.setdefault(sym, []).append(feed)
+        lst = self._feeds.setdefault(sym, [])
+        if feed in lst:
+            return False
+        lst.append(feed)
+        return True
+
+    async def ensure_symbol(self, symbol: str, feed) -> bool:
+        """Register feed; restart multiplex WS only when symbol is new."""
+        sym = symbol.upper()
+        self.register(sym, feed)
+        is_new = sym not in self.symbols
+        if is_new:
+            self.symbols.append(sym)
+            if self._running:
+                await self._restart_multiplex()
+        return is_new
 
     async def add_symbol(self, symbol: str, feed) -> None:
-        """Register feed and hot-add symbol to multiplex WS."""
-        sym = symbol.upper()
-        if sym not in self.symbols:
-            self.symbols.append(sym)
-        self.register(sym, feed)
-        if self._running:
-            await self._restart_multiplex()
+        await self.ensure_symbol(symbol, feed)
 
-    register_symbol = add_symbol  # alias for sync-markets callers
+    register_symbol = ensure_symbol
 
     async def _restart_multiplex(self) -> None:
         if self._task and not self._task.done():
@@ -81,21 +92,29 @@ class FeedHub:
         return self._task
 
     async def _dispatch(self, symbol: str, price: float, source: str) -> None:
-        for feed in self._feeds.get(symbol.upper(), []):
+        feeds = self._feeds.get(symbol.upper(), [])
+        if len(feeds) > 1:
+            logger.warning("FeedHub: %d duplicate feeds for %s — using first only", len(feeds), symbol)
+        feed = feeds[0] if feeds else None
+        if feed:
             await feed._set_price(price, source)
             await feed._notify(price, feed.last_update)
 
     async def _run_multiplex(self) -> None:
         import websockets
 
-        streams = "/".join(f"{s.lower()}@trade" for s in self.symbols)
-        bases = [BINANCE_US_WS.replace("/ws", ""), BINANCE_WS.replace("/ws", "")]
-        if _binance_com_geo_blocked:
-            bases = [bases[0], bases[1]]
-        else:
-            bases = [bases[1], bases[0]]
-
         while self._running:
+            if not self.symbols:
+                await asyncio.sleep(_RECONNECT_DELAY_SEC)
+                continue
+
+            streams = "/".join(f"{s.lower()}@trade" for s in self.symbols)
+            bases = [BINANCE_US_WS.replace("/ws", ""), BINANCE_WS.replace("/ws", "")]
+            if _binance_com_geo_blocked:
+                bases = [bases[0], bases[1]]
+            else:
+                bases = [bases[1], bases[0]]
+
             connected = False
             for base in bases:
                 url = f"{base}/stream?streams={streams}"
@@ -118,8 +137,9 @@ class FeedHub:
                     if "451" in err:
                         _mark_binance_com_blocked()
                     logger.warning("FeedHub multiplex failed (%s): %s", base, e)
-            if self._running and not connected:
-                await asyncio.sleep(5)
+
+            if self._running:
+                await asyncio.sleep(_RECONNECT_DELAY_SEC)
 
 
 async def cached_klines(

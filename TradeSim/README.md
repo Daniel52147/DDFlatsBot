@@ -1,4 +1,4 @@
-# TradeSim v18
+# TradeSim v19
 
 **Paper trading** simulator: **17 crypto markets**, virtual $10,000, live prices, self-learning bots.
 
@@ -6,10 +6,13 @@
 
 | Tier | Coins | Default strategy |
 |------|-------|------------------|
-| **Majors** | BTC, ETH, SOL, BNB | DCA |
-| **Growth** | XRP, ADA, AVAX, LINK, ARB, SUI, NEAR, DOT, INJ, TON | DCA / Grid / Momentum |
-| **Meme** | DOGE, PEPE | Aggressive DCA |
-| **Viral** | WIF | Scalper |
+| **Majors** | BTC, ETH, BNB | DCA |
+| **Majors** | SOL | Momentum |
+| **Growth** | XRP, ADA, AVAX, ARB, SUI, TON | Grid |
+| **Growth** | LINK, INJ | DCA / Momentum |
+| **Growth** | NEAR, DOT | Scalper |
+| **Meme** | DOGE, PEPE | RSI |
+| **Viral** | WIF | Momentum |
 
 ## Strategies (5)
 
@@ -19,13 +22,15 @@
 | **Grid** | Buy/sell on grid levels vs SMA |
 | **Momentum** | Breakout entry + trailing stop |
 | **RSI** | Mean-reversion on RSI oversold/overbought |
-| **Scalper** | Micro-moves with tight TP (DOT, NEAR, WIF) |
+| **Scalper** | Micro-moves with tight TP (NEAR, DOT) |
 
-Runtime state (grid levels, RSI buffer, scalper ticks) is **persisted in SQLite** across restarts.
+## Features (v19)
 
-## Features (v18)
-
-- **17 parallel bots** + **12 brain agents** + Shadow Lab (promote keys per strategy type)
+- **FeedHub dedupe** — no duplicate ticks when syncing strategy/markets
+- **Shadow resync** — clones rebuild when live strategy type changes
+- **Brain persist** — micro-tunes from brain cycle saved to SQLite
+- **Strategy presets** — aggressive/balanced/conservative per strategy type
+- **17 parallel bots** + **12 brain agents** + Shadow Lab
 - **FeedHub** — one multiplexed Binance WebSocket; hot-add via `POST /api/sync-markets`
 - **Persistence** — SQLite WAL, `bot_state` column, full trade history
 - **Backtest** — compare all 5 strategies on same candles

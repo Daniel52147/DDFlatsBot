@@ -176,7 +176,7 @@ def _learning_honesty(stats: dict) -> dict[str, Any]:
         "version": config.APP_VERSION,
         "markets_configured": len(config.MARKETS),
         "markets_active": len(sessions),
-        "project_readiness": "v18 Complete ~95% paper · state persist · exchange panel",
+        "project_readiness": "v19 Polish ~96% — dedupe FeedHub, shadow sync, brain persist",
         "really_learns": True,
         "learning_kind": "эвристики + статистика (не нейросеть)",
         "what_is_real": [
@@ -290,8 +290,16 @@ async def brain_loop():
             if brain.last_applied_decision != prev_decision:
                 for s in sessions.values():
                     await s.persist()
-            brain.apply_learning_boost(sessions, ctx)
-            brain.apply_schemer_hints(sessions, cycle.get("schemer", {}))
+            tuned = brain.apply_learning_boost(sessions, ctx)
+            hinted = brain.apply_schemer_hints(sessions, cycle.get("schemer", {}))
+            for sym in set(tuned + hinted):
+                s = sessions[sym]
+                price = s.feed.price or s.demo_price
+                snap = s.engine.snapshot(price)
+                await s.persist()
+                await logger_db.log_strategy_change(
+                    s.bot.get_params(), "brain micro-tune", snap.get("pnl_pct", 0), symbol=sym,
+                )
             await logger_db.log_brain_cycle(cycle["decision"], cycle["verdict"])
             await logger_db.log_assistant("brain", cycle["summary"])
             await broadcast({"type": "brain_update", "cycle": _brain_public(cycle)})
@@ -598,9 +606,12 @@ async def lifespan(app: FastAPI):
             cycle = await brain.think(all_contexts(), total_portfolio())
             state["brain_cycle"] = cycle
             brain.apply_decision(sessions, cycle["decision"])
-            brain.apply_learning_boost(sessions, all_contexts())
-            brain.apply_schemer_hints(sessions, cycle.get("schemer", {}))
-            greeting = brain.chat("привет", all_contexts(), total_portfolio())
+            ctx = all_contexts()
+            tuned = brain.apply_learning_boost(sessions, ctx)
+            hinted = brain.apply_schemer_hints(sessions, cycle.get("schemer", {}))
+            for sym in set(tuned + hinted):
+                await sessions[sym].persist()
+            greeting = brain.chat("привет", ctx, total_portfolio())
             state["chat_history"] = [
                 {"role": "assistant", "content": greeting},
                 {"role": "assistant", "content": cycle["summary"]},
@@ -756,6 +767,8 @@ async def api_strategy_switch(body: StrategySwitchRequest):
         result = s.switch_strategy(body.strategy_type)
     except ValueError as e:
         return {"error": str(e)}
+    if shadow_lab:
+        shadow_lab.reset_clones(body.symbol)
     await s.persist()
     return {"ok": True, "symbol": body.symbol, **result}
 
@@ -776,10 +789,32 @@ async def api_analytics():
     return await _analytics_payload_db(equity)
 
 
-STRATEGY_PRESETS: dict[str, dict[str, float]] = {
-    "aggressive": {"dca_amount": 1.35, "dip_extra_amount": 1.4, "dip_threshold_pct": 0.85, "take_profit_fraction": 0.85},
-    "conservative": {"dca_amount": 0.75, "dip_extra_amount": 0.8, "dip_threshold_pct": 1.15, "stop_loss_pct": 0.9},
-    "balanced": {"dca_amount": 1.0, "dip_extra_amount": 1.0, "dip_threshold_pct": 1.0},
+STRATEGY_PRESETS: dict[str, dict[str, dict[str, float]]] = {
+    "dca": {
+        "aggressive": {"dca_amount": 1.35, "dip_extra_amount": 1.4, "dip_threshold_pct": 0.85, "take_profit_fraction": 0.85},
+        "conservative": {"dca_amount": 0.75, "dip_extra_amount": 0.8, "dip_threshold_pct": 1.15, "stop_loss_pct": 0.9},
+        "balanced": {"dca_amount": 1.0, "dip_extra_amount": 1.0, "dip_threshold_pct": 1.0},
+    },
+    "grid": {
+        "aggressive": {"grid_spacing_pct": 0.85, "grid_buy_amount": 1.3, "grid_sell_fraction": 0.9},
+        "conservative": {"grid_spacing_pct": 1.15, "grid_buy_amount": 0.8, "grid_sell_fraction": 1.1},
+        "balanced": {"grid_spacing_pct": 1.0, "grid_buy_amount": 1.0},
+    },
+    "momentum": {
+        "aggressive": {"breakout_pct": 0.85, "momentum_buy_amount": 1.25, "trailing_stop_pct": 0.9},
+        "conservative": {"breakout_pct": 1.15, "momentum_buy_amount": 0.8, "trailing_stop_pct": 1.1},
+        "balanced": {"breakout_pct": 1.0, "momentum_buy_amount": 1.0},
+    },
+    "rsi": {
+        "aggressive": {"rsi_buy_amount": 1.3, "rsi_oversold": 1.05, "rsi_overbought": 0.95},
+        "conservative": {"rsi_buy_amount": 0.8, "rsi_oversold": 0.95, "rsi_overbought": 1.05},
+        "balanced": {"rsi_buy_amount": 1.0},
+    },
+    "scalper": {
+        "aggressive": {"scalp_buy_amount": 1.25, "scalp_move_pct": 0.9, "scalp_tp_pct": 0.85},
+        "conservative": {"scalp_buy_amount": 0.8, "scalp_move_pct": 1.1, "scalp_tp_pct": 1.1},
+        "balanced": {"scalp_buy_amount": 1.0, "scalp_move_pct": 1.0},
+    },
 }
 
 
@@ -787,17 +822,19 @@ STRATEGY_PRESETS: dict[str, dict[str, float]] = {
 async def api_strategy_preset(body: StrategyPresetRequest):
     if body.symbol not in sessions:
         return {"error": "unknown symbol"}
-    preset = STRATEGY_PRESETS.get(body.preset)
+    s = sessions[body.symbol]
+    stype = getattr(s, "strategy_type", "dca")
+    type_presets = STRATEGY_PRESETS.get(stype, STRATEGY_PRESETS["dca"])
+    preset = type_presets.get(body.preset)
     if not preset:
         return {"error": f"unknown preset {body.preset}"}
-    s = sessions[body.symbol]
     merged = dict(s.bot.get_params())
     for k, mult in preset.items():
         if k in merged and isinstance(merged[k], (int, float)):
             merged[k] = type(merged[k])(merged[k] * mult)
     s.set_params_bounded(merged)
     await s.persist()
-    return {"ok": True, "symbol": body.symbol, "preset": body.preset, "params": s.bot.get_params()}
+    return {"ok": True, "symbol": body.symbol, "preset": body.preset, "strategy_type": stype, "params": s.bot.get_params()}
 
 
 @app.get("/api/fees")
@@ -1019,7 +1056,7 @@ async def api_market_sync_strategy(symbol: str):
     s.bot = create_bot(s.engine, stype, params=params)
     s.sync_base_params()
     if feed_hub:
-        await feed_hub.add_symbol(symbol, s.feed)
+        await feed_hub.ensure_symbol(symbol, s.feed)
     try:
         await s.feed.fetch_price()
     except Exception as e:
@@ -1045,7 +1082,7 @@ async def api_sync_markets():
         s = sessions[sym]
         s.learning_logger = logger_db
         if feed_hub:
-            await feed_hub.add_symbol(sym, s.feed)
+            await feed_hub.ensure_symbol(sym, s.feed)
         await s.restore_from_db()
         await s.startup()
         if state["running"]:

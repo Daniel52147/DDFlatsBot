@@ -195,9 +195,10 @@ class BinanceLiveExchange:
             "paper_quote": round(paper_quote, 2),
             "exchange_usdt": round(ex_quote, 2),
             "base_diff": round(ex_base - paper_base, 8),
-            "base_synced": abs(ex_base - paper_base) < 1e-6,
+            "base_tol": round(max(1e-6, abs(paper_base) * 0.01 + 1e-4), 8),
+            "base_synced": abs(ex_base - paper_base) <= max(1e-6, abs(paper_base) * 0.01 + 1e-4),
             "note": "USDT на бирже — общий баланс счёта; paper quote — только этот рынок",
-            "synced": abs(ex_base - paper_base) < 1e-6,
+            "synced": abs(ex_base - paper_base) <= max(1e-6, abs(paper_base) * 0.01 + 1e-4),
         }
 
     async def place_market_order(
@@ -219,7 +220,7 @@ class BinanceLiveExchange:
 
         if not self.enabled:
             return {
-                "ok": True,
+                "ok": False,
                 "mode": "paper",
                 "symbol": symbol,
                 "side": side,

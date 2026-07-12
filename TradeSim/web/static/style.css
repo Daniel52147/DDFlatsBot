@@ -825,4 +825,4 @@ footer {
 .exchange-panel-body { font-size: 0.82rem; }
 .exchange-panel-body .data-table.compact td,
 .exchange-panel-body .data-table.compact th { padding: 0.25rem 0.4rem; font-size: 0.75rem; }
-body.v18 .ver-badge { background: linear-gradient(135deg, #3d8bfd, #9b6dff); }
+body.v19 .ver-badge { background: linear-gradient(135deg, #2dd4bf, #6366f1); }

@@ -1340,7 +1340,7 @@ function bindUi() {
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `tradesim-trades-v${data.version || 17}.json`;
+      a.download = `tradesim-trades-v${data.version || 19}.json`;
       a.click();
       showToast(`Экспорт: ${data.count || 0} сделок`);
     } catch (_) {
@@ -1356,7 +1356,8 @@ function bindUi() {
     });
     const data = await res.json();
     if (data.error) showToast("⚠ " + data.error);
-    else showToast(`🏦 ${data.mode}: ${side} ${activeSymbol} — ${data.note || data.status || "ok"}`);
+    else if (data.mode === "paper" || data.ok === false) showToast("📄 Paper: " + (data.note || "биржа выключена"));
+    else showToast(`🏦 ${data.mode}: ${side} ${activeSymbol} — ${data.status || "ok"}`);
   });
 
   document.getElementById("btn-save-token")?.addEventListener("click", () => {
@@ -1510,7 +1511,7 @@ async function loadExchangePanel() {
     const rows = (bal.balances || []).slice(0, 8).map(b =>
       `<tr><td><b>${b.asset}</b></td><td>${Number(b.free).toFixed(6)}</td><td>${Number(b.locked).toFixed(6)}</td></tr>`
     ).join("") || "<tr><td colspan=3>Нет балансов</td></tr>";
-    const syncCls = rec.base_synced || rec.synced ? "up" : "down";
+    const syncCls = (rec.base_synced ?? rec.synced) ? "up" : "down";
     el.innerHTML = `
       <p><b>${st.testnet ? "TESTNET" : "LIVE"}</b> · ордер до $${st.max_order_usd} · сегодня ${st.orders_today || 0}</p>
       <table class="data-table compact"><thead><tr><th>Asset</th><th>Free</th><th>Locked</th></tr></thead><tbody>${rows}</tbody></table>

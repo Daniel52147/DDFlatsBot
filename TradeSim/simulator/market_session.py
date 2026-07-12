@@ -14,7 +14,7 @@ from simulator.candles import CandleBuilder
 from simulator.engine import SimulatorEngine, Trade
 from simulator.feed import PriceFeed
 from simulator.price_walk import prices_for_tick, run_strategy_prices
-from simulator.strategies import create_bot, STRATEGY_META
+from simulator.strategies import create_bot, STRATEGY_META, default_params
 
 logger = logging.getLogger(__name__)
 
@@ -65,11 +65,19 @@ class MarketSession:
             self.base_params, bounds=bounds, volatile=(self.volatile or self.growth),
         )
 
-    def switch_strategy(self, strategy_type: str) -> dict[str, Any]:
+    def switch_strategy(self, strategy_type: str, params: dict | None = None) -> dict[str, Any]:
         if strategy_type not in STRATEGY_META:
             raise ValueError(f"unknown strategy {strategy_type}")
         self.strategy_type = strategy_type
-        self.bot = create_bot(self.engine, strategy_type, params=self.base_params)
+        base = dict(default_params(strategy_type))
+        if params:
+            base = {**base, **params}
+        else:
+            old = self.bot.get_params()
+            for key in ("stop_loss_pct", "stop_loss_fraction", "max_buy_pct_of_cash", "sma_period"):
+                if key in old and key in base:
+                    base[key] = old[key]
+        self.bot = create_bot(self.engine, strategy_type, params=base)
         self.sync_base_params()
         return {"strategy_type": strategy_type, "params": self.bot.get_params()}
 
