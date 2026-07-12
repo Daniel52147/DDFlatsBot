@@ -31,6 +31,7 @@ from learning.auto_tactics import AutoTacticsEngine
 from learning.capital_allocator import CapitalAllocator
 from learning.strategy_outcomes import evaluate_pending, log_switch
 from learning.strategy_presets import apply_strategy_preset
+from learning.profit_focus import ProfitFocusEngine, apply_profit_max_startup
 from learning.trade_mode import apply_active_all, apply_active_trading
 from learning.logger import LearningLogger
 from learning.optimizer import StrategyOptimizer
@@ -53,6 +54,7 @@ shadow_lab: ShadowLab | None = None
 feed_hub: FeedHub | None = None
 auto_tactics: AutoTacticsEngine | None = None
 capital_allocator: CapitalAllocator | None = None
+profit_focus: ProfitFocusEngine | None = None
 logger_db = LearningLogger()
 brain = CentralBrain()
 live_exchange = BinanceLiveExchange()
@@ -370,6 +372,14 @@ async def brain_loop():
                 for sym in alloc_changed:
                     await sessions[sym].persist()
                 state["capital_allocation"] = capital_allocator.status(sessions)
+            if profit_focus:
+                focus_actions = profit_focus.review(sessions)
+                for act in focus_actions:
+                    sym = act["symbol"]
+                    if sym in sessions:
+                        await sessions[sym].persist()
+                    await broadcast({"type": "profit_focus", **act})
+                state["profit_focus"] = profit_focus.status(sessions)
             await logger_db.log_brain_cycle(cycle["decision"], cycle["verdict"])
             await logger_db.log_assistant("brain", cycle["summary"])
             await broadcast({"type": "brain_update", "cycle": _brain_public(cycle)})
@@ -553,6 +563,7 @@ def _bootstrap_payload() -> dict[str, Any]:
         "trades": _all_trades(),
         "chat": state["chat_history"][-1]["content"] if state.get("chat_history") else "",
         "trading_mode": trading_mode.status(live_exchange),
+        "profit_focus": profit_focus.status(sessions) if profit_focus else None,
     }
 
 
@@ -708,11 +719,12 @@ async def after_paper_trade(session, trade):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global shadow_lab, feed_hub, auto_tactics, capital_allocator
+    global shadow_lab, feed_hub, auto_tactics, capital_allocator, profit_focus
 
     await logger_db.init()
     auto_tactics = AutoTacticsEngine()
     capital_allocator = CapitalAllocator()
+    profit_focus = ProfitFocusEngine()
     added = ensure_all_markets()
     shadow_lab = ShadowLab(sessions)
     feed_hub = FeedHub(list(sessions.keys()))
@@ -723,9 +735,11 @@ async def lifespan(app: FastAPI):
     for session in sessions.values():
         await session.restore_from_db()
 
-    if config.TRADE_MODE == "active" and config.ACTIVE_TRADE_ON_START:
-        from learning.trade_mode import apply_active_all
-
+    if config.PROFIT_MAX_ON_START:
+        apply_profit_max_startup(sessions)
+        for s in sessions.values():
+            await s.persist()
+    elif config.TRADE_MODE == "active" and config.ACTIVE_TRADE_ON_START:
         apply_active_all(
             sessions,
             reset_timers=config.ACTIVE_TRADE_RESET_TIMERS,
@@ -1100,6 +1114,13 @@ async def api_strategy_outcomes(limit: int = 25):
         "wins": wins,
         "win_rate_pct": round(wins / evaluated * 100, 1) if evaluated else 0,
     }
+
+
+@app.get("/api/profit-focus")
+async def api_profit_focus():
+    if not profit_focus:
+        return {"enabled": False}
+    return profit_focus.status(sessions)
 
 
 @app.get("/api/capital-allocation")

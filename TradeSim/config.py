@@ -223,7 +223,7 @@ BRAIN_CYCLE_SEC = 45
 
 # Portfolio risk — brain + execution gate
 PORTFOLIO_MAX_DRAWDOWN_PCT = float(os.environ.get("PORTFOLIO_MAX_DRAWDOWN_PCT", "12"))
-REGIME_FILTER_ENABLED = _env_bool("REGIME_FILTER_ENABLED", True)
+REGIME_FILTER_ENABLED = _env_bool("REGIME_FILTER_ENABLED", False)
 
 # Shadow Lab — hidden parallel mock bots (same crypto, many param variants)
 SHADOW_LAB_ENABLED = _env_bool("SHADOW_LAB_ENABLED", True)
@@ -253,7 +253,7 @@ AUTO_TRADER_COPY_ENABLED = _env_bool("AUTO_TRADER_COPY_ENABLED", True)
 AUTO_TRADER_MIN_CONFIDENCE = float(os.environ.get("AUTO_TRADER_MIN_CONFIDENCE", "0.68"))
 AUTO_TACTICS_BACKTEST_ENABLED = _env_bool("AUTO_TACTICS_BACKTEST_ENABLED", True)
 AUTO_TACTICS_BACKTEST_CANDLES = int(os.environ.get("AUTO_TACTICS_BACKTEST_CANDLES", "200"))
-AUTO_TACTICS_BACKTEST_MIN_EDGE = float(os.environ.get("AUTO_TACTICS_BACKTEST_MIN_EDGE", "0.5"))
+AUTO_TACTICS_BACKTEST_MIN_EDGE = float(os.environ.get("AUTO_TACTICS_BACKTEST_MIN_EDGE", "0.3"))
 
 # Shadow Lab walk-forward OOS gate (v27)
 SHADOW_WALKFORWARD_ENABLED = _env_bool("SHADOW_WALKFORWARD_ENABLED", True)
@@ -264,8 +264,8 @@ SHADOW_WALKFORWARD_MIN_EDGE = float(os.environ.get("SHADOW_WALKFORWARD_MIN_EDGE"
 # Correlation risk — block buys when many markets fall together
 CORRELATION_RISK_ENABLED = _env_bool("CORRELATION_RISK_ENABLED", True)
 CORRELATION_RISK_MOMENTUM_PCT = float(os.environ.get("CORRELATION_RISK_MOMENTUM_PCT", "0.8"))
-CORRELATION_RISK_MIN_BEARISH = int(os.environ.get("CORRELATION_RISK_MIN_BEARISH", "6"))
-CORRELATION_RISK_MIN_SYNC_PAIRS = int(os.environ.get("CORRELATION_RISK_MIN_SYNC_PAIRS", "8"))
+CORRELATION_RISK_MIN_BEARISH = int(os.environ.get("CORRELATION_RISK_MIN_BEARISH", "8"))
+CORRELATION_RISK_MIN_SYNC_PAIRS = int(os.environ.get("CORRELATION_RISK_MIN_SYNC_PAIRS", "10"))
 
 # Candle sync — gap fill after restart (v29)
 CANDLE_MAX_LAG_SEC = int(os.environ.get("CANDLE_MAX_LAG_SEC", "120"))
@@ -275,11 +275,23 @@ CANDLE_GAP_MAX_PAGES = int(os.environ.get("CANDLE_GAP_MAX_PAGES", "5"))
 CANDLE_HEALTH_SEC = int(os.environ.get("CANDLE_HEALTH_SEC", "60"))
 CANDLE_STARTUP_TIMEOUT_SEC = int(os.environ.get("CANDLE_STARTUP_TIMEOUT_SEC", "90"))
 
+# Profit Focus — auto-pause losers, boost winners (v35)
+PROFIT_FOCUS_ENABLED = _env_bool("PROFIT_FOCUS_ENABLED", True)
+PROFIT_FOCUS_INTERVAL_SEC = int(os.environ.get("PROFIT_FOCUS_INTERVAL_SEC", "300"))
+PROFIT_FOCUS_MIN_TRADES = int(os.environ.get("PROFIT_FOCUS_MIN_TRADES", "2"))
+PROFIT_FOCUS_PAUSE_VS_HOLD = float(os.environ.get("PROFIT_FOCUS_PAUSE_VS_HOLD", "-2.0"))
+PROFIT_FOCUS_PAUSE_PNL_PCT = float(os.environ.get("PROFIT_FOCUS_PAUSE_PNL_PCT", "-1.5"))
+PROFIT_FOCUS_RESUME_VS_HOLD = float(os.environ.get("PROFIT_FOCUS_RESUME_VS_HOLD", "0.3"))
+PROFIT_FOCUS_RESUME_PNL_PCT = float(os.environ.get("PROFIT_FOCUS_RESUME_PNL_PCT", "0.5"))
+PROFIT_FOCUS_BOOST_MIN_VS_HOLD = float(os.environ.get("PROFIT_FOCUS_BOOST_MIN_VS_HOLD", "0.5"))
+PROFIT_FOCUS_LEADER_MULT = float(os.environ.get("PROFIT_FOCUS_LEADER_MULT", "1.2"))
+PROFIT_MAX_ON_START = _env_bool("PROFIT_MAX_ON_START", True)
+
 # Capital allocator — tilt buy sizes to winners (v28)
 CAPITAL_ALLOCATOR_ENABLED = _env_bool("CAPITAL_ALLOCATOR_ENABLED", True)
-CAPITAL_ALLOCATOR_INTERVAL_SEC = int(os.environ.get("CAPITAL_ALLOCATOR_INTERVAL_SEC", "1800"))
-CAPITAL_ALLOCATOR_BOOST = float(os.environ.get("CAPITAL_ALLOCATOR_BOOST", "1.15"))
-CAPITAL_ALLOCATOR_CUT = float(os.environ.get("CAPITAL_ALLOCATOR_CUT", "0.85"))
+CAPITAL_ALLOCATOR_INTERVAL_SEC = int(os.environ.get("CAPITAL_ALLOCATOR_INTERVAL_SEC", "900"))
+CAPITAL_ALLOCATOR_BOOST = float(os.environ.get("CAPITAL_ALLOCATOR_BOOST", "1.25"))
+CAPITAL_ALLOCATOR_CUT = float(os.environ.get("CAPITAL_ALLOCATOR_CUT", "0.75"))
 CAPITAL_ALLOCATOR_MIN_VS_HOLD = float(os.environ.get("CAPITAL_ALLOCATOR_MIN_VS_HOLD", "0.5"))
 
 # Strategy switch outcome tracking (v28)
@@ -294,7 +306,7 @@ ACTIVE_TRADE_RESET_TIMERS = _env_bool("ACTIVE_TRADE_RESET_TIMERS", False)
 # Trading mode default: paper | testnet | live (runtime override in data/trading_mode.json)
 TRADING_MODE_DEFAULT = os.environ.get("TRADING_MODE_DEFAULT", "paper").lower()
 
-APP_VERSION = 34
+APP_VERSION = 35
 
 # Security — default localhost; cloud preview needs TRADESIM_BIND_HOST=0.0.0.0
 def _default_bind_host() -> str:

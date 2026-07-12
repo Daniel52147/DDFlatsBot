@@ -1,6 +1,42 @@
-# TradeSim v30
+# TradeSim v35
 
-**Smart candle sync** — server waits for fresh candles before trading; paginated gap-fill; UI polls until current.
+**Profit Focus** — auto-pause bots losing vs hold; boost top 25% leaders with aggressive preset + larger buys. Active trading on boot.
+
+## v35 — Profit Focus
+
+- **ProfitFocusEngine** — every 5 min reviews all markets; pauses bots with vs_hold ≤ -2% and ≥2 trades; resumes on recovery
+- **Leader boost** — top 25% vs-hold markets get `aggressive` preset + 1.2× buy size
+- **Profit Max on start** — `PROFIT_MAX_ON_START=true` applies active trading profile on boot
+- **Looser gates** — `REGIME_FILTER_ENABLED=false` by default; correlation bearish threshold 8; allocator boost 1.25
+- **UI** — sidebar **💎 Profit Focus** panel; WS toasts on pause/resume/boost
+- **`GET /api/profit-focus`** — leaders, laggards, paused bots, last actions
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `PROFIT_FOCUS_ENABLED` | true | Auto pause/boost cycle |
+| `PROFIT_FOCUS_PAUSE_VS_HOLD` | -2.0 | Pause bot if vs hold below this |
+| `PROFIT_FOCUS_BOOST_MIN_VS_HOLD` | 0.5 | Min vs hold to qualify as leader |
+| `PROFIT_FOCUS_LEADER_MULT` | 1.2 | Buy size multiplier for leaders |
+| `PROFIT_MAX_ON_START` | true | Active trading + focus-friendly boot |
+| `REGIME_FILTER_ENABLED` | false | Bear-market buy filter (off = more trades) |
+| `AUTO_TACTICS_BACKTEST_MIN_EDGE` | 0.3 | Lower bar for strategy switches |
+
+## v34 — Chart + exchange menu
+
+- Brighter/taller chart (480px), trade markers on chart
+- Paper / Testnet / Live menu with persisted mode
+- `GET /api/exchange/verify` — connection check with clear 401/403/451 messages
+
+## v33 — Chart + exchange menu (base)
+
+- Brighter chart, buy/sell markers `▲$25` / `▼$18`
+- `exchange/trading_mode.py` — Paper | Testnet | Live
+- `POST/GET /api/trading-mode`, `GET /api/exchange/verify`
+
+## v32 — Active trading
+
+- `TRADE_MODE=active` — shorter cooldowns, more trades
+- `POST /api/strategy/active` — UI button **📈 Больше сделок**
 
 ## v30 — Stronger candle sync
 

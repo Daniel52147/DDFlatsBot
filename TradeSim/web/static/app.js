@@ -1121,6 +1121,39 @@ function renderAutoTacticsPanel(data) {
     <ul class="auto-tactics-list">${plays}</ul>`;
 }
 
+function renderProfitFocusPanel(data) {
+  const el = document.getElementById("profit-focus-panel");
+  if (!el) return;
+  if (!data) {
+    el.innerHTML = "<p class='muted'>Profit Focus выключен</p>";
+    return;
+  }
+  window.lastProfitFocus = data;
+  const paused = (data.paused || []).map(p =>
+    `<li><b>${p.label || p.symbol}</b> · ${escapeHtml(p.reason || "пауза")}</li>`
+  ).join("") || "<li class='muted'>Нет пауз — все боты активны</li>";
+  const leaders = (data.leaders || []).slice(0, 4).map(l =>
+    `<li><b>${l.label}</b> · vs hold <span class="up">${fmtPct(l.vs_hold_pct)}</span>${l.bot_enabled ? "" : " ⏸"}</li>`
+  ).join("") || "<li class='muted'>Лидеры появятся после сделок</li>";
+  const laggards = (data.laggards || []).slice(0, 4).map(l =>
+    `<li><b>${l.label}</b> · vs hold <span class="down">${fmtPct(l.vs_hold_pct)}</span></li>`
+  ).join("") || "<li class='muted'>Отстающих нет</li>";
+  const actions = (data.last_actions || []).slice(-4).map(a => {
+    const icon = a.action === "pause" ? "⏸" : a.action === "resume" ? "▶️" : "🚀";
+    return `<li>${icon} <b>${a.label}</b> · ${escapeHtml(a.reason || a.action)}</li>`;
+  }).join("");
+  const s = data.settings || {};
+  el.innerHTML = `
+    <p>${data.enabled ? "✅" : "⏸"} Profit Focus · пауза: <b>${data.paused_count || 0}</b> · порог ${s.pause_vs_hold ?? -2}%</p>
+    <p class="muted">🏆 Лидеры (буст + aggressive):</p>
+    <ul class="auto-tactics-list">${leaders}</ul>
+    <p class="muted">📉 Отстают vs hold:</p>
+    <ul class="auto-tactics-list">${laggards}</ul>
+    <p class="muted">⏸ На паузе:</p>
+    <ul class="auto-tactics-list">${paused}</ul>
+    ${actions ? `<p class="muted">Последние действия:</p><ul class="auto-tactics-list">${actions}</ul>` : ""}`;
+}
+
 function updateExchangeControls(enabled) {
   document.querySelectorAll(".testnet-btn").forEach(btn => {
     btn.style.display = enabled ? "" : "none";
@@ -1489,6 +1522,17 @@ function connectWs() {
         loadAutoTactics();
         loadLearning();
       }
+      if (msg.type === "profit_focus") {
+        const icon = msg.action === "pause" ? "⏸" : msg.action === "resume" ? "▶️" : "💎";
+        showToast(`${icon} Profit Focus · ${msg.label}: ${msg.reason || msg.action}`);
+        pushActivity(`${icon} ${msg.label}: ${msg.reason || msg.action}`);
+        if (msg.symbol) {
+          mergeMarket(msg.symbol, { strategy: { enabled: msg.action !== "pause" } });
+          if (msg.symbol === activeSymbol) renderBotStatus(marketsData[msg.symbol]);
+        }
+        void loadProfitFocus();
+        refreshStatus();
+      }
     } catch (e) { console.error(e); }
   };
   ws.onclose = () => setTimeout(connectWs, 3000);
@@ -1552,6 +1596,7 @@ function applyBootstrap(data) {
   }
   if (data.shadow_lab) renderShadowLab(data.shadow_lab);
   if (data.auto_tactics) renderAutoTacticsPanel(data.auto_tactics);
+  if (data.profit_focus) renderProfitFocusPanel(data.profit_focus);
   renderAllTables(data);
   setLiveStatus("live");
   return Object.keys(marketsData).length > 0;
@@ -1808,6 +1853,7 @@ function bindUi() {
   document.getElementById("btn-strategy-apply")?.addEventListener("click", applyStrategy);
   document.getElementById("btn-exchange-refresh")?.addEventListener("click", loadExchangePanel);
   document.getElementById("btn-auto-tactics-refresh")?.addEventListener("click", loadAutoTactics);
+  document.getElementById("btn-profit-focus-refresh")?.addEventListener("click", loadProfitFocus);
   document.getElementById("btn-shadow-reset")?.addEventListener("click", async () => {
     if (!confirm("Сбросить все shadow-клоны? Текущие эксперименты начнутся заново.")) return;
     try {
@@ -1968,6 +2014,16 @@ async function loadExchangePanel() {
   }
 }
 
+async function loadProfitFocus() {
+  try {
+    const data = await (await fetch("/api/profit-focus")).json();
+    renderProfitFocusPanel(data);
+  } catch (_) {
+    const el = document.getElementById("profit-focus-panel");
+    if (el) el.innerHTML = "<p class='muted'>Profit Focus: обнови страницу (Ctrl+Shift+R)</p>";
+  }
+}
+
 async function loadAutoTactics() {
   try {
     const data = await (await fetch("/api/auto-tactics")).json();
@@ -2030,6 +2086,7 @@ async function main() {
     await loadExchangeBadge();
     await loadExchangePanel();
     await loadAutoTactics();
+    await loadProfitFocus();
     await loadAlerts();
     await loadFees();
     await renderHeatmap();

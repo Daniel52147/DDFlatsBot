@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TradeSim v34 — exchange ready</title>
-  <link rel="stylesheet" href="/static/style.css?v=33" />
+  <title>TradeSim v35 — profit focus</title>
+  <link rel="stylesheet" href="/static/style.css?v=35" />
   <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
 </head>
 <body class="v33">
@@ -17,8 +17,8 @@
     <div class="brand">
       <span class="logo">◆</span>
       <div>
-        <h1>TradeSim <span class="ver-badge">v34 Exchange</span></h1>
-        <p class="tagline">Свечи + метки сделок · Paper / Testnet / Live меню</p>
+        <h1>TradeSim <span class="ver-badge">v35 Profit</span></h1>
+        <p class="tagline">Profit Focus · пауза лузеров · буст лидеров · Paper / Testnet / Live</p>
       </div>
     </div>
     <div class="header-stats">
@@ -148,6 +148,14 @@
         <div id="auto-tactics-panel" class="auto-tactics-panel muted">Загрузка...</div>
       </section>
 
+      <section class="card v16-card" id="profit-focus-card">
+        <div class="card-header">
+          <h2>💎 Profit Focus</h2>
+          <button type="button" id="btn-profit-focus-refresh" class="btn ghost small">Обновить</button>
+        </div>
+        <div id="profit-focus-panel" class="profit-focus-panel muted">Загрузка...</div>
+      </section>
+
       <section class="card v16-card">
         <div class="card-header">
           <h2 id="bot-card-title">🤖 Стратегия</h2>
@@ -220,7 +228,7 @@
   </details>
 
   <footer class="v16-footer">
-    <span>TradeSim v33 · paper & exchange</span>
+    <span>TradeSim v35 · profit focus</span>
     <div class="footer-actions">
       <input id="api-token-input" type="password" placeholder="API-токен" class="token-input" />
       <button id="btn-save-token" class="btn ghost small">🔐</button>
@@ -259,6 +267,6 @@
   </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=33"></script>
+  <script src="/static/app.js?v=35"></script>
 </body>
 </html>
