@@ -420,6 +420,10 @@ function renderAllTables(data) {
 async function syncAllMarkets() {
   try {
     const res = await apiFetch("/api/sync-markets", { method: "POST" });
+    if (res.status === 401) {
+      showToast("🔐 Нужен API-токен внизу страницы для sync-markets");
+      return;
+    }
     const data = await res.json();
     if (data.market_meta) applyMarketMeta(data.market_meta);
     if (data.markets) {
@@ -468,8 +472,13 @@ async function fetchWithTimeout(url, ms = 15000) {
 async function waitForServer(maxAttempts = 30) {
   for (let i = 0; i < maxAttempts; i++) {
     try {
-      const res = await fetchWithTimeout("/api/ping", 4000);
-      if (res.ok) return await res.json();
+      const res = await fetchWithTimeout("/api/ready", 3000);
+      if (res.ok) {
+        const ready = await res.json();
+        if (ready.running) {
+          return await (await fetchWithTimeout("/api/ping", 5000)).json();
+        }
+      }
     } catch (_) {}
     const banner = document.getElementById("version-banner");
     if (banner) {
@@ -483,26 +492,40 @@ async function waitForServer(maxAttempts = 30) {
 
 async function checkServerAndSync() {
   try {
-    let ping = await waitForServer();
+    const ping = await waitForServer();
     if (!ping) {
       showError("Сервер не отвечает. Останови старый python (Ctrl+C) и запусти: python main.py");
       return null;
     }
     if (ping.auth_required && !localStorage.getItem("tradesim_token")) {
-      showToast("🔐 Нужен API-токен — введи внизу страницы");
+      showToast("🔐 Для кнопок торговли нужен API-токен — введи внизу (данные грузятся без него)");
     }
     if (ping.market_meta?.length) applyMarketMeta(ping.market_meta);
+    seedMarketsFromMeta();
+    if (ping.total) updateTotal(ping.total);
     const expectedVer = 24;
     if (ping.version && ping.version < expectedVer) {
-      showError(`Старый сервер v${ping.version} на порту 8765. Ctrl+C в терминале → python main.py → Ctrl+Shift+R`);
-    }
-    if ((ping.sessions_active || 0) < (ping.markets_count || 17)) {
-      await syncAllMarkets();
-      ping = await (await fetch("/api/ping")).json();
+      showError(`Старый сервер v${ping.version} на порту 8765. Ctrl+C → python main.py → Ctrl+Shift+R`);
     }
     return ping;
   } catch (_) {
     return null;
+  }
+}
+
+function seedMarketsFromMeta() {
+  for (const m of marketMeta) {
+    if (!marketsData[m.symbol]) {
+      marketsData[m.symbol] = {
+        symbol: m.symbol,
+        label: m.label,
+        volatile: m.volatile,
+        growth: m.growth,
+        viral: m.viral,
+        price: 0,
+        portfolio: {},
+      };
+    }
   }
 }
 
@@ -1388,13 +1411,17 @@ async function loadInitial() {
   let ok = loadEmbeddedData();
   if (!ok) ok = await fetchBootstrap();
   if (!ok) await refreshStatus();
-  if (!ok || Object.keys(marketsData).length < (ping?.markets_count || 17)) {
-    await syncAllMarkets();
-  }
   showVersionBanner(ping);
+  renderTabs();
+  switchMarket(activeSymbol);
   await loadBrain();
   if (!marketsData[activeSymbol]?.price) {
-    showError("Обнови код: git pull → Ctrl+C → python main.py → Ctrl+Shift+R");
+    await new Promise(r => setTimeout(r, 2500));
+    await refreshStatus();
+    switchMarket(activeSymbol);
+  }
+  if (!marketsData[activeSymbol]?.price) {
+    showError("Цены ещё не пришли. Подожди 10 сек или перезапусти: Ctrl+C → python main.py → Ctrl+Shift+R");
   }
 }
 
@@ -1627,7 +1654,10 @@ async function loadLearning() {
     lastAnalytics = an;
     renderLearningPanel(sum, bh.history, an);
     if (eq.curve) renderEquityCurve(eq.curve);
-  } catch (_) {}
+  } catch (_) {
+    const el = document.getElementById("learning-panel");
+    if (el) el.textContent = "Статистика временно недоступна — нажми Ctrl+Shift+R";
+  }
 }
 
 async function loadExchangePanel() {
@@ -1670,7 +1700,10 @@ async function loadAutoTactics() {
   try {
     const data = await (await fetch("/api/auto-tactics")).json();
     renderAutoTacticsPanel(data);
-  } catch (_) {}
+  } catch (_) {
+    const el = document.getElementById("auto-tactics-panel");
+    if (el) el.innerHTML = "<p class='muted'>Авто-тактики: обнови страницу (Ctrl+Shift+R)</p>";
+  }
 }
 
 async function loadExchangeBadge() {

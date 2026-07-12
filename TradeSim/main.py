@@ -1121,6 +1121,18 @@ async def api_brain_history():
     return {"history": await logger_db.brain_history(10)}
 
 
+@app.get("/api/ready")
+async def api_ready():
+    """Fast readiness probe — no heavy DB work."""
+    return {
+        "ok": True,
+        "version": config.APP_VERSION,
+        "running": state.get("running", False),
+        "markets_active": len(sessions),
+        "markets_count": len(config.MARKETS),
+    }
+
+
 @app.get("/api/ping")
 async def api_ping():
     ensure_all_markets()
