@@ -9,7 +9,6 @@ import config
 from learning.analytics import analyze_market_trades
 from security import RateLimiter, auth_required
 from simulator.engine import SimulatorEngine
-from tests.test_core import TestEngineFeesAndCostBasis
 
 
 class TestCostBasisEconomic(unittest.TestCase):
