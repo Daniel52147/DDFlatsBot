@@ -34,20 +34,31 @@ def _sharpe_like(returns: list[float]) -> float | None:
 def analyze_market_trades(trades: list[dict]) -> dict[str, Any]:
     buys = [t for t in trades if t.get("side") == "buy"]
     sells = [t for t in trades if t.get("side") == "sell"]
-    reasons = {"dca": 0, "dip": 0, "spike": 0, "tp": 0, "stop": 0, "manual": 0}
+    reasons = {"dca": 0, "dip": 0, "spike": 0, "tp": 0, "stop": 0, "manual": 0,
+               "grid": 0, "momentum": 0, "rsi": 0, "trail": 0, "scalp": 0}
     for t in trades:
         r = (t.get("reason") or "").upper()
         if "STOP" in r:
             reasons["stop"] += 1
         elif "MANUAL" in r:
             reasons["manual"] += 1
+        elif "SCALP" in r:
+            reasons["scalp"] += 1
+        elif "TRAIL" in r:
+            reasons["trail"] += 1
+        elif "MOMENTUM" in r or "ПРОБОЙ" in r:
+            reasons["momentum"] += 1
+        elif "RSI" in r:
+            reasons["rsi"] += 1
+        elif "GRID" in r:
+            reasons["grid"] += 1
         elif "SPIKE" in r:
             reasons["spike"] += 1
         elif "DIP" in r:
             reasons["dip"] += 1
         elif "DCA" in r:
             reasons["dca"] += 1
-        elif "TAKE-PROFIT" in r or "TP" in r:
+        elif "TAKE-PROFIT" in r or "TP" in r or "ФИКСАЦ" in r:
             reasons["tp"] += 1
 
     # FIFO walk: real win rate = sells above avg entry at sell time

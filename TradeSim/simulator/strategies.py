@@ -31,6 +31,11 @@ STRATEGY_META: dict[str, dict[str, str]] = {
         "emoji": "📉",
         "desc": "Покупка при RSI < 30, частичная продажа при RSI > 70",
     },
+    "scalper": {
+        "name": "Скальпер",
+        "emoji": "⚡",
+        "desc": "Быстрые сделки на микро-движениях 0.4–0.8%, tight TP",
+    },
 }
 
 
@@ -40,6 +45,7 @@ def default_params(strategy_type: str) -> dict:
         "grid": config.GRID_STRATEGY,
         "momentum": config.MOMENTUM_STRATEGY,
         "rsi": config.RSI_STRATEGY,
+        "scalper": config.SCALPER_STRATEGY,
     }
     return dict(mapping.get(strategy_type, config.STRATEGY))
 
@@ -57,6 +63,7 @@ def create_bot(
         "grid": GridStrategyBot,
         "momentum": MomentumStrategyBot,
         "rsi": RSIStrategyBot,
+        "scalper": ScalperStrategyBot,
     }.get(strategy_type, DCAStrategyBot)
     return cls(engine, params=base)
 
@@ -327,3 +334,58 @@ class RSIStrategyBot(_StrategyMixin):
     def status(self, price: float, sma: float | None) -> dict[str, Any]:
         rsi = self._rsi()
         return self._status_common(price, sma, {"rsi": round(rsi, 1) if rsi else None})
+
+
+class ScalperStrategyBot(_StrategyMixin):
+    strategy_type = "scalper"
+
+    def __init__(self, engine: SimulatorEngine, params: dict | None = None):
+        self.engine = engine
+        self.params = dict(config.SCALPER_STRATEGY)
+        if params:
+            self.params.update(params)
+        self._last_price = 0.0
+        self._ticks = 0
+
+    def maybe_trade(self, price: float, sma: float | None) -> Trade | None:
+        if not self.enabled or price <= 0:
+            return None
+        self._ticks += 1
+        sl = self._maybe_stop_loss(price)
+        if sl:
+            return sl
+        micro_pct = self.params.get("scalp_move_pct", 0.55)
+        tp_micro = self.params.get("scalp_tp_pct", 0.45)
+        cd = self.params.get("scalp_cooldown_seconds", 90)
+        if self._last_price > 0:
+            move = (price - self._last_price) / self._last_price * 100
+            if move <= -micro_pct and self._cooldown_ok(self.last_dip_ts, cd / 60):
+                amt = self._cap_buy_amount(self.params.get("scalp_buy_amount", 18))
+                trade = self.engine.buy(price, amt, reason=f"SCALP: dip {move:.2f}% — быстрый вход")
+                if trade:
+                    self.last_dip_ts = time.time()
+                    self._last_price = price
+                    return trade
+            if move >= tp_micro and self.engine.position.base > 0:
+                if self._cooldown_ok(self.last_take_profit_ts, cd / 60):
+                    fraction = self.params.get("scalp_sell_fraction", 0.25)
+                    amount_base = self.engine.position.base * fraction
+                    if amount_base * price >= 3:
+                        trade = self.engine.sell(
+                            price, amount_base,
+                            reason=f"SCALP TP: +{move:.2f}% — быстрая фиксация",
+                        )
+                        if trade:
+                            self.last_take_profit_ts = time.time()
+                            self._last_price = price
+                            return trade
+        self._last_price = price
+        if self._ticks % 40 == 0:
+            return self._maybe_scheduled_dca(price)
+        return None
+
+    def status(self, price: float, sma: float | None) -> dict[str, Any]:
+        move = None
+        if self._last_price and price:
+            move = round((price - self._last_price) / self._last_price * 100, 3)
+        return self._status_common(price, sma, {"micro_move_pct": move, "ticks": self._ticks})

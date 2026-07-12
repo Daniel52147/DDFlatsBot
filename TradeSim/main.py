@@ -29,6 +29,7 @@ from learning.optimizer import StrategyOptimizer
 from security import SecurityMiddleware, auth_required
 from simulator.backtest import Backtester, compare_strategies
 from simulator.market_session import MarketSession
+from simulator.feed_hub import FeedHub
 from simulator.shadow_lab import ShadowLab
 from simulator.strategies import STRATEGY_META
 
@@ -41,6 +42,7 @@ sessions: dict[str, MarketSession] = {
     m["symbol"]: MarketSession(m) for m in config.MARKETS
 }
 shadow_lab: ShadowLab | None = None
+feed_hub: FeedHub | None = None
 logger_db = LearningLogger()
 brain = CentralBrain()
 live_exchange = BinanceLiveExchange()
@@ -82,7 +84,7 @@ class BacktestRequest(BaseModel):
 class BacktestCompareRequest(BaseModel):
     symbol: str = "BTCUSDT"
     limit: int = 500
-    strategies: list[str] = ["dca", "grid", "momentum", "rsi"]
+    strategies: list[str] = ["dca", "grid", "momentum", "rsi", "scalper"]
     initial_balance: float | None = None
 
 
@@ -174,7 +176,7 @@ def _learning_honesty(stats: dict) -> dict[str, Any]:
         "version": config.APP_VERSION,
         "markets_configured": len(config.MARKETS),
         "markets_active": len(sessions),
-        "project_readiness": "v16 Pro ~85% — 4 стратегии, benchmark hold, shadow apply",
+        "project_readiness": "v17 Mega ~92% — 5 стратегий, FeedHub, hold benchmark, daily report",
         "really_learns": True,
         "learning_kind": "эвристики + статистика (не нейросеть)",
         "what_is_real": [
@@ -229,6 +231,11 @@ def _markets_table_rows() -> list[dict[str, Any]]:
     return rows
 
 
+class StrategyPresetRequest(BaseModel):
+    symbol: str
+    preset: str  # aggressive | conservative | balanced
+
+
 async def run_session_loop(session: MarketSession):
     async def on_tick(price: float, ts: float):
         msgs = await session.on_tick(price, ts)
@@ -250,7 +257,9 @@ async def run_session_loop(session: MarketSession):
     except Exception as e:
         logger.warning("[%s] initial price: %s", session.symbol, e)
 
-    ws_task = asyncio.create_task(session.feed.run_websocket())
+    ws_task = None
+    if not feed_hub:
+        ws_task = asyncio.create_task(session.feed.run_websocket())
     try:
         while state["running"]:
             await asyncio.sleep(3)
@@ -262,7 +271,8 @@ async def run_session_loop(session: MarketSession):
                     logger.warning("[%s] poll failed: %s", session.symbol, e)
     finally:
         session.feed.stop()
-        ws_task.cancel()
+        if ws_task:
+            ws_task.cancel()
 
 
 async def brain_loop():
@@ -328,7 +338,11 @@ async def snapshot_loop():
     while state["running"]:
         try:
             t = total_portfolio()
-            await logger_db.log_total_snapshot(t["total_value"], t["pnl_pct"])
+            bench = portfolio_benchmark()
+            await logger_db.log_total_snapshot(
+                t["total_value"], t["pnl_pct"],
+                hold_value=bench["hold_value"], hold_pnl_pct=bench["hold_pnl_pct"],
+            )
         except Exception as e:
             logger.warning("snapshot loop error: %s", e)
         await asyncio.sleep(300)
@@ -428,7 +442,23 @@ def _analytics_payload(equity: list | None = None) -> dict[str, Any]:
             "symbol": s.symbol,
             "label": s.label,
             "portfolio": s.engine.snapshot(s.feed.price or s.demo_price),
-            "trades": s.engine.export_trades(),
+            "trades": s.engine.export_trades(limit=500),
+            "avg_entry": s.engine.avg_entry_price(),
+            "bot_enabled": s.bot.enabled,
+        })
+    return build_portfolio_analytics(snaps, equity)
+
+
+async def _analytics_payload_db(equity: list | None = None) -> dict[str, Any]:
+    """Analytics from SQLite — survives restarts."""
+    snaps = []
+    for s in sessions.values():
+        db_trades = await logger_db.all_trades_for_symbol(s.symbol, limit=500)
+        snaps.append({
+            "symbol": s.symbol,
+            "label": s.label,
+            "portfolio": s.engine.snapshot(s.feed.price or s.demo_price),
+            "trades": db_trades if db_trades else s.engine.export_trades(limit=500),
             "avg_entry": s.engine.avg_entry_price(),
             "bot_enabled": s.bot.enabled,
         })
@@ -443,7 +473,7 @@ async def _bootstrap_payload_async() -> dict[str, Any]:
     equity = await logger_db.equity_curve(48)
     payload["equity"] = equity
     payload["brain_history"] = await logger_db.brain_history(6)
-    payload["analytics"] = _analytics_payload(equity)
+    payload["analytics"] = await _analytics_payload_db(equity)
     payload["strategy_history"] = await logger_db.strategy_history(limit=10)
     payload["deposits"] = await logger_db.deposit_history(15)
     payload["learning_honesty"] = _learning_honesty(stats)
@@ -534,11 +564,13 @@ def _brain_public(cycle: dict) -> dict:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global shadow_lab
+    global shadow_lab, feed_hub
     await logger_db.init()
     added = ensure_all_markets()
     shadow_lab = ShadowLab(sessions)
+    feed_hub = FeedHub(list(sessions.keys()))
     for session in sessions.values():
+        feed_hub.register(session.symbol, session.feed)
         session.learning_logger = logger_db
     for session in sessions.values():
         await session.restore_from_db()
@@ -547,6 +579,7 @@ async def lifespan(app: FastAPI):
 
     state["running"] = True
     tasks: list[asyncio.Task] = []
+    tasks.append(feed_hub.start())
     for s in sessions.values():
         tasks.append(asyncio.create_task(run_session_loop(s)))
     state["background_tasks"] = tasks
@@ -600,6 +633,8 @@ async def lifespan(app: FastAPI):
         s.feed.stop()
     for t in tasks:
         t.cancel()
+    if feed_hub:
+        await feed_hub.close()
 
 
 app = FastAPI(title="TradeSim", description="Multi-market paper trading", lifespan=lifespan)
@@ -719,7 +754,94 @@ async def api_benchmark():
 @app.get("/api/analytics")
 async def api_analytics():
     equity = await logger_db.equity_curve(48)
-    return _analytics_payload(equity)
+    return await _analytics_payload_db(equity)
+
+
+STRATEGY_PRESETS: dict[str, dict[str, float]] = {
+    "aggressive": {"dca_amount": 1.35, "dip_extra_amount": 1.4, "dip_threshold_pct": 0.85, "take_profit_fraction": 0.85},
+    "conservative": {"dca_amount": 0.75, "dip_extra_amount": 0.8, "dip_threshold_pct": 1.15, "stop_loss_pct": 0.9},
+    "balanced": {"dca_amount": 1.0, "dip_extra_amount": 1.0, "dip_threshold_pct": 1.0},
+}
+
+
+@app.post("/api/strategy/preset")
+async def api_strategy_preset(body: StrategyPresetRequest):
+    if body.symbol not in sessions:
+        return {"error": "unknown symbol"}
+    preset = STRATEGY_PRESETS.get(body.preset)
+    if not preset:
+        return {"error": f"unknown preset {body.preset}"}
+    s = sessions[body.symbol]
+    merged = dict(s.bot.get_params())
+    for k, mult in preset.items():
+        if k in merged and isinstance(merged[k], (int, float)):
+            merged[k] = type(merged[k])(merged[k] * mult)
+    s.set_params_bounded(merged)
+    await s.persist()
+    return {"ok": True, "symbol": body.symbol, "preset": body.preset, "params": s.bot.get_params()}
+
+
+@app.get("/api/fees")
+async def api_fees(hours: int = 168):
+    summary = await logger_db.fee_summary(hours)
+    label_map = {s.symbol: s.label for s in sessions.values()}
+    for row in summary.get("per_symbol", []):
+        row["label"] = label_map.get(row.get("symbol", ""), "")
+    return summary
+
+
+@app.get("/api/portfolio/heatmap")
+async def api_heatmap():
+    cells = []
+    for s in sessions.values():
+        price = s.feed.price or s.demo_price
+        snap = s.engine.snapshot(price)
+        cells.append({
+            "symbol": s.symbol,
+            "label": s.label,
+            "tier": s.tier,
+            "strategy_type": s.strategy_type,
+            "pnl_pct": snap["pnl_pct"],
+            "vs_hold_pct": snap.get("vs_hold_pct", 0),
+            "portfolio_value": snap["portfolio_value"],
+            "bot_enabled": s.bot.enabled,
+            "source": s.feed.source,
+            "price_stale_sec": round(max(0, time.time() - s.feed.last_update), 1) if s.feed.last_update else 999,
+        })
+    cells.sort(key=lambda x: x["vs_hold_pct"], reverse=True)
+    return {"cells": cells, "benchmark": portfolio_benchmark()}
+
+
+@app.get("/api/daily-report")
+async def api_daily_report():
+    since = time.time() - 86400
+    trades = await logger_db.trades_since(since, limit=300)
+    bench = portfolio_benchmark()
+    total = total_portfolio()
+    cells = []
+    for s in sessions.values():
+        snap = s.engine.snapshot(s.feed.price or s.demo_price)
+        cells.append({"label": s.label, "pnl_pct": snap["pnl_pct"], "vs_hold_pct": snap.get("vs_hold_pct", 0)})
+    cells.sort(key=lambda x: x["pnl_pct"], reverse=True)
+    fees = await logger_db.fee_summary(24)
+    brain_hist = await logger_db.brain_history(12)
+    return {
+        "version": config.APP_VERSION,
+        "period_hours": 24,
+        "total": total,
+        "benchmark": bench,
+        "trades_count": len(trades),
+        "fees_24h": fees.get("total_fees", 0),
+        "top_gainers": cells[:3],
+        "top_losers": list(reversed(cells[-3:])) if len(cells) >= 3 else [],
+        "brain_decisions": brain_hist[-5:],
+        "shadow_promotions": shadow_lab.last_promotions[:3] if shadow_lab else [],
+    }
+
+
+@app.get("/api/brain/timeline")
+async def api_brain_timeline(limit: int = 25):
+    return {"history": await logger_db.brain_history(min(limit, 50))}
 
 
 @app.get("/api/strategy/history")

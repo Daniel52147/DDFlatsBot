@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-echo === TradeSim v16 Pro — запуск (Windows) ===
+echo === TradeSim v17 Mega — запуск (Windows) ===
 cd /d "%~dp0"
 
 echo.

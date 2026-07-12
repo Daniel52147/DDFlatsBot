@@ -39,6 +39,8 @@ class LearningLogger:
       "ALTER TABLE sessions ADD COLUMN last_stop_loss_ts REAL DEFAULT 0",
       "ALTER TABLE sessions ADD COLUMN start_price REAL DEFAULT 0",
       "ALTER TABLE sessions ADD COLUMN strategy_type TEXT DEFAULT 'dca'",
+      "ALTER TABLE total_snapshots ADD COLUMN hold_value REAL DEFAULT 0",
+      "ALTER TABLE total_snapshots ADD COLUMN hold_pnl_pct REAL DEFAULT 0",
     ):
       try:
         await db.execute(stmt)
@@ -311,11 +313,15 @@ class LearningLogger:
       out.append(d)
     return out
 
-  async def log_total_snapshot(self, total_value: float, pnl_pct: float):
+  async def log_total_snapshot(
+      self, total_value: float, pnl_pct: float,
+      hold_value: float = 0, hold_pnl_pct: float = 0,
+  ):
     async with self._connect() as db:
       await db.execute(
-        "INSERT INTO total_snapshots (ts, total_value, pnl_pct) VALUES (?,?,?)",
-        (time.time(), total_value, pnl_pct),
+        """INSERT INTO total_snapshots (ts, total_value, pnl_pct, hold_value, hold_pnl_pct)
+           VALUES (?,?,?,?,?)""",
+        (time.time(), total_value, pnl_pct, hold_value, hold_pnl_pct),
       )
       await db.commit()
 
@@ -324,13 +330,19 @@ class LearningLogger:
     async with self._connect() as db:
       db.row_factory = aiosqlite.Row
       cur = await db.execute(
-        """SELECT ts, total_value, pnl_pct FROM total_snapshots
-           WHERE ts >= ? ORDER BY ts ASC""",
+        """SELECT ts, total_value, pnl_pct, hold_value, hold_pnl_pct
+           FROM total_snapshots WHERE ts >= ? ORDER BY ts ASC""",
         (since,),
       )
       rows = [dict(r) for r in await cur.fetchall()]
     if rows:
-      return [{"time": int(r["ts"]), "value": r["total_value"], "pnl_pct": r["pnl_pct"]} for r in rows]
+      return [{
+        "time": int(r["ts"]),
+        "value": r["total_value"],
+        "hold_value": r.get("hold_value") or r["total_value"],
+        "pnl_pct": r["pnl_pct"],
+        "hold_pnl_pct": r.get("hold_pnl_pct", 0),
+      } for r in rows]
     async with self._connect() as db:
       db.row_factory = aiosqlite.Row
       cur = await db.execute(
@@ -401,3 +413,34 @@ class LearningLogger:
       "brain_cycles": brain,
       "deposits": deposits,
     }
+
+  async def fee_summary(self, hours: int = 168) -> dict[str, Any]:
+    since = time.time() - hours * 3600
+    async with self._connect() as db:
+      db.row_factory = aiosqlite.Row
+      cur = await db.execute(
+        "SELECT COALESCE(SUM(fee), 0) as total, COUNT(*) as n FROM trades WHERE ts >= ?",
+        (since,),
+      )
+      row = dict(await cur.fetchone())
+      cur = await db.execute(
+        """SELECT symbol, COALESCE(SUM(fee), 0) as fees, COUNT(*) as trades
+           FROM trades WHERE ts >= ? GROUP BY symbol ORDER BY fees DESC LIMIT 10""",
+        (since,),
+      )
+      per = [dict(r) for r in await cur.fetchall()]
+    return {
+      "hours": hours,
+      "total_fees": round(float(row.get("total") or 0), 4),
+      "trade_count": int(row.get("n") or 0),
+      "per_symbol": per,
+    }
+
+  async def trades_since(self, since_ts: float, limit: int = 500) -> list[dict[str, Any]]:
+    async with self._connect() as db:
+      db.row_factory = aiosqlite.Row
+      cur = await db.execute(
+        "SELECT * FROM trades WHERE ts >= ? ORDER BY ts DESC LIMIT ?",
+        (since_ts, limit),
+      )
+      return [dict(r) for r in await cur.fetchall()]

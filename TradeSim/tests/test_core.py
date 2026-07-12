@@ -170,10 +170,18 @@ class TestStrategies(unittest.TestCase):
         for st in STRATEGY_META:
             eng = SimulatorEngine(initial_balance=500.0)
             bot = create_bot(eng, st)
-            trade = bot.maybe_trade(100.0, 105.0)
+            bot.maybe_trade(100.0, 105.0)
             self.assertTrue(hasattr(bot, "maybe_trade"))
             status = bot.status(100.0, 105.0)
             self.assertIn("params", status)
+
+    def test_scalper_micro_trade(self):
+        from simulator.strategies import create_bot
+        eng = SimulatorEngine(initial_balance=500.0)
+        bot = create_bot(eng, "scalper")
+        bot.maybe_trade(100.0, 100.0)
+        t = bot.maybe_trade(99.4, 99.0)
+        self.assertTrue(t is None or t.side in ("buy", "sell"))
 
     def test_backtest_compare(self):
         from simulator.backtest import compare_strategies

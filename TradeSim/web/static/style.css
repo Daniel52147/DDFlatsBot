@@ -787,6 +787,33 @@ footer {
   color: var(--accent);
 }
 .compare-winner { background: rgba(61, 255, 168, 0.08); }
+.heatmap-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.6rem 1.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.hm-cell {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.35rem 0.55rem;
+  background: rgba(12, 18, 32, 0.8);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.72rem;
+  min-width: 58px;
+  text-align: center;
+}
+.hm-cell b { display: block; font-size: 0.78rem; }
+.hm-cell small { font-family: "IBM Plex Mono", monospace; }
+.hm-up { border-color: rgba(61, 255, 168, 0.35); background: rgba(61, 255, 168, 0.08); }
+.hm-down { border-color: rgba(255, 107, 138, 0.35); background: rgba(255, 107, 138, 0.08); }
+.hm-stale { opacity: 0.55; }
+.report-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 0.75rem 0; }
+.report-cols ul { list-style: none; font-size: 0.82rem; color: var(--muted); }
+.report-cols h4 { font-size: 0.8rem; margin-bottom: 0.35rem; color: var(--accent); }
+.row-actions { white-space: nowrap; }
 .strategy-tag {
   font-size: 0.65rem;
   padding: 0.1rem 0.35rem;

@@ -1,5 +1,5 @@
 let chart, candleSeries, smaSeries;
-let equityChart, equitySeries;
+let equityChart, equitySeries, holdEquitySeries;
 let lastCandles = [];
 let marketsData = {};
 let activeSymbol = "BTCUSDT";
@@ -118,10 +118,14 @@ function renderMarketsTable(rows) {
     const stype = r.strategy_type || "dca";
     return `<tr><td><b>${r.label}</b></td><td>${tier}</td><td><span class="strategy-tag">${stype}</span></td><td>${fmtMoney(r.price, priceDecimals(r.label))}</td>
       <td>${fmtMoney(r.portfolio_value)}</td><td class="${cls}">${fmtPct(r.pnl_pct)}</td>
-      <td>${fmtPct(r.vs_hold_pct)}</td><td>${r.trades}</td><td>${r.bot_enabled ? "✅" : "⏸"}</td></tr>`;
+      <td>${fmtPct(r.vs_hold_pct)}</td><td>${r.trades}</td><td>${r.bot_enabled ? "✅" : "⏸"}</td>
+      <td class="row-actions">
+        <button class="shadow-apply-btn" data-action="toggle" data-sym="${r.symbol}">⏯</button>
+        <button class="shadow-apply-btn" data-action="sync-strat" data-sym="${r.symbol}" data-st="${stype}">🔄</button>
+      </td></tr>`;
   };
   const head = `<table class="data-table"><thead><tr>
-    <th>Монета</th><th>Тип</th><th>Стратегия</th><th>Цена</th><th>Портфель</th><th>P&L</th><th>vs hold</th><th>Сделок</th><th>Бот</th>
+    <th>Монета</th><th>Тип</th><th>Стратегия</th><th>Цена</th><th>Портфель</th><th>P&L</th><th>vs hold</th><th>Сделок</th><th>Бот</th><th></th>
   </tr></thead><tbody>`;
   let html = "";
   for (const t of tiers) {
@@ -132,7 +136,7 @@ function renderMarketsTable(rows) {
       (!r.growth && !r.volatile && !r.viral && r.tier === "major")
     );
     if (!group.length) continue;
-    html += `<tr class="tier-header"><td colspan="9">${t.title}</td></tr>${group.map(rowHtml).join("")}`;
+    html += `<tr class="tier-header"><td colspan="10">${t.title}</td></tr>${group.map(rowHtml).join("")}`;
   }
   const other = rows.filter(r => !tiers.some(t => {
     if (t.key === "viral") return r.viral;
@@ -142,6 +146,13 @@ function renderMarketsTable(rows) {
   }));
   if (other.length) html += other.map(rowHtml).join("");
   el.innerHTML = head + html + "</tbody></table>";
+  el.querySelectorAll("[data-action=toggle]").forEach(btn => {
+    btn.onclick = async () => {
+      await apiFetch(`/api/bot/toggle?symbol=${btn.dataset.sym}`, { method: "POST" });
+      await refreshStatus();
+      renderMarketsTable((await (await fetch("/api/bootstrap")).json()).markets_table);
+    };
+  });
 }
 
 async function loadTradesTable(symbol) {
@@ -273,7 +284,7 @@ async function runBacktestCompare() {
   try {
     const res = await apiFetch("/api/backtest/compare", {
       method: "POST",
-      body: JSON.stringify({ symbol: sym, limit: 500, strategies: ["dca", "grid", "momentum", "rsi"] }),
+      body: JSON.stringify({ symbol: sym, limit: 500, strategies: ["dca", "grid", "momentum", "rsi", "scalper"] }),
     });
     const data = await res.json();
     if (data.error) {
@@ -485,10 +496,17 @@ function initEquityChart() {
     height: 120,
   });
   equitySeries = equityChart.addAreaSeries({
-    lineColor: "#00e5c0",
-    topColor: "rgba(0, 229, 192, 0.28)",
-    bottomColor: "rgba(0, 229, 192, 0.02)",
+    lineColor: "#63b3ff",
+    topColor: "rgba(99, 179, 255, 0.28)",
+    bottomColor: "rgba(99, 179, 255, 0.02)",
     lineWidth: 2,
+    title: "Paper",
+  });
+  holdEquitySeries = equityChart.addLineSeries({
+    color: "#b794f6",
+    lineWidth: 2,
+    lineStyle: 2,
+    title: "Hold",
   });
   window.addEventListener("resize", () => {
     if (equityChart && el) equityChart.applyOptions({ width: el.clientWidth || 400 });
@@ -498,16 +516,84 @@ function initEquityChart() {
 
 function renderEquityCurve(points) {
   if (!equitySeries || !points?.length) return;
-  const data = points.map(p => ({
-    time: p.time,
-    value: p.value,
-  }));
+  const data = points.map(p => ({ time: p.time, value: p.value }));
   equitySeries.setData(data);
+  if (holdEquitySeries) {
+    const holdData = points
+      .filter(p => p.hold_value != null)
+      .map(p => ({ time: p.time, value: p.hold_value }));
+    if (holdData.length) holdEquitySeries.setData(holdData);
+  }
   const last = points[points.length - 1];
   const lbl = document.getElementById("equity-label");
   if (lbl && last) {
-    lbl.textContent = `48ч · ${fmtMoney(last.value)} (${fmtPct(last.pnl_pct ?? 0)})`;
+    const hold = last.hold_value ? ` · hold ${fmtMoney(last.hold_value)}` : "";
+    lbl.textContent = `48ч · ${fmtMoney(last.value)} (${fmtPct(last.pnl_pct ?? 0)})${hold}`;
   }
+}
+
+async function renderHeatmap() {
+  const bar = document.getElementById("heatmap-bar");
+  if (!bar) return;
+  try {
+    const data = await (await fetch("/api/portfolio/heatmap")).json();
+    bar.innerHTML = (data.cells || []).map(c => {
+      const cls = c.pnl_pct >= 0 ? "hm-up" : "hm-down";
+      const stale = c.price_stale_sec > 30 ? " hm-stale" : "";
+      return `<button type="button" class="hm-cell ${cls}${stale}" data-sym="${c.symbol}" title="${c.label}: P&L ${fmtPct(c.pnl_pct)} · vs hold ${fmtPct(c.vs_hold_pct)} · ${c.strategy_type}">
+        <b>${c.label}</b><small>${fmtPct(c.pnl_pct)}</small>
+      </button>`;
+    }).join("");
+    bar.querySelectorAll(".hm-cell").forEach(cell => {
+      cell.onclick = () => switchMarket(cell.dataset.sym);
+    });
+  } catch (_) {}
+}
+
+async function renderDailyReport() {
+  const el = document.getElementById("table-report");
+  if (!el) return;
+  el.innerHTML = "<p class='muted'>Формирую отчёт...</p>";
+  try {
+    const r = await (await fetch("/api/daily-report")).json();
+    const gainers = (r.top_gainers || []).map(g => `<li>${g.label}: ${fmtPct(g.pnl_pct)} (vs hold ${fmtPct(g.vs_hold_pct)})</li>`).join("");
+    const losers = (r.top_losers || []).map(g => `<li>${g.label}: ${fmtPct(g.pnl_pct)}</li>`).join("");
+    const brain = (r.brain_decisions || []).map(b =>
+      `<tr><td>${new Date(b.ts * 1000).toLocaleTimeString("ru-RU")}</td><td>${b.decision}</td><td>${(b.verdict || "").slice(0, 60)}</td></tr>`
+    ).join("");
+    el.innerHTML = `<div class="honesty-box ok">
+      <p><b>Отчёт 24ч</b> · v${r.version} · сделок: ${r.trades_count} · fees: $${Number(r.fees_24h || 0).toFixed(2)}</p>
+      <p>Портфель: ${fmtMoney(r.total?.total_value)} (${fmtPct(r.total?.pnl_pct)}) · Alpha vs hold: ${fmtPct(r.benchmark?.vs_hold_pct)}</p>
+    </div>
+    <div class="report-cols"><div><h4>🏆 Лидеры</h4><ul>${gainers || "<li>—</li>"}</ul></div>
+    <div><h4>📉 Отстающие</h4><ul>${losers || "<li>—</li>"}</ul></div></div>
+    <table class="data-table"><thead><tr><th>Время</th><th>Решение</th><th>Вердикт</th></tr></thead><tbody>${brain || "<tr><td colspan=3>—</td></tr>"}</tbody></table>`;
+  } catch (_) {
+    el.innerHTML = "<p class='muted'>Не удалось загрузить отчёт</p>";
+  }
+}
+
+async function renderBrainTimeline() {
+  const el = document.getElementById("table-brain-timeline");
+  if (!el) return;
+  try {
+    const data = await (await fetch("/api/brain/timeline?limit=30")).json();
+    const rows = (data.history || []).map(h => {
+      const d = new Date(h.ts * 1000).toLocaleString("ru-RU");
+      return `<tr><td>${d}</td><td><b>${h.decision}</b></td><td>${escapeHtml((h.verdict || "").slice(0, 100))}</td></tr>`;
+    }).join("");
+    el.innerHTML = `<table class="data-table"><thead><tr><th>Время</th><th>Решение</th><th>Вердикт мозга</th></tr></thead><tbody>${rows || "<tr><td colspan=3>Мозг ещё не думал</td></tr>"}</tbody></table>`;
+  } catch (_) {
+    el.innerHTML = "<p class='muted'>История мозга недоступна</p>";
+  }
+}
+
+async function loadFees() {
+  try {
+    const f = await (await fetch("/api/fees?hours=168")).json();
+    const el = document.getElementById("total-fees");
+    if (el) el.textContent = "$" + Number(f.total_fees || 0).toFixed(2);
+  } catch (_) {}
 }
 
 function renderShadowLab(data) {
@@ -989,6 +1075,8 @@ function connectWs() {
         if (msg.symbol === activeSymbol) {
           if (msg.candle) updateLiveCandle(msg.candle);
           renderBotStatus(marketsData[msg.symbol]);
+          const fs = document.getElementById("feed-source");
+          if (fs && msg.source) fs.textContent = msg.source;
         }
         renderTabs();
         updateTotal(computeTotal());
@@ -1234,7 +1322,7 @@ function bindUi() {
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `tradesim-trades-v${data.version || 15}.json`;
+      a.download = `tradesim-trades-v${data.version || 17}.json`;
       a.click();
       showToast(`Экспорт: ${data.count || 0} сделок`);
     } catch (_) {
@@ -1293,12 +1381,25 @@ function bindUi() {
       if (id === "backtest") runBacktestTable();
       if (id === "trades") loadTradesTable(activeSymbol);
       if (id === "shadow") renderShadowLeaderboard();
+      if (id === "report") renderDailyReport();
+      if (id === "brain-timeline") renderBrainTimeline();
     };
   });
 
   document.getElementById("btn-backtest-run")?.addEventListener("click", runBacktestTable);
   document.getElementById("btn-backtest-compare")?.addEventListener("click", runBacktestCompare);
   document.getElementById("btn-strategy-apply")?.addEventListener("click", applyStrategy);
+  document.querySelectorAll(".preset-btn").forEach(btn => {
+    btn.onclick = async () => {
+      const res = await apiFetch("/api/strategy/preset", {
+        method: "POST",
+        body: JSON.stringify({ symbol: activeSymbol, preset: btn.dataset.preset }),
+      });
+      const d = await res.json();
+      if (d.error) showToast("⚠ " + d.error);
+      else { showToast(`🎚 ${btn.dataset.preset} на ${labelFor(activeSymbol)}`); await refreshStatus(); }
+    };
+  });
 
   const depModal = document.getElementById("deposit-modal");
   const depTarget = document.getElementById("deposit-target");
@@ -1387,6 +1488,8 @@ async function main() {
     await loadInitial();
     await loadExchangeBadge();
     await loadAlerts();
+    await loadFees();
+    await renderHeatmap();
     await loadShadowLab();
     connectWs();
     setInterval(refreshStatus, 5000);
@@ -1394,6 +1497,7 @@ async function main() {
     setInterval(loadLearning, 60000);
     setInterval(loadShadowLab, 30000);
     setInterval(loadAlerts, 20000);
+    setInterval(renderHeatmap, 25000);
   } catch (e) {
     showError(e.message);
   }

@@ -148,7 +148,8 @@ class MarketSession:
 
     async def startup(self):
         try:
-            history = await self.feed.fetch_klines(interval=config.CANDLE_INTERVAL, limit=200)
+            from simulator.feed_hub import cached_klines
+            history = await cached_klines(self.feed, interval=config.CANDLE_INTERVAL, limit=200)
         except Exception as e:
             logger.error("[%s] klines failed: %s", self.symbol, e)
             try:
@@ -321,6 +322,7 @@ class MarketSession:
             "growth": self.growth,
             "viral": self.viral,
             "tier": self.tier,
+            "strategy_type": self.strategy_type,
             "volatility_pct": volatility,
             "portfolio": self.engine.snapshot(price),
             "strategy": self.bot.status(price, sma),

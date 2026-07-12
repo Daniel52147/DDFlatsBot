@@ -295,7 +295,38 @@ class CentralBrain:
                 return "\n".join(lines)
             return "Наставник скоро проанализирует рынки."
 
-        if any(w in msg for w in ("схем", "стратег", "исслед", "эксперимент")):
+        if any(w in msg for w in ("vs hold", "vs_hold", "холд", "hold", "бенчмарк", "benchmark", "альфа")):
+            bench = total.get("benchmark") or {}
+            alpha_line = (
+                f"Бот опережает hold на {bench.get('vs_hold_pct', 0):+.2f} п.п."
+                if bench.get("vs_hold_pct", 0) >= 0
+                else f"Бот отстаёт от hold на {bench.get('vs_hold_pct', 0):+.2f} п.п."
+            )
+            return (
+                f"📊 Портфель vs buy-and-hold:\n"
+                f"• Живой: {total.get('pnl_pct', 0):+.2f}% ({total.get('total_value', 0):,.0f}$)\n"
+                f"• Hold: {bench.get('hold_pnl_pct', 0):+.2f}% ({bench.get('hold_value', 0):,.0f}$)\n"
+                f"• Alpha: {bench.get('vs_hold_pct', 0):+.2f}% ({bench.get('alpha_usd', 0):+,.2f}$)\n"
+                f"{alpha_line}"
+            )
+
+        if any(w in msg for w in ("grid", "momentum", "rsi", "scalp", "скальп", "сетк")):
+            from simulator.strategies import STRATEGY_META
+            lines = ["🎯 Стратегии TradeSim v17:", ""]
+            for key, meta in STRATEGY_META.items():
+                users = [c["label"] for c in contexts if c.get("strategy_type") == key]
+                who = f" → {', '.join(users)}" if users else ""
+                lines.append(f"{meta['emoji']} **{meta['name']}** ({key}){who}")
+                lines.append(f"   {meta['desc']}")
+            return "\n".join(lines)
+
+        if any(w in msg for w in ("fee", "комисс", "комса")):
+            return "💸 Комиссии: вкладка «Отчёт» или GET /api/fees — сумма fee по всем сделкам из SQLite."
+
+        if any(w in msg for w in ("отчёт", "отчет", "daily", "день")):
+            return "📋 Дневной отчёт: GET /api/daily-report — P&L, топ монет, сделки за 24ч, решения мозга."
+
+        if any(w in msg for w in ("схем", "стратег", "исслед", "эксперимент")) and "grid" not in msg and "momentum" not in msg:
             s = self.last_cycle.get("schemer") if self.last_cycle else None
             if s:
                 lines = [f"🧪 {s['summary']}", ""]

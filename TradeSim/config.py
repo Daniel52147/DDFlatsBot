@@ -102,6 +102,20 @@ RSI_STRATEGY = {
     "dca_interval_hours": 14,
 }
 
+SCALPER_STRATEGY = {
+    **VOLATILE_STRATEGY,
+    "scalp_move_pct": 0.55,
+    "scalp_tp_pct": 0.45,
+    "scalp_buy_amount": 16.0,
+    "scalp_sell_fraction": 0.28,
+    "scalp_cooldown_seconds": 90,
+    "dca_interval_hours": 8,
+    "dca_amount": 12.0,
+    "sma_period": 8,
+    "take_profit_pct": 3.5,
+    "stop_loss_pct": 8.0,
+}
+
 MARKETS = [
     {"symbol": "BTCUSDT", "label": "BTC", "name": "Bitcoin", "demo_price": 63_000.0, "tier": "major", "strategy_type": "dca"},
     {"symbol": "ETHUSDT", "label": "ETH", "name": "Ethereum", "demo_price": 3_400.0, "tier": "major", "strategy_type": "dca"},
@@ -114,8 +128,8 @@ MARKETS = [
     {"symbol": "LINKUSDT", "label": "LINK", "name": "Chainlink", "demo_price": 15.0, "tier": "growth", "growth": True, "strategy_type": "dca", "strategy": GROWTH_STRATEGY},
     {"symbol": "ARBUSDT", "label": "ARB", "name": "Arbitrum", "demo_price": 0.80, "tier": "growth", "growth": True, "strategy_type": "grid", "strategy": GRID_STRATEGY},
     {"symbol": "SUIUSDT", "label": "SUI", "name": "Sui", "demo_price": 2.50, "tier": "growth", "growth": True, "strategy_type": "grid", "strategy": GRID_STRATEGY},
-    {"symbol": "NEARUSDT", "label": "NEAR", "name": "NEAR Protocol", "demo_price": 4.50, "tier": "growth", "growth": True, "strategy_type": "dca", "strategy": GROWTH_STRATEGY},
-    {"symbol": "DOTUSDT", "label": "DOT", "name": "Polkadot", "demo_price": 5.50, "tier": "growth", "growth": True, "strategy_type": "dca", "strategy": GROWTH_STRATEGY},
+    {"symbol": "NEARUSDT", "label": "NEAR", "name": "NEAR Protocol", "demo_price": 4.50, "tier": "growth", "growth": True, "strategy_type": "scalper", "strategy": SCALPER_STRATEGY},
+    {"symbol": "DOTUSDT", "label": "DOT", "name": "Polkadot", "demo_price": 5.50, "tier": "growth", "growth": True, "strategy_type": "scalper", "strategy": SCALPER_STRATEGY},
     {"symbol": "INJUSDT", "label": "INJ", "name": "Injective", "demo_price": 15.0, "tier": "growth", "growth": True, "strategy_type": "momentum", "strategy": MOMENTUM_STRATEGY},
     {"symbol": "TONUSDT", "label": "TON", "name": "Toncoin", "demo_price": 5.50, "tier": "growth", "growth": True, "strategy_type": "grid", "strategy": GRID_STRATEGY},
     # — memecoins —
@@ -213,7 +227,7 @@ PRICE_DECIMALS = {
     "DOGE": 4, "PEPE": 8, "WIF": 4,
 }
 
-APP_VERSION = 16
+APP_VERSION = 17
 
 # Security — default localhost; cloud preview needs TRADESIM_BIND_HOST=0.0.0.0
 def _default_bind_host() -> str:

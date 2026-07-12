@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TradeSim v16 Pro — 17 рынков · 4 стратегии</title>
-  <link rel="stylesheet" href="/static/style.css?v=16" />
+  <title>TradeSim v17 Mega — 17 рынков · 5 стратегий</title>
+  <link rel="stylesheet" href="/static/style.css?v=17" />
   <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
 </head>
-<body class="v16">
+<body class="v17">
   <div id="version-banner" class="version-banner hidden"></div>
   <div id="alerts-ticker" class="alerts-ticker" aria-live="polite">
     <span class="alerts-label">📡 Сканер</span>
@@ -17,8 +17,8 @@
     <div class="brand">
       <span class="logo">◆</span>
       <div>
-        <h1>TradeSim <span class="ver-badge">v16 Pro</span></h1>
-        <p class="tagline">17 рынков · DCA · Grid · Momentum · RSI · Shadow Lab · Paper $10k</p>
+        <h1>TradeSim <span class="ver-badge">v17 Mega</span></h1>
+        <p class="tagline">17 рынков · DCA · Grid · Momentum · RSI · Scalper · FeedHub · Hold benchmark</p>
       </div>
     </div>
     <div class="header-stats">
@@ -34,6 +34,10 @@
         <span class="label">vs Hold</span>
         <span class="value" id="vs-hold">0.00%</span>
       </div>
+      <div class="stat">
+        <span class="label">Fees 7д</span>
+        <span class="value" id="total-fees">$0</span>
+      </div>
       <div class="stat badge paper" id="exchange-badge" title="Режим торговли">PAPER</div>
       <button type="button" id="btn-deposit" class="btn small deposit-btn">+ Пополнить</button>
       <div class="stat">
@@ -43,6 +47,7 @@
     </div>
   </header>
 
+  <section class="heatmap-bar" id="heatmap-bar" aria-label="Тепловая карта P&L"></section>
   <nav class="market-tabs" id="market-tabs"></nav>
   <div class="portfolio-grid" id="portfolio-grid"></div>
 
@@ -69,6 +74,8 @@
 
       <section class="tables-section">
         <div class="tables-nav">
+          <button type="button" class="tbl-tab" data-table="report">📋 Отчёт 24ч</button>
+          <button type="button" class="tbl-tab" data-table="brain-timeline">🧠 Мозг</button>
           <button type="button" class="tbl-tab active" data-table="markets">📊 Рынки</button>
           <button type="button" class="tbl-tab" data-table="analytics">📈 Аналитика</button>
           <button type="button" class="tbl-tab" data-table="shadow">🔬 Shadow TOP</button>
@@ -78,7 +85,9 @@
           <button type="button" class="tbl-tab" data-table="deposits">💵 Депозиты</button>
           <button type="button" class="tbl-tab" data-table="honesty">🔍 Статус</button>
         </div>
-        <div id="table-markets" class="data-table-wrap"></div>
+        <div id="table-report" class="data-table-wrap hidden"></div>
+        <div id="table-brain-timeline" class="data-table-wrap hidden"></div>
+        <div id="table-markets" class="data-table-wrap active-table"></div>
         <div id="table-analytics" class="data-table-wrap hidden"></div>
         <div id="table-shadow" class="data-table-wrap hidden"></div>
         <div id="table-backtest" class="data-table-wrap hidden">
@@ -134,8 +143,12 @@
             <option value="grid">🔲 Grid сетка</option>
             <option value="momentum">🚀 Momentum</option>
             <option value="rsi">📉 RSI</option>
+            <option value="scalper">⚡ Scalper</option>
           </select>
           <button type="button" id="btn-strategy-apply" class="btn ghost small">Применить</button>
+          <button type="button" class="btn ghost small preset-btn" data-preset="aggressive">🔥</button>
+          <button type="button" class="btn ghost small preset-btn" data-preset="balanced">⚖️</button>
+          <button type="button" class="btn ghost small preset-btn" data-preset="conservative">🛡️</button>
         </div>
         <div id="bot-status" class="bot-status"><p>Загрузка...</p></div>
         <div class="manual-trade">
@@ -178,7 +191,7 @@
   </details>
 
   <footer class="v16-footer">
-    <span>Binance live · v16 Pro · 4 стратегии · 12 агентов · buy&amp;hold benchmark</span>
+    <span>Binance FeedHub · v17 Mega · 5 стратегий · hold benchmark · daily report</span>
     <div class="footer-actions">
       <input id="api-token-input" type="password" placeholder="API-токен" class="token-input" />
       <button id="btn-save-token" class="btn ghost small">🔐</button>
@@ -217,6 +230,6 @@
   </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=16"></script>
+  <script src="/static/app.js?v=17"></script>
 </body>
 </html>

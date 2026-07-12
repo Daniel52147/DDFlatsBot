@@ -18,7 +18,7 @@ import config
 from learning.optimizer import StrategyOptimizer
 from simulator.engine import SimulatorEngine
 from simulator.price_walk import prices_for_tick
-from simulator.strategy import StrategyBot
+from simulator.strategies import create_bot
 
 logger = logging.getLogger(__name__)
 
@@ -51,15 +51,17 @@ class ShadowClone:
         label: str,
         params: dict,
         volatile: bool = False,
+        strategy_type: str = "dca",
     ):
         self.clone_id = clone_id
         self.symbol = symbol
         self.label = label
         self.volatile = volatile
+        self.strategy_type = strategy_type
         self.engine = SimulatorEngine(initial_balance=config.SHADOW_BALANCE)
         bounds = StrategyOptimizer.BOUNDS_VOLATILE if volatile else StrategyOptimizer.BOUNDS
         self.optimizer = StrategyOptimizer(params, bounds=bounds, volatile=volatile)
-        self.bot = StrategyBot(self.engine, params=self.optimizer.get_params())
+        self.bot = create_bot(self.engine, strategy_type, params=self.optimizer.get_params())
         self.trades = 0
 
     def process_price(self, price: float, sma: float | None) -> bool:
@@ -103,10 +105,11 @@ class ShadowLab:
             base = copy.deepcopy(session.bot.get_params())
             volatile = session.volatile
             label = session.label
+            stype = getattr(session, "strategy_type", "dca")
             clones: list[ShadowClone] = []
             for i in range(n):
                 params = self._jitter_params(base, i, volatile)
-                clones.append(ShadowClone(i, sym, label, params, volatile=volatile))
+                clones.append(ShadowClone(i, sym, label, params, volatile=volatile, strategy_type=stype))
             self.clones[sym] = clones
         logger.info(
             "Shadow Lab: %d markets × %d clones = %d mock bots",
@@ -245,7 +248,7 @@ class ShadowLab:
             n = config.SHADOW_CLONES_PER_MARKET
             self.clones[sym] = [
                 ShadowClone(i, sym, session.label, self._jitter_params(base, i, session.volatile),
-                            volatile=session.volatile)
+                            volatile=session.volatile, strategy_type=getattr(session, "strategy_type", "dca"))
                 for i in range(n)
             ]
 
@@ -261,6 +264,7 @@ class ShadowLab:
                     i, sym, session.label,
                     self._jitter_params(base, i, session.volatile),
                     volatile=session.volatile,
+                    strategy_type=getattr(session, "strategy_type", "dca"),
                 )
                 for i in range(n)
             ]
