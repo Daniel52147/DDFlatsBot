@@ -512,8 +512,8 @@ async function checkServerAndSync() {
     if (ping.market_meta?.length) applyMarketMeta(ping.market_meta);
     seedMarketsFromMeta();
     if (ping.total) updateTotal(ping.total);
-    const expectedVer = 41;
-    const branch = "cursor/tradesim-v41-remaining-2631";
+    const expectedVer = 42;
+    const branch = "cursor/tradesim-v42-scorecard-2631";
     if (ping.version && ping.version !== expectedVer) {
       const msg = ping.version < expectedVer
         ? `СТАРЫЙ СЕРВЕР v${ping.version}! Обнови: git pull origin ${branch} → .\\start.bat → Ctrl+Shift+R`
@@ -1187,6 +1187,36 @@ function renderProfitFocusPanel(data) {
     ${actions ? `<p class="muted">Последние действия:</p><ul class="auto-tactics-list">${actions}</ul>` : ""}`;
 }
 
+function renderScorecardPanel(data) {
+  const el = document.getElementById("scorecard-panel");
+  if (!el) return;
+  if (!data?.metrics) {
+    el.innerHTML = "<p class='muted'>Нет данных оценки</p>";
+    return;
+  }
+  window.lastScorecard = data;
+  const overallCls = data.overall_grade || "ok";
+  const rows = (data.metrics || []).map(m => {
+    const cls = m.grade === "good" ? "up" : m.grade === "bad" ? "down" : m.grade === "warn" ? "warn" : "";
+    const star = m.priority ? " ★" : "";
+    return `<tr class="${cls}"><td>${escapeHtml(m.label)}${star}</td><td><b>${escapeHtml(m.display)}</b></td><td>${escapeHtml(m.grade_label)}</td></tr>`;
+  }).join("");
+  const steps = (data.next_steps || []).map(s => `<li>${escapeHtml(s)}</li>`).join("");
+  const bench = data.benchmarks || {};
+  el.innerHTML = `
+    <div class="honesty-box ${overallCls === "good" ? "ok" : overallCls}">
+      <p><b>Итого: ${escapeHtml(data.overall_label || "")}</b> — ${escapeHtml(data.summary || "")}</p>
+      <p class="muted">Режим: ${escapeHtml(data.trading_mode || "paper")}${data.paper_learn ? " · 📚 Paper Learn" : ""} · $${Number(data.total_value || 0).toLocaleString()}</p>
+    </div>
+    <table class="data-table scorecard-table">
+      <thead><tr><th>Показатель</th><th>Сейчас</th><th>Оценка</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p class="muted tiny">Ориентиры: сделки ${bench.trades?.ok || "30–100"} · P&L ${bench.pnl?.ok || "−2…+3%"} · vs Hold ${bench.vs_hold?.ok || "0…+2%"} · просадка ${bench.drawdown?.ok || "5–8%"}</p>
+    <p class="muted"><b>Дальше:</b></p>
+    <ul class="auto-tactics-list">${steps}</ul>`;
+}
+
 function renderLiveReadinessPanel(data) {
   const el = document.getElementById("live-readiness-panel");
   if (!el) return;
@@ -1670,6 +1700,7 @@ function applyBootstrap(data) {
   if (data.shadow_lab) renderShadowLab(data.shadow_lab);
   if (data.auto_tactics) renderAutoTacticsPanel(data.auto_tactics);
   if (data.profit_focus) renderProfitFocusPanel(data.profit_focus);
+  if (data.scorecard) renderScorecardPanel(data.scorecard);
   if (data.live_readiness) renderLiveReadinessPanel(data.live_readiness);
   renderAllTables(data);
   setLiveStatus("live");
@@ -1946,6 +1977,7 @@ function bindUi() {
     }
   });
   document.getElementById("btn-auto-tactics-refresh")?.addEventListener("click", loadAutoTactics);
+  document.getElementById("btn-scorecard-refresh")?.addEventListener("click", loadScorecard);
   document.getElementById("btn-profit-focus-refresh")?.addEventListener("click", loadProfitFocus);
   document.getElementById("btn-shadow-reset")?.addEventListener("click", async () => {
     if (!confirm("Сбросить все shadow-клоны? Текущие эксперименты начнутся заново.")) return;
@@ -2124,6 +2156,16 @@ async function loadExchangePanel() {
   }
 }
 
+async function loadScorecard() {
+  try {
+    const data = await (await fetch("/api/scorecard")).json();
+    renderScorecardPanel(data);
+  } catch (_) {
+    const el = document.getElementById("scorecard-panel");
+    if (el) el.innerHTML = "<p class='muted'>Оценка: обнови страницу (Ctrl+Shift+R)</p>";
+  }
+}
+
 async function loadProfitFocus() {
   try {
     const data = await (await fetch("/api/profit-focus")).json();
@@ -2219,6 +2261,7 @@ async function main() {
     await loadExchangeBadge();
     await loadExchangePanel();
     await loadLiveReadiness();
+    await loadScorecard();
     await loadAutoTactics();
     await loadProfitFocus();
     await loadAlerts();

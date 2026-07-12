@@ -314,7 +314,7 @@ TRADE_MODE = os.environ.get("TRADE_MODE", "active").lower()
 ACTIVE_TRADE_ON_START = _env_bool("ACTIVE_TRADE_ON_START", True)
 ACTIVE_TRADE_RESET_TIMERS = _env_bool("ACTIVE_TRADE_RESET_TIMERS", False)
 
-APP_VERSION = 41
+APP_VERSION = 42
 
 # Live trading prep — gate real money (v36)
 LIVE_REQUIRE_READINESS = _env_bool("LIVE_REQUIRE_READINESS", True)

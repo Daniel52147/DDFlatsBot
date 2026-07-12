@@ -32,7 +32,7 @@ from learning.auto_tactics import AutoTacticsEngine
 from learning.capital_allocator import CapitalAllocator
 from learning.strategy_outcomes import evaluate_pending, log_switch
 from learning.strategy_presets import apply_strategy_preset
-from learning.profit_focus import ProfitFocusEngine, apply_profit_max_startup
+from learning.scorecard import build_scorecard
 from learning.paper_learn_mode import (
     apply_paper_learn_all,
     apply_paper_learn_on_boot,
@@ -621,6 +621,18 @@ async def _analytics_payload_db(equity: list | None = None) -> dict[str, Any]:
     return build_portfolio_analytics(snaps, equity)
 
 
+async def _scorecard_payload() -> dict[str, Any]:
+    summary = await logger_db.performance_summary()
+    trade_count = int(summary.get("trade_count", 0))
+    readiness = await _live_readiness_payload()
+    return build_scorecard(
+        total=total_portfolio(),
+        trade_count=trade_count,
+        readiness=readiness,
+        trading_mode=trading_mode.mode,
+    )
+
+
 async def _bootstrap_payload_async() -> dict[str, Any]:
     ensure_all_markets()
     payload = _bootstrap_payload()
@@ -638,6 +650,7 @@ async def _bootstrap_payload_async() -> dict[str, Any]:
         payload["shadow_lab"] = shadow_lab.status()
     payload["auto_tactics"] = _auto_tactics_payload()
     payload["live_readiness"] = await _live_readiness_payload()
+    payload["scorecard"] = await _scorecard_payload()
     return payload
 
 
@@ -1190,6 +1203,11 @@ async def api_strategy_outcomes(limit: int = 25):
         "wins": wins,
         "win_rate_pct": round(wins / evaluated * 100, 1) if evaluated else 0,
     }
+
+
+@app.get("/api/scorecard")
+async def api_scorecard():
+    return await _scorecard_payload()
 
 
 @app.get("/api/profit-focus")

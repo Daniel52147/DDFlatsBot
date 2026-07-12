@@ -6,9 +6,9 @@ cd /d "%~dp0"
 echo.
 echo [1/4] Обновление кода...
 git fetch origin
-git pull origin cursor/tradesim-v41-remaining-2631 2>nul
+git pull origin cursor/tradesim-v42-scorecard-2631 2>nul
 if errorlevel 1 (
-  git pull origin cursor/tradesim-v40-fixes-2631 2>nul
+  git pull origin cursor/tradesim-v41-remaining-2631 2>nul
 )
 if errorlevel 1 (
   git pull origin main 2>nul || git pull
