@@ -230,6 +230,12 @@ PAPER_LEARN_GRID_COOLDOWN_MIN = float(os.environ.get("PAPER_LEARN_GRID_COOLDOWN_
 PAPER_LEARN_MAX_DRAWDOWN_PCT = float(os.environ.get("PAPER_LEARN_MAX_DRAWDOWN_PCT", "18"))
 PAPER_LEARN_DISABLE_PROFIT_PAUSE = _env_bool("PAPER_LEARN_DISABLE_PROFIT_PAUSE", True)
 PAPER_LEARN_IGNORE_CORRELATION_BLOCK = _env_bool("PAPER_LEARN_IGNORE_CORRELATION_BLOCK", True)
+
+# Testnet discipline (v43) — conservative after leaving paper
+TESTNET_APPLY_CONSERVATIVE_ON_SWITCH = _env_bool("TESTNET_APPLY_CONSERVATIVE_ON_SWITCH", True)
+TESTNET_MIN_DCA_HOURS = float(os.environ.get("TESTNET_MIN_DCA_HOURS", "6"))
+TESTNET_MIN_DIP_COOLDOWN_MIN = float(os.environ.get("TESTNET_MIN_DIP_COOLDOWN_MIN", "15"))
+
 BRAIN_CYCLE_SEC = 45
 
 # Portfolio risk — brain + execution gate
@@ -314,7 +320,7 @@ TRADE_MODE = os.environ.get("TRADE_MODE", "active").lower()
 ACTIVE_TRADE_ON_START = _env_bool("ACTIVE_TRADE_ON_START", True)
 ACTIVE_TRADE_RESET_TIMERS = _env_bool("ACTIVE_TRADE_RESET_TIMERS", False)
 
-APP_VERSION = 42
+APP_VERSION = 43
 
 # Live trading prep — gate real money (v36)
 LIVE_REQUIRE_READINESS = _env_bool("LIVE_REQUIRE_READINESS", True)

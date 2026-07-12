@@ -229,6 +229,14 @@ class CentralBrain:
                 if stype == "dca":
                     p["dca_amount"] = p.get("dca_amount", 25) * 0.85
                     p["dip_extra_amount"] = p.get("dip_extra_amount", 0) * 0.85
+                    p["dca_interval_hours"] = max(
+                        float(p.get("dca_interval_hours", 8)) * 1.35,
+                        6.0,
+                    )
+                    p["dip_cooldown_minutes"] = max(
+                        float(p.get("dip_cooldown_minutes", 10)) * 1.25,
+                        15.0,
+                    )
                 elif stype == "grid":
                     p["grid_buy_amount"] = p.get("grid_buy_amount", 22) * 0.85
                 elif stype == "momentum":
@@ -258,6 +266,9 @@ class CentralBrain:
 
     def apply_learning_boost(self, sessions: dict, contexts: list[dict]) -> list[str]:
         """Micro-tune each market every brain cycle from live stats."""
+        from simulator.risk_gate import brain_reduce_aggression
+        if brain_reduce_aggression():
+            return []
         updated: list[str] = []
         for ctx in contexts:
             sym = ctx.get("symbol")

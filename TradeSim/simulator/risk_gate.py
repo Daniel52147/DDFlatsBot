@@ -6,6 +6,7 @@ _portfolio_halt = False
 _halt_reason = ""
 _correlation_block = False
 _correlation_reason = ""
+_brain_reduce_aggression = False
 
 
 def set_portfolio_halt(active: bool, reason: str = "") -> None:
@@ -18,6 +19,15 @@ def set_correlation_block(active: bool, reason: str = "") -> None:
     global _correlation_block, _correlation_reason
     _correlation_block = active
     _correlation_reason = reason if active else ""
+
+
+def set_brain_reduce_aggression(active: bool) -> None:
+    global _brain_reduce_aggression
+    _brain_reduce_aggression = active
+
+
+def brain_reduce_aggression() -> bool:
+    return _brain_reduce_aggression
 
 
 def blocks_new_buys() -> bool:
@@ -36,6 +46,7 @@ def risk_status() -> dict[str, bool | str]:
     return {
         "portfolio_halt": _portfolio_halt,
         "correlation_block": _correlation_block,
+        "brain_reduce_aggression": _brain_reduce_aggression,
         "blocks_buys": blocks_new_buys(),
         "reason": halt_reason(),
     }

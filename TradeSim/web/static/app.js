@@ -512,8 +512,8 @@ async function checkServerAndSync() {
     if (ping.market_meta?.length) applyMarketMeta(ping.market_meta);
     seedMarketsFromMeta();
     if (ping.total) updateTotal(ping.total);
-    const expectedVer = 42;
-    const branch = "cursor/tradesim-v42-scorecard-2631";
+    const expectedVer = 43;
+    const branch = "cursor/tradesim-v43-testnet-discipline-2631";
     if (ping.version && ping.version !== expectedVer) {
       const msg = ping.version < expectedVer
         ? `СТАРЫЙ СЕРВЕР v${ping.version}! Обнови: git pull origin ${branch} → .\\start.bat → Ctrl+Shift+R`
@@ -860,7 +860,8 @@ function setLiveStatus(mode) {
   const el = document.getElementById("live-status");
   if (!el) return;
   if (mode === "live") {
-    el.textContent = "● LIVE";
+    el.textContent = "● ЦЕНЫ";
+    el.title = "Живые котировки (не режим Live с реальными деньгами)";
     el.className = "value live-dot";
   } else if (mode === "demo") {
     el.textContent = "○ DEMO";

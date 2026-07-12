@@ -130,6 +130,9 @@ class _StrategyMixin:
     def _maybe_scheduled_dca(self, price: float) -> Trade | None:
         now = time.time()
         interval = self.params.get("dca_interval_hours", 24) * 3600
+        from simulator.risk_gate import brain_reduce_aggression
+        if brain_reduce_aggression():
+            interval *= 2
         if now - self.last_dca_ts < interval:
             return None
         amt = self._cap_buy_amount(self.params.get("dca_amount", 20))

@@ -140,6 +140,9 @@ class StrategyBot:
 
         now = time.time()
         interval = self.params["dca_interval_hours"] * 3600
+        from simulator.risk_gate import brain_reduce_aggression
+        if brain_reduce_aggression():
+            interval *= 2
 
         if now - self.last_dca_ts >= interval:
             amt = self._cap_buy_amount(self.params["dca_amount"])

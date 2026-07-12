@@ -39,6 +39,7 @@ from learning.paper_learn_mode import (
     apply_paper_learn_trading,
     is_paper_learn_mode,
 )
+from learning.testnet_mode import apply_testnet_conservative_all, apply_testnet_on_mode_switch
 from learning.trade_mode import apply_active_all, apply_active_trading
 from learning.logger import LearningLogger
 from learning.optimizer import StrategyOptimizer
@@ -319,7 +320,7 @@ async def run_session_loop(session: MarketSession):
 async def brain_loop():
     """Central brain thinks every BRAIN_CYCLE_SEC — agents report, brain decides."""
     from learning.correlation_risk import assess_correlation_risk
-    from simulator.risk_gate import set_correlation_block, set_portfolio_halt
+    from simulator.risk_gate import set_correlation_block, set_portfolio_halt, set_brain_reduce_aggression
 
     await asyncio.sleep(15)
     while state["running"]:
@@ -349,6 +350,10 @@ async def brain_loop():
 
             cycle = await brain.think(ctx, total)
             state["brain_cycle"] = cycle
+            decision = cycle.get("decision", "continue")
+            set_brain_reduce_aggression(
+                decision in ("reduce_aggression", "pause_dip", "emergency_halt")
+            )
             prev_decision = brain.last_applied_decision
             brain.apply_decision(sessions, cycle["decision"])
             if brain.last_applied_decision != prev_decision:
@@ -1411,8 +1416,8 @@ async def api_live_readiness():
 
 @app.post("/api/week-prep/start")
 async def api_week_prep_start():
-    """One-click: active trading + Testnet for the 7-day path to Live."""
-    apply_active_all(sessions, reset_timers=False)
+    """One-click: conservative Testnet trading for the 7-day path to Live."""
+    apply_testnet_conservative_all(sessions, reset_timers=True)
     for session in sessions.values():
         await session.persist()
     mode_result: dict[str, Any] = {"mode": trading_mode.mode, "ok": True}
@@ -1432,7 +1437,7 @@ async def api_week_prep_start():
         "trading_mode": mode_result,
         "active_markets": len(sessions),
         "live_readiness": readiness,
-        "hint": "Testnet + активная торговля. Следи P&L и панель готовности к Live.",
+        "hint": "Testnet + консервативная торговля. Следи P&L, vs Hold и комиссии.",
     }
 
 
@@ -1454,6 +1459,12 @@ async def api_trading_mode_set(body: TradingModeRequest):
             for session in sessions.values():
                 await session.persist()
             result["paper_learn"] = True
+        elif body.mode in ("testnet", "live"):
+            n = apply_testnet_on_mode_switch(sessions, body.mode)
+            if n:
+                for session in sessions.values():
+                    await session.persist()
+                result["testnet_discipline"] = True
     return result
 
 

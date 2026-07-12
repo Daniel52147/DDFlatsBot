@@ -63,7 +63,6 @@ class ProfitFocusEngine:
                 session.bot.enabled
                 and trades >= config.PROFIT_FOCUS_MIN_TRADES
                 and vs <= config.PROFIT_FOCUS_PAUSE_VS_HOLD
-                and pnl <= config.PROFIT_FOCUS_PAUSE_PNL_PCT
             ):
                 session.bot.enabled = False
                 self.paused[sym] = f"vs hold {vs:+.1f}%"

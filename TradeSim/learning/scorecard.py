@@ -164,7 +164,9 @@ def build_scorecard(
         summary = "В пределах нормы — продолжай Paper, копи сделки и смотри vs Hold."
 
     next_steps: list[str] = []
-    if trading_mode == "paper":
+    if trading_mode == "testnet":
+        next_steps.append("Testnet: консервативный режим — меньше DCA, Profit Focus паузит аутсайдеров")
+    elif trading_mode == "paper":
         next_steps.append("Оставайся в 📄 Paper + 📚 Paper учёба ещё 1–2 дня")
     if trade_count < 30:
         next_steps.append(f"Нужно ещё ~{max(0, 30 - trade_count)} сделок до порога «нормально»")
