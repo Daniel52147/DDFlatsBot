@@ -1,8 +1,19 @@
-# TradeSim v39
+# TradeSim v40
 
-**Paper Learn** — on 📄 Paper mode: max trades, faster optimizer, no profit-focus pause.
+**Security & audit fixes** — Live gate, honest drawdown, sync integrity, API consistency.
+
+## v40 — Security & audit fixes
+
+- **Live gate** — `force:true` работает только с `LIVE_ALLOW_FORCE=true` в `.env`
+- **Auth** — `/api/trading-mode`, week-prep, paper-learn, active защищены `TRADESIM_API_TOKEN`
+- **Drawdown** — просадка считается от пика **всего портфеля** (equity curve)
+- **Exchange risk** — дневной стоп по P&L портфеля, не одного рынка
+- **Paper sync** — `ok:false` при расхождении кошельков
+- **Defaults** — `TRADING_MODE_DEFAULT=paper`, без авто-Testnet при старте
 
 ## v39 — Paper Learn (faster training)
+
+**Paper Learn** — on 📄 Paper mode: max trades, faster optimizer, no profit-focus pause.
 
 - **Paper only** — DCA ≤1.5h, scalp cooldown 20s, grid 3min
 - **Auto on boot** when mode is Paper (`PAPER_LEARN_ON_START=true`)
