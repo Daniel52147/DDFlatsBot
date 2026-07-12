@@ -194,11 +194,11 @@ class TradingAssistant:
 
         if any(w in msg for w in ("готов", "readiness", "оценк", "идея", "насколько")):
             return (
-                "📋 Оценка TradeSim v19:\n"
-                "• Идея сильная: paper + живые цены + параллельное обучение\n"
-                "• Готово ~96%: 5 стратегий, Shadow Lab, бэктест, 40+ тестов\n"
-                "• Состояние ботов в SQLite, FeedHub, exchange panel\n"
-                "• Для реальных денег — testnet/live с EXCHANGE_ENABLED\n\n"
+                "📋 Оценка TradeSim v20:\n"
+                "• Авто-выбор тактики на каждую монету + копирование трейдеров\n"
+                "• Готово ~97%: 5 стратегий, Shadow Lab, бэктест, 45+ тестов\n"
+                "• Мозг каждые 45с: тренд, волатильность, идеи Ansem/PlanB/Hsaka\n"
+                "• Testnet/live через EXCHANGE_ENABLED\n\n"
                 "Сейчас это лаборатория для экспериментов, не финсовет."
             )
 

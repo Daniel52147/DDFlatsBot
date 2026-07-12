@@ -825,4 +825,13 @@ footer {
 .exchange-panel-body { font-size: 0.82rem; }
 .exchange-panel-body .data-table.compact td,
 .exchange-panel-body .data-table.compact th { padding: 0.25rem 0.4rem; font-size: 0.75rem; }
-body.v19 .ver-badge { background: linear-gradient(135deg, #2dd4bf, #6366f1); }
+body.v20 .ver-badge { background: linear-gradient(135deg, #22d3ee, #8b5cf6); }
+.auto-tactics-badge {
+  font-size: 0.65rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  background: rgba(34, 211, 238, 0.15);
+  color: #22d3ee;
+  border: 1px solid rgba(34, 211, 238, 0.35);
+  margin-left: 0.35rem;
+}

@@ -329,7 +329,7 @@ class CentralBrain:
 
         if any(w in msg for w in ("grid", "momentum", "rsi", "scalp", "скальп", "сетк")):
             from simulator.strategies import STRATEGY_META
-            lines = ["🎯 Стратегии TradeSim v19:", ""]
+            lines = ["🎯 Стратегии TradeSim v20 (авто на каждую монету):", ""]
             for key, meta in STRATEGY_META.items():
                 users = [c["label"] for c in contexts if c.get("strategy_type") == key]
                 who = f" → {', '.join(users)}" if users else ""
@@ -439,16 +439,17 @@ class CentralBrain:
                 return "\n".join(lines) if len(lines) > 1 else al["summary"]
             return "Аллокатор проверит распределение по рынкам."
 
-        if any(w in msg for w in ("трейдер", "следопыт", "копитрейд", "copy", "ansem", "planb")):
+        if any(w in msg for w in ("трейдер", "следопыт", "копитрейд", "copy", "ansem", "planb", "авто", "тактик")):
             tw = self.last_cycle.get("trader_watcher") if self.last_cycle else None
             if tw:
-                lines = [f"👁️ {tw['summary']}", ""]
-                for s in tw.get("hot", [])[:3]:
-                    lines.append(f"🟢 {s}")
-                for s in tw.get("warnings", [])[:3]:
-                    lines.append(f"🔴 {s}")
-                return "\n".join(lines) if len(lines) > 1 else tw["summary"]
-            return "Следопыт мониторит 8 публичных стилей топ-трейдеров — спроси через минуту."
+                lines = [f"{tw['emoji']} {tw['summary']}", ""]
+                for p in tw.get("copy_candidates", [])[:5]:
+                    lines.append(f"• {p['label']}: {p['strategy']} ← {p['trader']} ({p['confidence']:.0%})")
+                if tw.get("market_plays"):
+                    lines.append("")
+                    lines.append("Мозг автоматически копирует идеи при confidence ≥68%.")
+                return "\n".join(lines)
+            return "Следопыт мониторит 8 публичных стилей — авто-тактики включены. Спроси через минуту."
 
         if any(w in msg for w in ("бэктест", "backtest", "история свеч")):
             return (

@@ -64,6 +64,13 @@ class TestApiEndpoints(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertIn("enabled", r.json())
 
+    def test_auto_tactics(self):
+        r = self.client.get("/api/auto-tactics")
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertIn("enabled", data)
+        self.assertIn("markets", data)
+
 
 if __name__ == "__main__":
     unittest.main()

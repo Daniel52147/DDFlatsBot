@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TradeSim v19 — 17 рынков · 5 стратегий</title>
-  <link rel="stylesheet" href="/static/style.css?v=19" />
+  <title>TradeSim v20 Auto — 17 рынков · авто-тактики</title>
+  <link rel="stylesheet" href="/static/style.css?v=20" />
   <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
 </head>
-<body class="v19">
+<body class="v20">
   <div id="version-banner" class="version-banner hidden"></div>
   <div id="alerts-ticker" class="alerts-ticker" aria-live="polite">
     <span class="alerts-label">📡 Сканер</span>
@@ -17,8 +17,8 @@
     <div class="brand">
       <span class="logo">◆</span>
       <div>
-        <h1>TradeSim <span class="ver-badge">v19</span></h1>
-        <p class="tagline">17 рынков · 5 стратегий · FeedHub dedupe · brain persist · exchange panel</p>
+        <h1>TradeSim <span class="ver-badge">v20 Auto</span></h1>
+        <p class="tagline">Авто-тактики на монету · копирование трейдеров · 5 стратегий · мозг 45с</p>
       </div>
     </div>
     <div class="header-stats">
@@ -146,6 +146,7 @@
             <option value="scalper">⚡ Scalper</option>
           </select>
           <button type="button" id="btn-strategy-apply" class="btn ghost small">Применить</button>
+          <span class="auto-tactics-badge" id="auto-tactics-badge" title="Авто-выбор тактики">🤖 AUTO</span>
           <button type="button" class="btn ghost small preset-btn" data-preset="aggressive">🔥</button>
           <button type="button" class="btn ghost small preset-btn" data-preset="balanced">⚖️</button>
           <button type="button" class="btn ghost small preset-btn" data-preset="conservative">🛡️</button>
@@ -172,7 +173,7 @@
       <section class="card assistant-card v16-card">
         <div class="card-header"><h2>💬 Помощник</h2></div>
         <div id="chat-messages" class="chat-messages">
-          <div class="chat-bubble chat-bot">TradeSim v19: спроси <b>стратегии</b> · <b>бэктест</b> · <b>shadow</b> · <b>vs hold</b></div>
+          <div class="chat-bubble chat-bot">TradeSim v20: спроси <b>авто</b> · <b>трейдеры</b> · <b>стратегии</b> · <b>vs hold</b></div>
         </div>
         <form id="chat-form" class="chat-form">
           <input id="chat-input" type="text" placeholder="тренд / grid / momentum / DOGE?" autocomplete="off" />
@@ -200,7 +201,7 @@
   </details>
 
   <footer class="v16-footer">
-    <span>TradeSim v19 · FeedHub dedupe · brain persist · JSON /api/health</span>
+    <span>TradeSim v20 · авто-тактики · копирование трейдеров</span>
     <div class="footer-actions">
       <input id="api-token-input" type="password" placeholder="API-токен" class="token-input" />
       <button id="btn-save-token" class="btn ghost small">🔐</button>
@@ -239,6 +240,6 @@
   </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=19"></script>
+  <script src="/static/app.js?v=20"></script>
 </body>
 </html>

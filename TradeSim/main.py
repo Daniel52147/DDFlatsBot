@@ -24,6 +24,7 @@ import config
 from assistant.coordinator import CentralBrain
 from exchange.binance_live import BinanceLiveExchange
 from learning.analytics import build_portfolio_analytics
+from learning.auto_tactics import AutoTacticsEngine
 from learning.logger import LearningLogger
 from learning.optimizer import StrategyOptimizer
 from security import SecurityMiddleware, auth_required
@@ -43,6 +44,7 @@ sessions: dict[str, MarketSession] = {
 }
 shadow_lab: ShadowLab | None = None
 feed_hub: FeedHub | None = None
+auto_tactics: AutoTacticsEngine | None = None
 logger_db = LearningLogger()
 brain = CentralBrain()
 live_exchange = BinanceLiveExchange()
@@ -176,13 +178,14 @@ def _learning_honesty(stats: dict) -> dict[str, Any]:
         "version": config.APP_VERSION,
         "markets_configured": len(config.MARKETS),
         "markets_active": len(sessions),
-        "project_readiness": "v19 Polish ~96% — dedupe FeedHub, shadow sync, brain persist",
+        "project_readiness": "v20 Auto — тактики на монету + копирование трейдеров",
         "really_learns": True,
         "learning_kind": "эвристики + статистика (не нейросеть)",
         "what_is_real": [
             "Сделки на живых ценах Binance/Bybit",
-            "5 стратегий: DCA, Grid, Momentum, RSI, Scalper",
-            "Состояние стратегий сохраняется в SQLite (grid/RSI/scalper)",
+            "Авто-выбор стратегии на каждую монету (grid/momentum/RSI/scalper/DCA)",
+            "Копирование идей популярных трейдеров (Ansem, PlanB, Hsaka…)",
+            "5 стратегий с state persist и Shadow Lab sync",
             "vs hold benchmark с реальной start_price",
             "Shadow Lab: promote по типу стратегии + ручное применение",
             "Бэктест: сравнение 5 стратегий на одних свечах",
@@ -300,6 +303,13 @@ async def brain_loop():
                 await logger_db.log_strategy_change(
                     s.bot.get_params(), "brain micro-tune", snap.get("pnl_pct", 0), symbol=sym,
                 )
+            if auto_tactics and (config.AUTO_TACTICS_ENABLED or config.AUTO_TRADER_COPY_ENABLED):
+                plays = cycle.get("trader_watcher", {}).get("market_plays", {})
+                tactic_changes = await auto_tactics.apply_all(
+                    sessions, ctx, plays, shadow_lab, logger_db,
+                )
+                for ch in tactic_changes:
+                    await broadcast({"type": "auto_tactic", **ch})
             await logger_db.log_brain_cycle(cycle["decision"], cycle["verdict"])
             await logger_db.log_assistant("brain", cycle["summary"])
             await broadcast({"type": "brain_update", "cycle": _brain_public(cycle)})
@@ -369,6 +379,12 @@ def collect_alerts() -> list[dict[str, Any]]:
                 alerts.append({"level": "halt", "source": key, "text": str(h)[:120]})
         for w in cycle.get("trader_watcher", {}).get("warnings", [])[:2]:
             alerts.append({"level": "info", "source": "trader", "text": str(w)[:120]})
+        for p in cycle.get("trader_watcher", {}).get("copy_candidates", [])[:2]:
+            alerts.append({
+                "level": "good",
+                "source": "auto",
+                "text": f"👁️ {p['label']}: копируем {p['trader']} → {p['strategy']}",
+            })
     for sym, s in sessions.items():
         price = s.feed.price or s.demo_price
         snap = s.engine.snapshot(price)
@@ -489,6 +505,8 @@ async def _bootstrap_payload_async() -> dict[str, Any]:
     payload["markets_table"] = _markets_table_rows()
     if shadow_lab:
         payload["shadow_lab"] = shadow_lab.status()
+    if auto_tactics:
+        payload["auto_tactics"] = auto_tactics.status(sessions)
     return payload
 
 
@@ -566,6 +584,8 @@ def _brain_public(cycle: dict) -> dict:
             "signals": cycle["trader_watcher"].get("signals", [])[:5],
             "hot": cycle["trader_watcher"].get("hot", [])[:3],
             "warnings": cycle["trader_watcher"].get("warnings", [])[:3],
+            "market_plays": list(cycle["trader_watcher"].get("market_plays", {}).values())[:8],
+            "copy_candidates": cycle["trader_watcher"].get("copy_candidates", [])[:5],
         },
         "ts": cycle.get("ts"),
     }
@@ -573,8 +593,9 @@ def _brain_public(cycle: dict) -> dict:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global shadow_lab, feed_hub
+    global shadow_lab, feed_hub, auto_tactics
     await logger_db.init()
+    auto_tactics = AutoTacticsEngine()
     added = ensure_all_markets()
     shadow_lab = ShadowLab(sessions)
     feed_hub = FeedHub(list(sessions.keys()))
@@ -611,6 +632,9 @@ async def lifespan(app: FastAPI):
             hinted = brain.apply_schemer_hints(sessions, cycle.get("schemer", {}))
             for sym in set(tuned + hinted):
                 await sessions[sym].persist()
+            if auto_tactics and (config.AUTO_TACTICS_ENABLED or config.AUTO_TRADER_COPY_ENABLED):
+                plays = cycle.get("trader_watcher", {}).get("market_plays", {})
+                await auto_tactics.apply_all(sessions, ctx, plays, shadow_lab, logger_db)
             greeting = brain.chat("привет", ctx, total_portfolio())
             state["chat_history"] = [
                 {"role": "assistant", "content": greeting},
@@ -749,6 +773,19 @@ async def api_shadow_apply(body: ShadowApplyRequest):
     if result.get("ok"):
         await sessions[body.symbol].persist()
     return result
+
+
+@app.get("/api/auto-tactics")
+async def api_auto_tactics():
+    if not auto_tactics:
+        return {"enabled": False}
+    cycle = state.get("brain_cycle") or {}
+    tw = cycle.get("trader_watcher", {})
+    return {
+        **auto_tactics.status(sessions),
+        "trader_plays": list(tw.get("market_plays", {}).values())[:12],
+        "copy_candidates": tw.get("copy_candidates", [])[:8],
+    }
 
 
 @app.get("/api/strategies")

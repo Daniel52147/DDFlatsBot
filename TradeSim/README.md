@@ -1,6 +1,28 @@
-# TradeSim v19
+# TradeSim v20 Auto
 
-**Paper trading** simulator: **17 crypto markets**, virtual $10,000, live prices, self-learning bots.
+**Paper trading** with **automatic per-coin tactics** and **popular trader idea copying**.
+
+## v20 — Auto Tactics
+
+The brain (every 45s) automatically:
+
+1. **Picks strategy per coin** — DCA / Grid / Momentum / RSI / Scalper based on trend, volatility, vs-hold performance
+2. **Copies popular traders** — when confidence ≥68%, applies Ansem/PlanB/Hsaka/etc. style to matching coins
+3. **Resets Shadow Lab** clones after each switch
+4. **Persists** all changes to SQLite
+
+Config (`config.py`):
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `AUTO_TACTICS_ENABLED` | true | Heuristic auto strategy pick |
+| `AUTO_TRADER_COPY_ENABLED` | true | Copy trader ideas |
+| `AUTO_TACTICS_MIN_INTERVAL_SEC` | 1200 | Cooldown per market (20 min) |
+| `AUTO_TRADER_MIN_CONFIDENCE` | 0.68 | Min confidence to copy trader |
+
+API: `GET /api/auto-tactics` — status, trader plays, copy candidates.
+
+Chat: ask **авто**, **трейдеры**, **тактики**.
 
 ## Markets (17)
 
