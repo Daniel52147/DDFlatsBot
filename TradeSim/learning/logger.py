@@ -44,6 +44,7 @@ class LearningLogger:
       "ALTER TABLE total_snapshots ADD COLUMN hold_pnl_pct REAL DEFAULT 0",
       "ALTER TABLE sessions ADD COLUMN benchmark_hold_price REAL DEFAULT 0",
       "ALTER TABLE sessions ADD COLUMN benchmark_hold_anchor TEXT DEFAULT ''",
+      "ALTER TABLE sessions ADD COLUMN wallet_credit REAL DEFAULT 0",
     ):
       try:
         await db.execute(stmt)
@@ -265,8 +266,8 @@ class LearningLogger:
            (symbol, quote, base, trade_counter, start_balance, start_ts,
             bot_params, last_dca_ts, last_take_profit_ts, bot_enabled, trades_json, updated_ts,
             cost_basis, last_dip_ts, last_spike_ts, last_stop_loss_ts, start_price, strategy_type,
-            bot_state, benchmark_hold_price, benchmark_hold_anchor)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            bot_state, benchmark_hold_price, benchmark_hold_anchor, wallet_credit)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(symbol) DO UPDATE SET
              quote=excluded.quote, base=excluded.base, trade_counter=excluded.trade_counter,
              start_balance=excluded.start_balance, start_ts=excluded.start_ts,
@@ -278,7 +279,8 @@ class LearningLogger:
              start_price=excluded.start_price, strategy_type=excluded.strategy_type,
              bot_state=excluded.bot_state,
              benchmark_hold_price=excluded.benchmark_hold_price,
-             benchmark_hold_anchor=excluded.benchmark_hold_anchor""",
+             benchmark_hold_anchor=excluded.benchmark_hold_anchor,
+             wallet_credit=excluded.wallet_credit""",
         (
           symbol, data["quote"], data["base"], data["trade_counter"],
           data["start_balance"], data["start_ts"],
@@ -295,6 +297,7 @@ class LearningLogger:
           json.dumps(data.get("bot_state", {})),
           data.get("benchmark_hold_price", 0),
           data.get("benchmark_hold_anchor", ""),
+          data.get("wallet_credit", 0),
         ),
       )
       await db.commit()
@@ -325,7 +328,7 @@ class LearningLogger:
     async with self._connect() as db:
       for table in (
         "trades", "snapshots", "strategy_versions", "assistant_messages",
-        "sessions", "total_snapshots", "brain_cycles", "deposits",
+        "sessions", "total_snapshots", "brain_cycles", "deposits", "withdrawals",
         "strategy_switches", "exchange_snapshots",
       ):
         await db.execute(f"DELETE FROM {table}")

@@ -137,6 +137,9 @@ class TradingModeManager:
     def should_mirror_to_exchange(self) -> bool:
         return self._mode in ("testnet", "live")
 
+    def bots_sync_to_exchange(self) -> bool:
+        return self.should_mirror_to_exchange() and config.EXCHANGE_SYNC_FROM_PAPER
+
     def is_live(self) -> bool:
         return self._mode == "live"
 
@@ -150,7 +153,9 @@ class TradingModeManager:
             "label": {"paper": "Paper", "testnet": "Testnet", "live": "Live"}[self._mode],
             "exchange_enabled": bool(ex.get("enabled")),
             "exchange_testnet": bool(ex.get("testnet")),
-            "mirror_bots": self.should_mirror_to_exchange(),
+            "mirror_bots": self.bots_sync_to_exchange(),
+            "sync_to_paper": bool(ex.get("sync_to_paper", config.EXCHANGE_SYNC_TO_PAPER)),
+            "sync_from_paper": bool(ex.get("sync_from_paper", config.EXCHANGE_SYNC_FROM_PAPER)),
             "ready": ready,
             "note": self._note(ex),
             "testnet_days": round(max(0, (time.time() - float(meta.get("testnet_since", 0))) / 86400), 1)
@@ -164,7 +169,9 @@ class TradingModeManager:
         if not ex.get("enabled"):
             return "Добавь API ключи для реальной торговли"
         if self._mode == "testnet":
-            return "Бот дублирует сделки на Binance TESTNET"
+            if config.EXCHANGE_SYNC_FROM_PAPER:
+                return "Бот дублирует сделки на Binance TESTNET (paper→exchange)"
+            return "Testnet: ордера вручную или EXCHANGE_SYNC_FROM_PAPER=true для ботов"
         return "⚠️ LIVE — реальные деньги на Binance"
 
 

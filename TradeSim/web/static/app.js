@@ -23,6 +23,7 @@ let marketMeta = [
   { symbol: "WIFUSDT", label: "WIF", volatile: true, viral: true },
 ];
 let startBalance = 10000;
+let tradeSocket = null;
 
 function formatUnixTs(sec, opts) {
   const ts = Number(sec || 0);
@@ -347,13 +348,7 @@ async function runBacktestCompare() {
     </div>
     <table class="data-table"><thead><tr>
       <th>Стратегия</th><th>P&L</th><th>vs hold</th><th>Сделок</th><th>Портфель</th>
-    </tr></thead><tbody>${rows}</tbody></table>
-    <div class="backtest-controls" style="margin-top:0.75rem">
-      <button type="button" id="btn-backtest-run" class="btn small">Один прогон</button>
-      <button type="button" id="btn-backtest-compare" class="btn small ghost">Сравнить 5 стратегий</button>
-    </div>`;
-    document.getElementById("btn-backtest-run")?.addEventListener("click", runBacktestTable);
-    document.getElementById("btn-backtest-compare")?.addEventListener("click", runBacktestCompare);
+    </tr></thead><tbody>${rows}</tbody></table>`;
   } catch (_) {
     el.innerHTML = "<p class='muted'>Не удалось сравнить стратегии</p>";
   }
@@ -530,14 +525,12 @@ async function checkServerAndSync() {
     if (ping.market_meta?.length) applyMarketMeta(ping.market_meta);
     seedMarketsFromMeta();
     if (ping.total) updateTotal(ping.total);
-    const expectedVer = 43;
-    const branch = "cursor/tradesim-v43-testnet-discipline-2631";
-    if (ping.version && ping.version !== expectedVer) {
-      const msg = ping.version < expectedVer
-        ? `СТАРЫЙ СЕРВЕР v${ping.version}! Обнови: git pull origin ${branch} → .\\start.bat → Ctrl+Shift+R`
-        : `Новый сервер v${ping.version}, а UI v${expectedVer} — Ctrl+Shift+R для обновления кэша`;
-      if (ping.version < expectedVer) showError(msg);
-      showToast("⚠️ " + msg, 15000);
+    const expectedVer = ping.version;
+    if (ping.version && ping.ui_cache_version && ping.ui_cache_version !== expectedVer) {
+      const msg = `UI кэш v${ping.ui_cache_version}, сервер v${expectedVer} — Ctrl+Shift+R`;
+      showToast("⚠️ " + msg, 12000);
+    } else if (ping.version && ping.version < 44) {
+      showToast(`⚠️ Старый сервер v${ping.version} — git pull и перезапуск`, 12000);
     }
     return ping;
   } catch (_) {
@@ -1271,9 +1264,12 @@ function renderLiveReadinessPanel(data) {
     <ul class="auto-tactics-list">${plan}</ul>`;
 }
 
-function updateExchangeControls(enabled) {
+function updateExchangeControls(tm) {
+  const mode = tm?.mode || "paper";
+  const enabled = tm?.exchange_enabled !== false;
+  const show = enabled && mode !== "paper";
   document.querySelectorAll(".testnet-btn").forEach(btn => {
-    btn.style.display = enabled ? "" : "none";
+    btn.style.display = show ? "" : "none";
   });
 }
 
@@ -1520,10 +1516,14 @@ function applyWsInit(msg) {
 }
 
 function connectWs() {
+  if (tradeSocket) {
+    try { tradeSocket.close(); } catch (_) {}
+  }
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const tok = localStorage.getItem("tradesim_token");
   const qs = tok ? `?token=${encodeURIComponent(tok)}` : "";
-  const ws = new WebSocket(`${proto}//${location.host}/ws${qs}`);
+  tradeSocket = new WebSocket(`${proto}//${location.host}/ws${qs}`);
+  const ws = tradeSocket;
   ws.onmessage = (ev) => {
     try {
       const msg = JSON.parse(ev.data);
@@ -1944,7 +1944,8 @@ function bindUi() {
     const t = document.getElementById("api-token-input")?.value?.trim();
     if (t) localStorage.setItem("tradesim_token", t);
     else localStorage.removeItem("tradesim_token");
-    showToast(t ? "🔐 Токен сохранён" : "Токен удалён");
+    showToast(t ? "🔐 Токен сохранён — переподключение WS" : "Токен удалён");
+    connectWs();
   });
 
   document.querySelectorAll(".manual-btn").forEach(btn => {
@@ -2349,6 +2350,7 @@ function renderTradingMode(tm) {
     el.className = "stat badge " + (classes[tm.mode] || "paper");
     el.title = tm.note || "";
   }
+  updateExchangeControls(tm);
 }
 
 async function loadLiveReadiness() {
@@ -2396,9 +2398,8 @@ async function setTradingMode(mode) {
 
 async function loadExchangeBadge() {
   try {
-    const st = await (await fetch("/api/exchange/status")).json();
-    renderTradingMode(st);
-    updateExchangeControls(!!st.enabled);
+    const tm = await (await fetch("/api/trading-mode")).json();
+    renderTradingMode(tm);
   } catch (_) {}
 }
 

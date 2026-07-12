@@ -23,7 +23,7 @@ from starlette.requests import Request
 import config
 from assistant.coordinator import CentralBrain
 from exchange.binance_live import BinanceLiveExchange
-from exchange.paper_sync import mirror_base_from_exchange, sync_order_to_paper, sync_trade_to_exchange
+from exchange.paper_sync import mirror_base_from_exchange, recover_exchange_to_paper, sync_order_to_paper, sync_trade_to_exchange
 from exchange.trading_mode import trading_mode
 from exchange.wallet_service import (
     deposit_info,
@@ -88,6 +88,29 @@ state: dict[str, Any] = {
     "brain_cycle": None,
     "background_tasks": [],
 }
+
+_PORTFOLIO_STATE_FILE = config.DATA_DIR / "portfolio_state.json"
+
+
+def _load_portfolio_peak() -> float:
+    try:
+        if _PORTFOLIO_STATE_FILE.exists():
+            data = json.loads(_PORTFOLIO_STATE_FILE.read_text(encoding="utf-8"))
+            return float(data.get("portfolio_peak", 0) or 0)
+    except Exception:
+        pass
+    return 0.0
+
+
+def _save_portfolio_peak(peak: float) -> None:
+    try:
+        _PORTFOLIO_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _PORTFOLIO_STATE_FILE.write_text(
+            json.dumps({"portfolio_peak": round(peak, 2), "ts": time.time()}),
+            encoding="utf-8",
+        )
+    except Exception as e:
+        logger.warning("portfolio peak save: %s", e)
 
 
 class DepositRequest(BaseModel):
@@ -167,8 +190,14 @@ def ensure_all_markets() -> list[str]:
             s.learning_logger = logger_db
             s.on_after_trade = after_paper_trade
             sessions[sym] = s
+            if feed_hub:
+                feed_hub.register(sym, s.feed)
+            if state["running"]:
+                state["background_tasks"].append(asyncio.create_task(run_session_loop(s)))
             added.append(sym)
             logger.info("Added new market session: %s", sym)
+    if added and shadow_lab:
+        shadow_lab.sync_markets(sessions)
     return added
 
 
@@ -180,11 +209,12 @@ def total_portfolio() -> dict[str, Any]:
     total = sum(s.engine.snapshot(s.feed.price or s.demo_price)["portfolio_value"] for s in sessions.values())
     start = sum(s.engine.start_balance for s in sessions.values())
     pnl = total - start
-    peak = float(state.get("portfolio_peak", 0) or 0)
+    peak = float(state.get("portfolio_peak", 0) or _load_portfolio_peak())
     peak = max(peak, start, total)
     if total > peak:
         peak = total
     state["portfolio_peak"] = peak
+    _save_portfolio_peak(peak)
     bench = portfolio_benchmark()
     return {
         "total_value": round(total, 2),
@@ -207,7 +237,7 @@ def _learning_honesty(stats: dict) -> dict[str, Any]:
         "version": config.APP_VERSION,
         "markets_configured": len(config.MARKETS),
         "markets_active": len(sessions),
-        "project_readiness": "v40 — безопасность Live, честный drawdown, Paper Learn",
+        "project_readiness": f"v{config.APP_VERSION} — кошелёк, wallet bridge, desync recovery, честный Testnet",
         "really_learns": True,
         "learning_kind": "эвристики + статистика (не нейросеть)",
         "what_is_real": [
@@ -801,6 +831,7 @@ async def lifespan(app: FastAPI):
     global shadow_lab, feed_hub, auto_tactics, capital_allocator, profit_focus
 
     await logger_db.init()
+    state["portfolio_peak"] = _load_portfolio_peak()
     auto_tactics = AutoTacticsEngine()
     capital_allocator = CapitalAllocator()
     profit_focus = ProfitFocusEngine()
@@ -1527,7 +1558,7 @@ async def api_exchange_order(body: ManualTradeRequest):
         and live_exchange.enabled
         and not result.get("from_paper_sync")
     ):
-        paper_sync = await sync_order_to_paper(s, result)
+        paper_sync = await recover_exchange_to_paper(s, live_exchange, result)
         result["paper_sync"] = paper_sync
         if paper_sync and not paper_sync.get("ok"):
             result["ok"] = False
@@ -1537,6 +1568,8 @@ async def api_exchange_order(body: ManualTradeRequest):
             result["exchange_order_placed"] = True
             result["warning"] = result["error"]
         if paper_sync and paper_sync.get("ok"):
+            if paper_sync.get("recovered_via"):
+                result["warning"] = "Fill sync failed — восстановлено через mirror base"
             await broadcast({
                 "type": "trade",
                 "symbol": body.symbol,
@@ -1617,6 +1650,7 @@ async def api_ping():
     ensure_all_markets()
     return {
         "version": config.APP_VERSION,
+        "ui_cache_version": config.APP_VERSION,
         "markets": list(sessions.keys()),
         "markets_count": len(config.MARKETS),
         "sessions_active": len(sessions),
@@ -1942,6 +1976,7 @@ async def reset_portfolio(full: bool = False):
     state["chat_history"] = []
     state["brain_cycle"] = None
     state["portfolio_peak"] = 0.0
+    _save_portfolio_peak(0.0)
     if shadow_lab:
         shadow_lab.reset_clones()
         shadow_lab.total_shadow_trades = 0

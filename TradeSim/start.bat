@@ -6,9 +6,9 @@ cd /d "%~dp0"
 echo.
 echo [1/4] Обновление кода...
 git fetch origin
-git pull origin cursor/tradesim-v43-testnet-discipline-2631 2>nul
+git pull origin cursor/tradesim-v45-fix-all-2631 2>nul
 if errorlevel 1 (
-  git pull origin cursor/tradesim-v42-scorecard-2631 2>nul
+  git pull origin cursor/tradesim-v44-wallet-withdraw-2631 2>nul
 )
 if errorlevel 1 (
   git pull origin main 2>nul || git pull
@@ -37,7 +37,7 @@ echo.
 echo [4/4] Запуск сервера...
 echo.
 echo   Открой:  http://127.0.0.1:8765
-echo   Версия v41 в заголовке
+echo   Версия v45 в заголовке
 echo   Ctrl+Shift+R если старый кэш
 echo.
 set TRADESIM_BIND_HOST=127.0.0.1

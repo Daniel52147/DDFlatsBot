@@ -6,6 +6,7 @@ import time
 from typing import Any
 
 import config
+from learning.regime import detect_regime, regime_blocks_buy
 from simulator.engine import SimulatorEngine, Trade
 
 
@@ -57,6 +58,13 @@ class StrategyBot:
         max_pct = self.params.get("max_buy_pct_of_cash", 0.5)
         cap = self.engine.available_quote * max_pct
         return min(amount, cap) if cap > 0 else amount
+
+    def _regime_blocks_buy(self, price: float, sma: float | None) -> bool:
+        if not config.REGIME_FILTER_ENABLED:
+            return False
+        closes = [c.close for c in getattr(self, "_recent_candles", [])[-30:]]
+        regime = detect_regime(price, sma, closes if len(closes) >= 5 else None)
+        return regime_blocks_buy("dca", regime)
 
     def _maybe_stop_loss(self, price: float) -> Trade | None:
         sl_pct = self.params.get("stop_loss_pct")
@@ -145,13 +153,17 @@ class StrategyBot:
             interval *= 2
 
         if now - self.last_dca_ts >= interval:
-            amt = self._cap_buy_amount(self.params["dca_amount"])
-            trade = self.engine.buy(price, amt, reason="DCA: плановая покупка")
-            if trade:
-                self.last_dca_ts = now
-                return trade
+            if not self._regime_blocks_buy(price, sma):
+                amt = self._cap_buy_amount(self.params["dca_amount"])
+                trade = self.engine.buy(price, amt, reason="DCA: плановая покупка")
+                if trade:
+                    self.last_dca_ts = now
+                    return trade
 
         if not sma or price >= sma:
+            return None
+
+        if self._regime_blocks_buy(price, sma):
             return None
 
         dip_pct = (sma - price) / sma * 100

@@ -140,11 +140,24 @@ async def assess_live_readiness(
     _check(
         checks,
         cid="testnet_mode",
-        label="Сейчас режим Testnet (не Paper)",
-        ok=mode_mgr.mode == "testnet",
-        detail=f"Режим: {mode_mgr.mode} — перед Live нужен Testnet",
+        label=f"Опыт Testnet ≥ {config.LIVE_MIN_DAYS_TESTNET} дн.",
+        ok=testnet_days >= config.LIVE_MIN_DAYS_TESTNET,
+        detail=(
+            f"Testnet {testnet_days:.1f} дн. — переключись на 🧪 Testnet и торгуй"
+            if testnet_days < config.LIVE_MIN_DAYS_TESTNET
+            else f"Testnet {testnet_days:.1f} дн. ✓ · сейчас режим {mode_mgr.mode}"
+        ),
         required=True,
     )
+    if mode_mgr.mode != "testnet" and testnet_days < config.LIVE_MIN_DAYS_TESTNET:
+        _check(
+            checks,
+            cid="testnet_active",
+            label="Сейчас режим Testnet (перед Live)",
+            ok=False,
+            detail=f"Режим: {mode_mgr.mode} — для Live переключись на Testnet",
+            required=False,
+        )
     _check(
         checks,
         cid="trades",

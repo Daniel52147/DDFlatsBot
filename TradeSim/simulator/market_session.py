@@ -104,6 +104,7 @@ class MarketSession:
             benchmark_hold_price=saved.get("benchmark_hold_price", 0),
             benchmark_hold_anchor=saved.get("benchmark_hold_anchor", ""),
         )
+        self.engine.wallet_credit = float(saved.get("wallet_credit", 0) or 0)
         self.strategy_type = saved.get("strategy_type", self.strategy_type)
         self.bot = create_bot(self.engine, self.strategy_type, params=saved["bot_params"])
         bot_state = saved.get("bot_state") or {}
@@ -172,6 +173,7 @@ class MarketSession:
             "trades": self.engine.export_trades(limit=200),
             "benchmark_hold_price": self.engine.benchmark_hold_price,
             "benchmark_hold_anchor": self.engine.benchmark_hold_anchor,
+            "wallet_credit": self.engine.wallet_credit,
         })
 
     async def _log_trade(self, trade):
@@ -323,6 +325,13 @@ class MarketSession:
         closed = self.candles.add_tick(price, tick_ts)
         sma_period = int(self.bot.params.get("sma_period", 20))
         sma = self.candles.sma(sma_period)
+
+        if hasattr(self.bot, "_prices") and len(self.bot._prices) < 15:
+            hist = self.candles.all_candles()
+            if len(hist) >= 15:
+                self.bot._prices = [c.close for c in hist[-80:]]
+        if hasattr(self.bot, "_recent_candles"):
+            self.bot._recent_candles = self.candles.all_candles()[-30:]
 
         closed_dict = closed.to_dict() if closed else None
         if closed_dict and hasattr(self.bot, "on_candle_close"):

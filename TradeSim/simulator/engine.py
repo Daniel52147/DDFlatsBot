@@ -149,9 +149,12 @@ class SimulatorEngine:
         if side == "buy":
             if amount_quote <= 0 or amount_base <= 0:
                 return None
-            if self.position.quote < amount_quote:
+            if self.available_quote < amount_quote:
                 return None
-            self.position.quote -= amount_quote
+            from_quote = min(amount_quote, self.position.quote)
+            from_credit = amount_quote - from_quote
+            self.position.quote -= from_quote
+            self.wallet_credit = max(0.0, self.wallet_credit - from_credit)
             self.position.base += amount_base
             self.position.cost_basis += max(0, amount_quote - fee)
         elif side == "sell":

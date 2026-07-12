@@ -218,7 +218,11 @@ async def sync_trade_to_exchange(
         return {"ok": False, "error": "no price for exchange sync"}
 
     snap = session.engine.snapshot(price)
-    amount_usd = float(getattr(trade, "amount_quote", 0) or 0)
+    if trade.side == "sell":
+        amount_base = float(getattr(trade, "amount_base", 0) or 0)
+        amount_usd = amount_base * price if amount_base > 0 else float(getattr(trade, "amount_quote", 0) or 0)
+    else:
+        amount_usd = float(getattr(trade, "amount_quote", 0) or 0)
     if amount_usd <= 0:
         return None
 
@@ -255,4 +259,33 @@ async def sync_trade_to_exchange(
         "amount_usd": amount_usd,
         "order_id": result.get("order_id"),
         "mode": result.get("mode"),
+    }
+
+
+async def recover_exchange_to_paper(session, exchange, exchange_result: dict[str, Any]) -> dict[str, Any]:
+    """Sync fill to paper; on failure try base mirror so wallets don't diverge."""
+    paper_sync = await sync_order_to_paper(session, exchange_result)
+    if paper_sync and paper_sync.get("ok"):
+        return paper_sync
+
+    mirror = await mirror_base_from_exchange(session, exchange)
+    if mirror.get("ok") and mirror.get("diff", 0) != 0:
+        return {
+            "ok": True,
+            "synced": True,
+            "recovered_via": "mirror_base",
+            "paper_sync_error": (paper_sync or {}).get("error"),
+            "mirror": mirror,
+            "side": mirror.get("trade", {}).get("side"),
+            "amount_quote": mirror.get("trade", {}).get("amount_quote"),
+            "reason": "EXCHANGE RECOVER: mirror base after fill sync failed",
+        }
+
+    err = (paper_sync or {}).get("error") or mirror.get("error") or "paper sync failed"
+    return {
+        "ok": False,
+        "error": err,
+        "paper_sync": paper_sync,
+        "mirror": mirror,
+        "exchange_order_placed": bool(exchange_result.get("ok")),
     }

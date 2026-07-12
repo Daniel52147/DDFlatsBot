@@ -89,7 +89,6 @@ async def mirror_usdt_to_paper(sessions: dict, exchange, amount: float | None = 
     deposited = 0.0
     for s in sessions.values():
         s.engine.position.quote += per
-        s.engine.start_balance += per
         deposited += per
         await s.persist()
 
@@ -98,7 +97,7 @@ async def mirror_usdt_to_paper(sessions: dict, exchange, amount: float | None = 
         "mirrored_usdt": round(deposited, 2),
         "per_market": per,
         "exchange_usdt_before": round(usdt_free, 2),
-        "note": "USDT на бирже не списан — paper подтянут под баланс. Для реального вывода используй «Вывести».",
+        "note": "USDT зачислен в paper quote (P&L не меняется). Баланс биржи не списан.",
     }
 
 

@@ -429,8 +429,6 @@ class BinanceLiveExchange:
             elif asset == base_asset:
                 commission_usd += comm * float(f.get("price", price or 0))
         pnl_delta = -commission_usd
-        if side == "sell" and fills_quote > 0:
-            pnl_delta = fills_quote * 0.001 - commission_usd
         self.risk.record_result(pnl_delta)
         return {
             "ok": True,
