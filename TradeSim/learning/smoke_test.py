@@ -1,0 +1,233 @@
+"""Testnet certification harness — one-click system health check."""
+
+from __future__ import annotations
+
+import time
+from typing import Any
+
+import config
+
+
+def _check(
+    checks: list[dict[str, Any]],
+    *,
+    cid: str,
+    label: str,
+    ok: bool,
+    detail: str,
+    required: bool = True,
+) -> None:
+    checks.append({
+        "id": cid,
+        "label": label,
+        "ok": bool(ok),
+        "detail": detail,
+        "required": required,
+    })
+
+
+async def run_smoke_test(
+    *,
+    sessions: dict,
+    exchange,
+    logger_db,
+    trading_mode_mgr,
+    live_readiness: dict[str, Any],
+    live_prep: dict[str, Any],
+    telegram_enabled: bool,
+    feed_hub_ok: bool,
+) -> dict[str, Any]:
+    """Run full certification — technical readiness, not profitability."""
+    checks: list[dict[str, Any]] = []
+    started = time.time()
+
+    ready_markets = sum(1 for s in sessions.values() if s._candles_ready)
+    max_lag = max((s.candles.lag_sec() for s in sessions.values()), default=999.0)
+    _check(
+        checks,
+        cid="markets",
+        label=f"Рынки загружены ({len(sessions)})",
+        ok=len(sessions) >= len(config.MARKETS),
+        detail=f"{ready_markets}/{len(sessions)} со свечами · max lag {max_lag:.0f}s",
+    )
+    _check(
+        checks,
+        cid="candles",
+        label="Свечи актуальны",
+        ok=max_lag <= config.CANDLE_MAX_LAG_SEC and ready_markets >= len(sessions) * 0.8,
+        detail=f"порог lag {config.CANDLE_MAX_LAG_SEC}s",
+    )
+    _check(
+        checks,
+        cid="feed",
+        label="Price feed",
+        ok=feed_hub_ok or any((s.feed.price or 0) > 0 for s in sessions.values()),
+        detail="FeedHub или poll цен",
+    )
+
+    mode = trading_mode_mgr.mode
+    _check(
+        checks,
+        cid="trading_mode",
+        label=f"Режим: {mode}",
+        ok=mode in ("paper", "testnet", "live"),
+        detail=trading_mode_mgr.status(exchange).get("label", mode),
+    )
+
+    verify: dict[str, Any] = {"ok": False}
+    if exchange.enabled:
+        verify = await exchange.verify_connection()
+        _check(
+            checks,
+            cid="exchange_verify",
+            label="Binance API verify",
+            ok=bool(verify.get("ok")),
+            detail=verify.get("error") or f"USDT free ${verify.get('usdt_free', 0):.2f}",
+            required=mode in ("testnet", "live"),
+        )
+    else:
+        _check(
+            checks,
+            cid="exchange_verify",
+            label="Binance API",
+            ok=mode == "paper",
+            detail="EXCHANGE_ENABLED=false — OK для Paper",
+            required=False,
+        )
+
+    stability = await logger_db.stability_summary(hours=168)
+    sync_rate = float(stability.get("success_rate_pct", 100))
+    _check(
+        checks,
+        cid="stability",
+        label=f"Sync stability ≥ 85%",
+        ok=sync_rate >= 85 or mode == "paper",
+        detail=f"{sync_rate:.0f}% · ордеров {stability.get('exchange_orders', 0)} · сбоев {stability.get('sync_failures', 0)}",
+        required=mode in ("testnet", "live"),
+    )
+
+    readiness_score = int(live_readiness.get("score_pct", 0))
+    _check(
+        checks,
+        cid="readiness",
+        label=f"Live readiness ≥ 60%",
+        ok=readiness_score >= 60 or mode == "paper",
+        detail=f"{readiness_score}% · ready={live_readiness.get('ready_for_live', False)}",
+        required=False,
+    )
+
+    trade_count = int(live_readiness.get("stats", {}).get("trade_count", 0))
+    _check(
+        checks,
+        cid="trades",
+        label=f"Сделок ≥ {config.LIVE_MIN_TRADES}",
+        ok=trade_count >= config.LIVE_MIN_TRADES,
+        detail=f"в БД: {trade_count}",
+        required=False,
+    )
+
+    from learning.protections import protections_engine
+    prot = protections_engine.status()
+    _check(
+        checks,
+        cid="protections",
+        label="Protections",
+        ok=not prot.get("global_active") and not prot.get("paused_symbols"),
+        detail="активен" if prot.get("enabled") else "выкл",
+        required=False,
+    )
+
+    _check(
+        checks,
+        cid="telegram",
+        label="Telegram",
+        ok=telegram_enabled,
+        detail="алерты включены" if telegram_enabled else "не настроен — опционально",
+        required=False,
+    )
+
+    phases_done = live_prep.get("phase_progress", "0/5")
+    _check(
+        checks,
+        cid="live_prep",
+        label="Путь к Live",
+        ok=True,
+        detail=f"фазы {phases_done} · {live_prep.get('summary', '')[:80]}",
+        required=False,
+    )
+
+    if exchange.enabled and mode in ("testnet", "live"):
+        try:
+            reconcile = await _quick_reconcile(sessions, exchange)
+            bad = [r for r in reconcile if abs(r.get("diff_pct", 0)) > 15]
+            _check(
+                checks,
+                cid="reconcile",
+                label="Paper ↔ биржа reconcile",
+                ok=len(bad) <= 2,
+                detail=f"{len(reconcile)} рынков · красных Δ>15%: {len(bad)}",
+                required=mode == "testnet",
+            )
+        except Exception as e:
+            _check(
+                checks,
+                cid="reconcile",
+                label="Reconcile",
+                ok=False,
+                detail=str(e)[:120],
+                required=False,
+            )
+
+    required = [c for c in checks if c.get("required", True)]
+    passed = sum(1 for c in required if c["ok"])
+    optional_passed = sum(1 for c in checks if c["ok"])
+    score = round(passed / len(required) * 100) if required else 100
+    certified = all(c["ok"] for c in required)
+
+    return {
+        "version": config.APP_VERSION,
+        "ok": certified,
+        "certified": certified,
+        "score_pct": score,
+        "passed": passed,
+        "total_required": len(required),
+        "optional_passed": optional_passed,
+        "total_checks": len(checks),
+        "checks": checks,
+        "duration_sec": round(time.time() - started, 2),
+        "summary": _summary(certified, score, mode),
+        "next_action": _next_action(certified, checks, mode),
+    }
+
+
+async def _quick_reconcile(sessions: dict, exchange) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for sym, s in list(sessions.items())[:6]:
+        paper = s.engine.position
+        rec = await exchange.reconcile(sym, paper.base, paper.quote)
+        paper_base = float(rec.get("paper_base", 0) or 0)
+        base_diff = abs(float(rec.get("base_diff", 0) or 0))
+        diff_pct = (base_diff / paper_base * 100) if paper_base > 1e-8 else (100.0 if base_diff > 1e-6 else 0.0)
+        rows.append({**rec, "diff_pct": round(diff_pct, 2)})
+    return rows
+
+
+def _summary(certified: bool, score: int, mode: str) -> str:
+    if certified:
+        if mode == "testnet":
+            return f"✅ Сертификация Testnet пройдена ({score}%). Можно двигаться к Live Micro."
+        if mode == "live":
+            return f"✅ Smoke test OK ({score}%). Следи за лимитами Live Micro."
+        return f"✅ Paper OK ({score}%). Переключись на Testnet для следующей фазы."
+    return f"⚠ Не готов ({score}%). Исправь красные пункты перед Live."
+
+
+def _next_action(certified: bool, checks: list[dict], mode: str) -> str:
+    failed = [c for c in checks if not c["ok"] and c.get("required", True)]
+    if not failed:
+        if mode == "paper":
+            return "Переключись на Testnet → кнопка «Неделя Testnet»"
+        if mode == "testnet":
+            return "Кнопка «Micro Testnet» → редкие сделки $10"
+        return "Live Micro: ордер ≤$10, 2–3 сделки/день"
+    return failed[0]["label"] + ": " + failed[0]["detail"]
