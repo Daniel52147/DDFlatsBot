@@ -455,6 +455,19 @@ def _register_telegram_commands() -> None:
 
 async def telegram_loop():
     await asyncio.sleep(5)
+    if telegram_service.enabled:
+        ok = await telegram_service.send_message(
+            f"✅ TradeSim v{config.APP_VERSION} — Telegram подключён\n"
+            "Команды: /status /balance /pause /resume /help"
+        )
+        if ok:
+            logger.info("Telegram: подключён (@TradeSimbot_bot) chat_id=%s", config.TELEGRAM_CHAT_ID)
+        else:
+            logger.warning("Telegram: не удалось отправить стартовое сообщение — проверь токен и chat_id")
+    else:
+        logger.info(
+            "Telegram выключен — задай TELEGRAM_ENABLED=true, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID в .env"
+        )
     while state["running"]:
         try:
             await telegram_service.poll_once()
@@ -1806,6 +1819,30 @@ async def api_live_prep_stability_check():
 @app.get("/api/integrations")
 async def api_integrations():
     return _integrations_status()
+
+
+@app.get("/api/telegram/status")
+async def api_telegram_status():
+    st = telegram_service.status()
+    st["version"] = config.APP_VERSION
+    if st["token_set"]:
+        verify = await telegram_service.verify_api()
+        st["api_ok"] = verify.get("ok", False)
+        if verify.get("bot"):
+            st["bot_username"] = verify["bot"].get("username", st.get("bot_username"))
+    return st
+
+
+@app.post("/api/telegram/test")
+async def api_telegram_test():
+    if not telegram_service.enabled:
+        return api_fail(
+            "Telegram выключен — проверь .env: TELEGRAM_ENABLED, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID"
+        )
+    ok = await telegram_service.send_message(
+        f"🧪 Тест TradeSim v{config.APP_VERSION} — связь OK"
+    )
+    return {"ok": ok, "status": telegram_service.status()}
 
 
 @app.post("/api/webhook/tradingview")

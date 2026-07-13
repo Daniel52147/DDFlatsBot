@@ -37,6 +37,7 @@ WRITE_PREFIXES = (
     "/api/backtest",
     "/api/assistant/chat",
     "/api/protections/clear",
+    "/api/telegram/test",
     "/api/orders/cancel",
     "/api/smoke-test",
 )

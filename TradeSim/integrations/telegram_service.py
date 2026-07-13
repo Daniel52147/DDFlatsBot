@@ -15,6 +15,14 @@ logger = logging.getLogger(__name__)
 CommandHandler = Callable[[str, list[str], int], Awaitable[str]]
 
 
+def _escape_html(text: str) -> str:
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
 class TelegramService:
     def __init__(self):
         self._offset = 0
@@ -41,7 +49,28 @@ class TelegramService:
             return True
         return user_id in allowed
 
-    async def send_message(
+    def status(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "configured": bool(config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_CHAT_ID),
+            "token_set": bool(config.TELEGRAM_BOT_TOKEN),
+            "chat_id": config.TELEGRAM_CHAT_ID or None,
+            "commands": config.TELEGRAM_COMMANDS_ENABLED,
+            "alert_trades": config.TELEGRAM_ALERT_TRADES,
+            "allowed_user_ids": config.TELEGRAM_ALLOWED_USER_IDS,
+            "bot_username": "TradeSimbot_bot",
+        }
+
+    async def verify_api(self) -> dict[str, Any]:
+        if not config.TELEGRAM_BOT_TOKEN:
+            return {"ok": False, "error": "no token"}
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.get(self._api_url("getMe"))
+                data = r.json()
+                return {"ok": bool(data.get("ok")), "bot": data.get("result", {})}
+        except Exception as e:
+            return {"ok": False, "error": str(e)[:120]}
         self,
         text: str,
         chat_id: str | None = None,
@@ -50,18 +79,22 @@ class TelegramService:
         if not self.enabled:
             return False
         cid = chat_id or config.TELEGRAM_CHAT_ID
+        safe_text = _escape_html(text) if parse_mode == "HTML" else text
         try:
             async with httpx.AsyncClient(timeout=15) as client:
                 r = await client.post(
                     self._api_url("sendMessage"),
                     json={
                         "chat_id": cid,
-                        "text": text[:4000],
+                        "text": safe_text[:4000],
                         "parse_mode": parse_mode,
                         "disable_web_page_preview": True,
                     },
                 )
                 if r.status_code != 200:
+                    # Retry without HTML if parse failed
+                    if parse_mode == "HTML":
+                        return await self.send_message(text, chat_id=cid, parse_mode="")
                     logger.warning("Telegram send failed: %s", r.text[:200])
                     return False
                 return True
@@ -79,9 +112,9 @@ class TelegramService:
         pnl = portfolio.get("pnl_pct", 0) if portfolio else 0
         emoji = "🟢" if side == "buy" else "🔴"
         text = (
-            f"{emoji} <b>{label}</b> {side.upper()}\n"
+            f"{emoji} <b>{_escape_html(str(label))}</b> {side.upper()}\n"
             f"${amt:.2f} @ {price:.6g}\n"
-            f"<i>{reason[:120]}</i>\n"
+            f"<i>{_escape_html(str(reason)[:120])}</i>\n"
             f"P&L портфеля: {pnl:+.2f}%"
         )
         await self.send_message(text)
