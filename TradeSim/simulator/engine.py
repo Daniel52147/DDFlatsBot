@@ -46,6 +46,7 @@ class SimulatorEngine:
         self.benchmark_hold_price: float = 0.0
         self.benchmark_hold_anchor: str = ""
         self.wallet_credit: float = 0.0
+        self.market_symbol: str = ""
 
     @property
     def available_quote(self) -> float:
@@ -70,9 +71,10 @@ class SimulatorEngine:
             return price * (1 + slip)
         return price * (1 - slip)
 
-    def buy(self, price: float, amount_quote: float, reason: str) -> Trade | None:
+    def buy(self, price: float, amount_quote: float, reason: str, symbol: str = "") -> Trade | None:
         from simulator.risk_gate import blocks_new_buys
-        if blocks_new_buys():
+        sym = symbol or self.market_symbol
+        if blocks_new_buys(sym):
             return None
         if amount_quote <= 0 or self.available_quote < amount_quote:
             return None

@@ -54,6 +54,9 @@ from learning.testnet_mode import apply_testnet_conservative_all, apply_testnet_
 from learning.trade_mode import apply_active_all, apply_active_trading
 from learning.logger import LearningLogger
 from learning.optimizer import StrategyOptimizer
+from learning.protections import protections_engine
+from integrations.telegram_service import telegram_service
+from integrations.tradingview_webhook import handle_tradingview_signal
 from security import SecurityMiddleware, auth_required
 from simulator.backtest import Backtester, compare_strategies
 from simulator.market_session import MarketSession
@@ -239,7 +242,7 @@ def _learning_honesty(stats: dict) -> dict[str, Any]:
         "version": config.APP_VERSION,
         "markets_configured": len(config.MARKETS),
         "markets_active": len(sessions),
-        "project_readiness": f"v{config.APP_VERSION} — кошелёк, wallet bridge, desync recovery, честный Testnet",
+        "project_readiness": f"v{config.APP_VERSION} — Telegram, TradingView webhook, Protections, путь к Live",
         "really_learns": True,
         "learning_kind": "эвристики + статистика (не нейросеть)",
         "what_is_real": [
@@ -309,6 +312,162 @@ class ActiveTradeRequest(BaseModel):
 class TradingModeRequest(BaseModel):
     mode: str  # paper | testnet | live
     force: bool = False
+
+
+class TradingViewWebhookRequest(BaseModel):
+    secret: str | None = None
+    key: str | None = None
+    passphrase: str | None = None
+    symbol: str | None = None
+    ticker: str | None = None
+    pair: str | None = None
+    action: str | None = None
+    side: str | None = None
+    alert: str | None = None
+    size_usdt: float | None = None
+    amount_usd: float | None = None
+    size: float | None = None
+    strategy: str | None = None
+
+
+def _integrations_status() -> dict[str, Any]:
+    from learning.protections import protections_engine
+    return {
+        "telegram": {
+            "enabled": telegram_service.enabled,
+            "commands": config.TELEGRAM_COMMANDS_ENABLED,
+            "alert_trades": config.TELEGRAM_ALERT_TRADES,
+            "daily_summary": config.TELEGRAM_DAILY_SUMMARY,
+            "chat_configured": bool(config.TELEGRAM_CHAT_ID),
+        },
+        "tradingview": {
+            "enabled": config.TRADINGVIEW_WEBHOOK_ENABLED,
+            "secret_configured": bool(config.TRADINGVIEW_WEBHOOK_SECRET),
+            "endpoint": "/api/webhook/tradingview",
+            "default_size_usd": config.TRADINGVIEW_DEFAULT_SIZE_USD,
+            "max_size_usd": config.TRADINGVIEW_MAX_SIZE_USD,
+            "example_payload": {
+                "secret": "YOUR_SECRET",
+                "symbol": "BTCUSDT",
+                "action": "buy",
+                "size_usdt": 10,
+            },
+        },
+        "protections": protections_engine.status(),
+    }
+
+
+async def _telegram_cmd_status(_cmd: str, _args: list[str], _user_id: int) -> str:
+    t = total_portfolio()
+    mode = trading_mode.mode
+    lines = [
+        f"📊 TradeSim v{config.APP_VERSION}",
+        f"Режим: {mode}",
+        f"Портфель: ${t['total_value']:,.2f} ({t['pnl_pct']:+.2f}%)",
+        f"vs Hold: {t.get('vs_hold_pct', 0):+.2f}%",
+        f"Рынков: {len(sessions)}",
+    ]
+    paused = [s.label for s in sessions.values() if not s.bot.enabled]
+    if paused:
+        lines.append(f"⏸ Пауза: {', '.join(paused[:8])}")
+    prot = protections_engine.status()
+    if prot.get("global_active"):
+        lines.append(f"🛡 Cooldown: {prot['global_cooldown_min']} мин")
+    return "\n".join(lines)
+
+
+async def _telegram_cmd_balance(_cmd: str, _args: list[str], _user_id: int) -> str:
+    t = total_portfolio()
+    lines = [f"💰 ${t['total_value']:,.2f} · P&L {t['pnl_pct']:+.2f}%"]
+    if live_exchange.enabled:
+        try:
+            bal = await live_exchange.fetch_balances()
+            usdt = bal.get("USDT", {})
+            lines.append(f"Биржа USDT: {usdt.get('free', 0):.2f}")
+        except Exception:
+            pass
+    return "\n".join(lines)
+
+
+async def _telegram_cmd_pause(_cmd: str, args: list[str], _user_id: int) -> str:
+    if not args:
+        for s in sessions.values():
+            s.bot.enabled = False
+            await s.persist()
+        return "⏸ Все боты на паузе"
+    label = args[0].upper()
+    for sym, s in sessions.items():
+        if s.label == label or sym.startswith(label):
+            s.bot.enabled = False
+            await s.persist()
+            return f"⏸ {s.label} на паузе"
+    return f"Не найден рынок: {label}"
+
+
+async def _telegram_cmd_resume(_cmd: str, args: list[str], _user_id: int) -> str:
+    if args and args[0].lower() == "all":
+        protections_engine.clear_all()
+    for s in sessions.values():
+        if args and args[0].lower() != "all":
+            label = args[0].upper()
+            if s.label != label and not s.symbol.startswith(label):
+                continue
+        s.bot.enabled = True
+        protections_engine.clear_symbol(s.symbol)
+        await s.persist()
+    if args and args[0].lower() != "all":
+        return f"▶️ {args[0].upper()} возобновлён"
+    return "▶️ Все боты активны, protections сброшены"
+
+
+async def _telegram_cmd_help(_cmd: str, _args: list[str], _user_id: int) -> str:
+    return (
+        "TradeSim Telegram:\n"
+        "/status — портфель и режим\n"
+        "/balance — баланс paper + биржа\n"
+        "/pause [BTC] — пауза бота\n"
+        "/resume [BTC|all] — возобновить\n"
+        "/help — эта справка"
+    )
+
+
+def _register_telegram_commands() -> None:
+    telegram_service.register_command("status", _telegram_cmd_status)
+    telegram_service.register_command("balance", _telegram_cmd_balance)
+    telegram_service.register_command("pause", _telegram_cmd_pause)
+    telegram_service.register_command("resume", _telegram_cmd_resume)
+    telegram_service.register_command("help", _telegram_cmd_help)
+    telegram_service.register_command("start", _telegram_cmd_help)
+
+
+async def telegram_loop():
+    await asyncio.sleep(5)
+    while state["running"]:
+        try:
+            await telegram_service.poll_once()
+        except Exception as e:
+            logger.warning("telegram loop: %s", e)
+        await asyncio.sleep(2)
+
+
+async def daily_summary_loop():
+    await asyncio.sleep(120)
+    while state["running"]:
+        try:
+            if telegram_service.should_send_daily(86400):
+                t = total_portfolio()
+                fees = await logger_db.fee_summary(since_ts=time.time() - 86400)
+                text = (
+                    f"P&L: {t['pnl_pct']:+.2f}%\n"
+                    f"vs Hold: {t.get('vs_hold_pct', 0):+.2f}%\n"
+                    f"Портфель: ${t['total_value']:,.2f}\n"
+                    f"Комиссии 24ч: ${fees.get('total_fees', 0):.2f}\n"
+                    f"Режим: {trading_mode.mode}"
+                )
+                await telegram_service.send_daily_summary(text)
+        except Exception as e:
+            logger.warning("daily summary: %s", e)
+        await asyncio.sleep(3600)
 
 
 async def run_session_loop(session: MarketSession):
@@ -408,6 +567,12 @@ async def brain_loop():
             )
             prev_decision = brain.last_applied_decision
             brain.apply_decision(sessions, cycle["decision"])
+            if decision == "emergency_halt" and config.TELEGRAM_ALERT_HALT:
+                await telegram_service.notify_event(
+                    "Emergency halt",
+                    cycle.get("summary", "мозг остановил агрессию"),
+                    level="halt",
+                )
             if brain.last_applied_decision != prev_decision:
                 for s in sessions.values():
                     await s.persist()
@@ -810,6 +975,23 @@ def _brain_public(cycle: dict) -> dict:
 
 
 async def after_paper_trade(session, trade):
+    from learning.protections import protections_engine
+
+    prot_actions = protections_engine.on_trade(session.symbol, trade)
+    for act in prot_actions:
+        if act["type"] in ("stoploss_guard", "max_trades") and act["symbol"] in sessions:
+            sessions[act["symbol"]].bot.enabled = False
+            await sessions[act["symbol"]].persist()
+        await broadcast({"type": "protection", **act})
+        await telegram_service.notify_event(
+            "Protection",
+            f"{act.get('symbol', '*')}: {act.get('reason', '')}",
+            level="warn",
+        )
+
+    tot = total_portfolio()
+    await telegram_service.notify_trade(session.label, session.symbol, trade, tot)
+
     result = None
     if trading_mode.should_mirror_to_exchange() and config.EXCHANGE_SYNC_FROM_PAPER:
         tot = total_portfolio()
@@ -839,6 +1021,12 @@ async def after_paper_trade(session, trade):
         payload["paper_to_exchange"] = result
         await broadcast(payload)
         logger.warning("[%s] paper→exchange sync failed: %s", session.label, result.get("error"))
+        if config.TELEGRAM_ALERT_SYNC_FAIL:
+            await telegram_service.notify_event(
+                "Sync fail",
+                f"{session.label}: {result.get('error', 'unknown')}",
+                level="error",
+            )
 
 
 async def wallet_bridge_loop():
@@ -916,6 +1104,7 @@ async def lifespan(app: FastAPI):
             else:
                 logger.warning("Trading mode auto-apply failed: %s", mode_result.get("error"))
 
+    _register_telegram_commands()
     state["running"] = True
 
     async def parallel_market_startup():
@@ -957,6 +1146,9 @@ async def lifespan(app: FastAPI):
     tasks.append(asyncio.create_task(shadow_eval_loop()))
     tasks.append(asyncio.create_task(snapshot_loop()))
     tasks.append(asyncio.create_task(candle_health_loop()))
+    if telegram_service.enabled:
+        tasks.append(asyncio.create_task(telegram_loop()))
+        tasks.append(asyncio.create_task(daily_summary_loop()))
 
     logger.info(
         "TradeSim v%s HTTP ready — свечи синхронизированы — http://127.0.0.1:8765",
@@ -1567,6 +1759,44 @@ async def api_live_prep_stability_check():
         "verify", bool(verify.get("ok")), verify.get("error") or verify.get("note", ""), "",
     )
     return {"ok": True, "verify": verify, "live_prep": await _live_prep_payload()}
+
+
+@app.get("/api/integrations")
+async def api_integrations():
+    return _integrations_status()
+
+
+@app.post("/api/webhook/tradingview")
+async def api_tradingview_webhook(body: TradingViewWebhookRequest):
+    if not config.TRADINGVIEW_WEBHOOK_ENABLED:
+        return api_fail("TradingView webhook disabled — set TRADINGVIEW_WEBHOOK_ENABLED=true")
+    payload = body.model_dump(exclude_none=True)
+    result = await handle_tradingview_signal(payload, sessions, broadcast=broadcast)
+    await logger_db.log_stability_event(
+        "tradingview_webhook",
+        bool(result.get("ok")),
+        result.get("error") or f"{result.get('action', 'ok')} {result.get('symbol', '')}",
+        result.get("symbol", ""),
+    )
+    if result.get("ok") and config.TELEGRAM_ALERT_TRADES:
+        await telegram_service.notify_event(
+            "TradingView",
+            f"{result.get('label', '')} {result.get('action', '')} ${result.get('size_usdt', 0):.0f}",
+            level="info",
+        )
+    return result
+
+
+@app.post("/api/protections/clear")
+async def api_protections_clear(symbol: str | None = None, all_markets: bool = False):
+    if all_markets or not symbol:
+        protections_engine.clear_all()
+        return {"ok": True, "cleared": "all"}
+    sym = symbol.upper()
+    if not sym.endswith("USDT"):
+        sym = f"{sym}USDT"
+    protections_engine.clear_symbol(sym)
+    return {"ok": True, "cleared": sym}
 
 
 @app.post("/api/week-prep/start")

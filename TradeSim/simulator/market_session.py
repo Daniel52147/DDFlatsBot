@@ -35,6 +35,7 @@ class MarketSession:
         self.feed = PriceFeed(self.symbol)
         self.candles = CandleBuilder(interval=config.CANDLE_INTERVAL, max_candles=config.MAX_CANDLES)
         self.engine = SimulatorEngine(initial_balance=config.BALANCE_PER_MARKET)
+        self.engine.market_symbol = self.symbol
         self.bot = create_bot(self.engine, self.strategy_type, params=market.get("strategy"))
         self.base_params = copy.deepcopy(self.bot.get_params())
         bounds = (

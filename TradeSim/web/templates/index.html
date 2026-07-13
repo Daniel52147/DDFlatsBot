@@ -218,10 +218,18 @@
         <div id="exchange-panel-body" class="exchange-panel-body muted">Загрузка балансов...</div>
       </section>
 
+      <section class="card v16-card" id="integrations-panel">
+        <div class="card-header">
+          <h2>📡 Интеграции</h2>
+          <button type="button" id="btn-integrations-refresh" class="btn ghost small">Обновить</button>
+        </div>
+        <div id="integrations-panel-body" class="integrations-panel muted">Загрузка...</div>
+      </section>
+
       <section class="card assistant-card v16-card">
         <div class="card-header"><h2>💬 Помощник</h2></div>
         <div id="chat-messages" class="chat-messages">
-          <div class="chat-bubble chat-bot">TradeSim v46: <b>путь к Live</b> · <b>Micro $10</b> · <b>стабильность API</b> · честные предупреждения</div>
+          <div class="chat-bubble chat-bot">TradeSim v47: <b>Telegram</b> · <b>TradingView</b> · <b>Protections</b> · путь к Live</div>
         </div>
         <form id="chat-form" class="chat-form">
           <input id="chat-input" type="text" placeholder="тренд / grid / momentum / DOGE?" autocomplete="off" />
@@ -326,6 +334,6 @@
   </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=46"></script>
+  <script src="/static/app.js?v=47"></script>
 </body>
 </html>

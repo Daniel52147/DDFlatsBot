@@ -1269,6 +1269,53 @@ async function loadLivePrep() {
   }
 }
 
+function renderIntegrationsPanel(data) {
+  const el = document.getElementById("integrations-panel-body");
+  if (!el) return;
+  if (!data) {
+    el.innerHTML = "<p class='muted'>Интеграции: нет данных</p>";
+    return;
+  }
+  window.lastIntegrations = data;
+  const tg = data.telegram || {};
+  const tv = data.tradingview || {};
+  const prot = data.protections || {};
+  const tgOk = tg.enabled && tg.chat_configured;
+  const tvOk = tv.enabled && tv.secret_configured;
+  const paused = Object.entries(prot.paused_symbols || {}).map(
+    ([sym, min]) => `<li>⏸ ${escapeHtml(sym)} — ${min} мин</li>`
+  ).join("");
+  const rules = prot.rules || {};
+  el.innerHTML = `
+    <div class="honesty-box ${tgOk || tvOk ? "ok" : "warn"}">
+      <p><b>Telegram:</b> ${tgOk ? "✅ активен" : tg.enabled ? "⚠ нет chat_id" : "выкл"} ·
+         <b>TradingView:</b> ${tvOk ? "✅ webhook" : tv.enabled ? "⚠ нет secret" : "выкл"}</p>
+      <p class="muted">Protections: ${prot.enabled ? "вкл" : "выкл"}
+        ${prot.global_active ? ` · cooldown ${prot.global_cooldown_min} мин` : ""}</p>
+    </div>
+    <p class="muted"><b>TV endpoint:</b> <code>POST ${escapeHtml(tv.endpoint || "/api/webhook/tradingview")}</code></p>
+    <p class="muted tiny">Пример: ${escapeHtml(JSON.stringify(tv.example_payload || {}))}</p>
+    <p class="muted"><b>Правила:</b></p>
+    <ul class="auto-tactics-list">
+      <li>StoplossGuard: ${escapeHtml(rules.stoploss_guard || "—")}</li>
+      <li>Cooldown: ${escapeHtml(rules.cooldown_period || "—")}</li>
+      <li>Max trades: ${escapeHtml(rules.max_trades_per_day || "—")}</li>
+    </ul>
+    ${paused ? `<p class="muted"><b>Пауза protections:</b></p><ul class="auto-tactics-list">${paused}</ul>` : ""}`;
+}
+
+async function loadIntegrations() {
+  try {
+    const data = await (await fetch("/api/integrations")).json();
+    renderIntegrationsPanel(data);
+    return data;
+  } catch (_) {
+    const el = document.getElementById("integrations-panel-body");
+    if (el) el.innerHTML = "<p class='muted'>Интеграции: обнови страницу</p>";
+    return null;
+  }
+}
+
 function renderLiveReadinessPanel(data) {
   const el = document.getElementById("live-readiness-panel");
   if (!el) return;
@@ -1699,6 +1746,13 @@ function connectWs() {
         void loadProfitFocus();
         refreshStatus();
       }
+      if (msg.type === "protection") {
+        showToast(`🛡 ${msg.reason || msg.type || "protection"}`, 6000);
+        void loadIntegrations();
+      }
+      if (msg.type === "tradingview_signal") {
+        showToast(`📡 TV ${msg.side || ""} ${msg.label || msg.symbol || ""}`, 5000);
+      }
     } catch (e) { console.error(e); }
   };
   ws.onclose = () => setTimeout(connectWs, 3000);
@@ -2036,6 +2090,7 @@ function bindUi() {
   document.getElementById("btn-exchange-refresh")?.addEventListener("click", loadExchangePanel);
   document.getElementById("btn-live-readiness-refresh")?.addEventListener("click", loadLiveReadiness);
   document.getElementById("btn-live-prep-refresh")?.addEventListener("click", loadLivePrep);
+  document.getElementById("btn-integrations-refresh")?.addEventListener("click", loadIntegrations);
   document.getElementById("btn-stability-check")?.addEventListener("click", async () => {
     const res = await apiFetch("/api/live-prep/stability-check", { method: "POST", body: "{}" });
     const data = await res.json();
@@ -2476,6 +2531,7 @@ async function main() {
     await loadExchangePanel();
     await loadLiveReadiness();
     await loadLivePrep();
+    await loadIntegrations();
     await loadScorecard();
     await loadAutoTactics();
     await loadProfitFocus();

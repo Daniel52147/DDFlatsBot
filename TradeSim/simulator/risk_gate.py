@@ -30,8 +30,14 @@ def brain_reduce_aggression() -> bool:
     return _brain_reduce_aggression
 
 
-def blocks_new_buys() -> bool:
-    return _portfolio_halt or _correlation_block
+def blocks_new_buys(symbol: str = "") -> bool:
+    if _portfolio_halt or _correlation_block:
+        return True
+    if symbol:
+        from learning.protections import protections_engine
+        blocked, _ = protections_engine.blocks_buy(symbol)
+        return blocked
+    return False
 
 
 def halt_reason() -> str:
@@ -42,11 +48,22 @@ def halt_reason() -> str:
     return ""
 
 
+def protection_reason(symbol: str = "") -> str:
+    if not symbol:
+        return ""
+    from learning.protections import protections_engine
+    blocked, reason = protections_engine.blocks_buy(symbol)
+    return reason if blocked else ""
+
+
 def risk_status() -> dict[str, bool | str]:
+    from learning.protections import protections_engine
+    prot = protections_engine.status()
     return {
         "portfolio_halt": _portfolio_halt,
         "correlation_block": _correlation_block,
         "brain_reduce_aggression": _brain_reduce_aggression,
         "blocks_buys": blocks_new_buys(),
-        "reason": halt_reason(),
+        "reason": halt_reason() or protection_reason(),
+        "protections": prot,
     }

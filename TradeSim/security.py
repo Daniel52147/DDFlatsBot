@@ -36,6 +36,7 @@ WRITE_PREFIXES = (
     "/api/bot/toggle",
     "/api/backtest",
     "/api/assistant/chat",
+    "/api/protections/clear",
 )
 
 RATE_LIMITS: dict[str, tuple[int, float]] = {
@@ -43,6 +44,7 @@ RATE_LIMITS: dict[str, tuple[int, float]] = {
     "/api/bootstrap": (30, 60.0),
     "/api/assistant/chat": (40, 60.0),
     "/api/export/trades": (20, 60.0),
+    "/api/webhook/tradingview": (30, 60.0),
     "default": (120, 60.0),
 }
 
