@@ -85,6 +85,7 @@
           <button type="button" class="tbl-tab" data-table="strategies">🏆 Стратегии</button>
           <button type="button" class="tbl-tab" data-table="report">📋 Отчёт 24ч</button>
           <button type="button" class="tbl-tab" data-table="brain-timeline">🧠 Мозг</button>
+          <button type="button" class="tbl-tab" data-table="agent-chatroom">💬 Агенты</button>
           <button type="button" class="tbl-tab active" data-table="markets">📊 Рынки</button>
           <button type="button" class="tbl-tab" data-table="analytics">📈 Аналитика</button>
           <button type="button" class="tbl-tab" data-table="shadow">🔬 Shadow TOP</button>
@@ -98,6 +99,7 @@
         <div id="table-strategies" class="data-table-wrap hidden"></div>
         <div id="table-report" class="data-table-wrap hidden"></div>
         <div id="table-brain-timeline" class="data-table-wrap hidden"></div>
+        <div id="table-agent-chatroom" class="data-table-wrap hidden"></div>
         <div id="table-markets" class="data-table-wrap active-table"></div>
         <div id="table-analytics" class="data-table-wrap hidden"></div>
         <div id="table-shadow" class="data-table-wrap hidden"></div>
@@ -191,12 +193,24 @@
         </div>
         <div id="bot-status" class="bot-status"><p>Загрузка...</p></div>
         <div class="manual-trade">
-          <span class="muted">Ручная сделка (paper):</span>
+          <span class="muted">Ручная сделка:</span>
+          <div class="manual-row">
+            <select id="order-type-select" class="backtest-select" title="Тип ордера">
+              <option value="market">Market</option>
+              <option value="limit">Limit</option>
+              <option value="stop_limit">Stop-Limit</option>
+            </select>
+          </div>
+          <div class="manual-row limit-fields hidden" id="limit-price-row">
+            <input id="limit-price-input" type="number" step="any" placeholder="Limit цена" class="backtest-select" />
+            <input id="stop-price-input" type="number" step="any" placeholder="Stop цена" class="backtest-select hidden" />
+          </div>
           <div class="manual-row">
             <button type="button" class="btn small manual-btn" data-side="buy">Купить $25</button>
             <button type="button" class="btn ghost small manual-btn" data-side="sell">Продать ~$25</button>
           </div>
           <button type="button" id="btn-testnet-order" class="btn ghost small testnet-btn">🏦 Testnet $10</button>
+          <button type="button" id="btn-open-orders" class="btn ghost small">📋 Открытые ордера</button>
           <button type="button" id="btn-sync-paper" class="btn ghost small testnet-btn">🔗 Sync paper</button>
         </div>
       </section>
@@ -220,6 +234,14 @@
         <div id="exchange-panel-body" class="exchange-panel-body muted">Загрузка балансов...</div>
       </section>
 
+      <section class="card v16-card" id="agent-chatroom-panel">
+        <div class="card-header">
+          <h2>💬 Комната агентов</h2>
+          <button type="button" id="btn-chatroom-refresh" class="btn ghost small">Обновить</button>
+        </div>
+        <div id="agent-chatroom-body" class="agent-chatroom muted">Ждём цикл мозга...</div>
+      </section>
+
       <section class="card v16-card" id="integrations-panel">
         <div class="card-header">
           <h2>📡 Интеграции</h2>
@@ -231,7 +253,7 @@
       <section class="card assistant-card v16-card">
         <div class="card-header"><h2>💬 Помощник</h2></div>
         <div id="chat-messages" class="chat-messages">
-          <div class="chat-bubble chat-bot">TradeSim v48: <b>Sharpe/Sortino бэктест</b> · <b>Smoke test</b> · Telegram · Protections</div>
+          <div class="chat-bubble chat-bot">TradeSim v49: <b>Limit ордера</b> · <b>Agent chatroom</b> · Smoke test · Telegram</div>
         </div>
         <form id="chat-form" class="chat-form">
           <input id="chat-input" type="text" placeholder="тренд / grid / momentum / DOGE?" autocomplete="off" />
@@ -336,6 +358,6 @@
   </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=48"></script>
+  <script src="/static/app.js?v=49"></script>
 </body>
 </html>

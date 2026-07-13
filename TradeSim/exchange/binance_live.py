@@ -441,4 +441,158 @@ class BinanceLiveExchange:
             "order_id": data.get("orderId"),
             "status": data.get("status"),
             "fills_quote": round(fills_quote, 4),
+            "order_type": "market",
         }
+
+    async def place_limit_order(
+        self,
+        symbol: str,
+        side: str,
+        amount_usd: float,
+        limit_price: float,
+        portfolio_value: float,
+        pnl_pct: float,
+        price: float | None = None,
+        portfolio_pnl_pct: float | None = None,
+    ) -> dict[str, Any]:
+        side = side.lower()
+        if side not in ("buy", "sell"):
+            return {"ok": False, "error": "side must be buy or sell"}
+        if limit_price <= 0:
+            return {"ok": False, "error": "limit_price must be > 0"}
+
+        limits = self.order_limits()
+        ok, reason = self.risk.check_order(
+            side, amount_usd, portfolio_value, pnl_pct,
+            portfolio_pnl_pct=portfolio_pnl_pct,
+            **limits,
+        )
+        if not ok:
+            return {"ok": False, "error": reason, "mode": "blocked"}
+
+        if not self.enabled:
+            return {
+                "ok": False,
+                "mode": "paper",
+                "note": "Limit на бирже — включи EXCHANGE_ENABLED",
+            }
+
+        rules = await self._load_symbol_rules(symbol)
+        mark = price or limit_price
+        qty = self._round_step(amount_usd / mark, rules["step_size"])
+        if qty < rules["min_qty"]:
+            return {"ok": False, "error": f"Слишком мало base (min {rules['min_qty']})"}
+        if qty * limit_price < rules["min_notional"]:
+            return {"ok": False, "error": f"Notional < ${rules['min_notional']}"}
+
+        params: dict[str, Any] = {
+            "symbol": symbol,
+            "side": side.upper(),
+            "type": "LIMIT",
+            "timeInForce": "GTC",
+            "price": f"{limit_price:.8f}".rstrip("0").rstrip("."),
+            "quantity": qty,
+        }
+        try:
+            data = await self._request("POST", "/api/v3/order", params, signed=True)
+        except httpx.HTTPStatusError as e:
+            return {"ok": False, "error": e.response.text, "mode": "live"}
+
+        return {
+            "ok": True,
+            "mode": "testnet" if self.testnet else "live",
+            "order_type": "limit",
+            "order": data,
+            "order_id": data.get("orderId"),
+            "status": data.get("status"),
+            "limit_price": limit_price,
+            "quantity": qty,
+        }
+
+    async def place_stop_limit_order(
+        self,
+        symbol: str,
+        side: str,
+        amount_usd: float,
+        stop_price: float,
+        limit_price: float,
+        portfolio_value: float,
+        pnl_pct: float,
+        price: float | None = None,
+        portfolio_pnl_pct: float | None = None,
+    ) -> dict[str, Any]:
+        side = side.lower()
+        if side not in ("buy", "sell"):
+            return {"ok": False, "error": "side must be buy or sell"}
+        if stop_price <= 0 or limit_price <= 0:
+            return {"ok": False, "error": "stop_price and limit_price required"}
+
+        limits = self.order_limits()
+        ok, reason = self.risk.check_order(
+            side, amount_usd, portfolio_value, pnl_pct,
+            portfolio_pnl_pct=portfolio_pnl_pct,
+            **limits,
+        )
+        if not ok:
+            return {"ok": False, "error": reason, "mode": "blocked"}
+
+        if not self.enabled:
+            return {"ok": False, "mode": "paper", "note": "Stop-limit на бирже — включи EXCHANGE_ENABLED"}
+
+        rules = await self._load_symbol_rules(symbol)
+        mark = price or stop_price
+        qty = self._round_step(amount_usd / mark, rules["step_size"])
+        if qty * limit_price < rules["min_notional"]:
+            return {"ok": False, "error": f"Notional < ${rules['min_notional']}"}
+
+        params: dict[str, Any] = {
+            "symbol": symbol,
+            "side": side.upper(),
+            "type": "STOP_LOSS_LIMIT",
+            "timeInForce": "GTC",
+            "stopPrice": f"{stop_price:.8f}".rstrip("0").rstrip("."),
+            "price": f"{limit_price:.8f}".rstrip("0").rstrip("."),
+            "quantity": qty,
+        }
+        try:
+            data = await self._request("POST", "/api/v3/order", params, signed=True)
+        except httpx.HTTPStatusError as e:
+            return {"ok": False, "error": e.response.text, "mode": "live"}
+
+        return {
+            "ok": True,
+            "mode": "testnet" if self.testnet else "live",
+            "order_type": "stop_limit",
+            "order": data,
+            "order_id": data.get("orderId"),
+            "status": data.get("status"),
+            "stop_price": stop_price,
+            "limit_price": limit_price,
+            "quantity": qty,
+        }
+
+    async def cancel_order(self, symbol: str, order_id: int) -> dict[str, Any]:
+        if not self.enabled:
+            return {"ok": False, "error": "exchange disabled"}
+        try:
+            data = await self._request(
+                "DELETE", "/api/v3/order",
+                {"symbol": symbol, "orderId": order_id},
+                signed=True,
+            )
+            return {"ok": True, "order": data}
+        except httpx.HTTPStatusError as e:
+            return {"ok": False, "error": e.response.text}
+
+    async def open_orders(self, symbol: str | None = None) -> list[dict[str, Any]]:
+        if not self.enabled:
+            return []
+        params: dict[str, Any] = {}
+        if symbol:
+            params["symbol"] = symbol
+        try:
+            data = await self._request("GET", "/api/v3/openOrders", params, signed=True)
+            return data if isinstance(data, list) else []
+        except Exception as e:
+            logger.warning("open_orders: %s", e)
+            return []

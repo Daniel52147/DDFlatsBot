@@ -15,7 +15,7 @@ from learning.paper_learn_mode import effective_fast_learn_every_n
 from simulator.candles import CandleBuilder
 from simulator.engine import SimulatorEngine, Trade
 from simulator.feed import PriceFeed
-from simulator.price_walk import prices_for_tick, run_strategy_prices
+from simulator.limit_orders import LimitOrderBook
 from simulator.strategies import create_bot, STRATEGY_META, default_params
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,7 @@ class MarketSession:
         self.candles = CandleBuilder(interval=config.CANDLE_INTERVAL, max_candles=config.MAX_CANDLES)
         self.engine = SimulatorEngine(initial_balance=config.BALANCE_PER_MARKET)
         self.engine.market_symbol = self.symbol
+        self.limit_book = LimitOrderBook(self.symbol)
         self.bot = create_bot(self.engine, self.strategy_type, params=market.get("strategy"))
         self.base_params = copy.deepcopy(self.bot.get_params())
         bounds = (
@@ -340,6 +341,10 @@ class MarketSession:
         walk_prices = prices_for_tick(price, closed_dict)
         executed = run_strategy_prices(self.bot, walk_prices, sma)
         await self._execute_trades(executed, msgs)
+
+        limit_fills = self.limit_book.check_fills(price, self.engine)
+        if limit_fills:
+            await self._execute_trades(limit_fills, msgs)
 
         if closed:
             msgs.append({"type": "candle", "symbol": self.symbol, "candle": closed_dict})

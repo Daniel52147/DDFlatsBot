@@ -754,6 +754,81 @@ async function renderBrainTimeline() {
   }
 }
 
+function renderAgentChatroom(data) {
+  const sidebar = document.getElementById("agent-chatroom-body");
+  const table = document.getElementById("table-agent-chatroom");
+  const target = table && !table.classList.contains("hidden") ? table : sidebar;
+  if (!target) return;
+  if (!data?.messages?.length) {
+    target.innerHTML = "<p class='muted'>Агенты ещё не обсуждали рынок — подожди цикл мозга (~45с)</p>";
+    return;
+  }
+  window.lastChatroom = data;
+  const bubbles = data.messages.map(m => {
+    const cls = m.role === "brain" ? "chatroom-brain" : "chatroom-agent";
+    const rec = m.recommendation ? `<span class="muted tiny"> → ${escapeHtml(m.recommendation)}</span>` : "";
+    const conf = m.role === "agent" && m.confidence != null ? `<span class="muted tiny"> (${m.confidence})</span>` : "";
+    return `<div class="chatroom-msg ${cls}">
+      <div class="chatroom-head">${m.emoji || "🤖"} <b>${escapeHtml(m.name || "")}</b>${conf}</div>
+      <div class="chatroom-text">${escapeHtml(m.text || m.action || "—")}${rec}</div>
+    </div>`;
+  }).join("");
+  const html = `
+    <div class="honesty-box ${data.decision === "emergency_halt" ? "bad" : data.decision === "continue" ? "ok" : "warn"}">
+      <p><b>🧠 Решение: ${escapeHtml(data.decision || "—")}</b></p>
+      <p class="muted">${escapeHtml(data.verdict || "")}</p>
+    </div>
+    <div class="chatroom-feed">${bubbles}</div>`;
+  if (sidebar) sidebar.innerHTML = html;
+  if (table && !table.classList.contains("hidden")) table.innerHTML = html;
+}
+
+async function loadAgentChatroom() {
+  try {
+    const data = await (await fetch("/api/brain/chatroom")).json();
+    renderAgentChatroom(data);
+    return data;
+  } catch (_) {
+    const el = document.getElementById("agent-chatroom-body");
+    if (el) el.innerHTML = "<p class='muted'>Chatroom недоступен</p>";
+    return null;
+  }
+}
+
+function buildOrderPayload(side, amountUsd) {
+  const orderType = document.getElementById("order-type-select")?.value || "market";
+  const payload = { symbol: activeSymbol, side, amount_usd: amountUsd, order_type: orderType };
+  const limitPrice = parseFloat(document.getElementById("limit-price-input")?.value || "0");
+  const stopPrice = parseFloat(document.getElementById("stop-price-input")?.value || "0");
+  if (orderType === "limit" || orderType === "stop_limit") {
+    if (!limitPrice) return null;
+    payload.limit_price = limitPrice;
+  }
+  if (orderType === "stop_limit") {
+    if (!stopPrice) return null;
+    payload.stop_price = stopPrice;
+  }
+  return payload;
+}
+
+async function loadOpenOrders() {
+  try {
+    const data = await (await fetch(`/api/orders/open?symbol=${activeSymbol}`)).json();
+    const rows = [...(data.paper || []), ...(data.exchange || [])];
+    if (!rows.length) {
+      showToast("📋 Нет открытых ордеров");
+      return;
+    }
+    const list = rows.map(o =>
+      `${o.source}: ${o.side} ${o.order_type || "limit"} @ ${o.limit_price || "?"} $${Number(o.amount_usd || 0).toFixed(0)}`
+    ).join("\n");
+    showToast(`📋 ${rows.length} ордер(ов)`, 8000);
+    console.log("Open orders:\n" + list);
+  } catch (_) {
+    showToast("Не удалось загрузить ордера");
+  }
+}
+
 async function loadFees() {
   try {
     const f = await (await fetch("/api/fees?hours=168")).json();
@@ -1690,6 +1765,10 @@ function connectWs() {
         if (msg.cycle.verdict) {
           pushActivity(`Мозг: ${msg.cycle.verdict.slice(0, 80)}`);
         }
+        loadAgentChatroom();
+      }
+      if (msg.type === "brain_chatroom" && msg.chatroom) {
+        renderAgentChatroom(msg.chatroom);
       }
       if (msg.type === "candles_ready") {
         showToast(`📊 Свечи готовы: ${msg.ready}/${msg.total} рынков`);
@@ -2055,9 +2134,14 @@ function bindUi() {
 
   document.getElementById("btn-testnet-order")?.addEventListener("click", async () => {
     const side = confirm("Testnet BUY $10? (Cancel = SELL $10)") ? "buy" : "sell";
+    const orderType = document.getElementById("order-type-select")?.value || "market";
+    const payload = buildOrderPayload(side, 10) || { symbol: activeSymbol, side, amount_usd: 10, order_type: "market" };
+    payload.symbol = activeSymbol;
+    payload.side = side;
+    payload.amount_usd = 10;
     const res = await apiFetch("/api/exchange/order", {
       method: "POST",
-      body: JSON.stringify({ symbol: activeSymbol, side, amount_usd: 10 }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json();
     if (data.error) showToast("⚠ " + data.error);
@@ -2096,18 +2180,35 @@ function bindUi() {
   document.querySelectorAll(".manual-btn").forEach(btn => {
     btn.onclick = async () => {
       const side = btn.dataset.side;
+      const payload = buildOrderPayload(side, 25);
+      if (!payload) {
+        showToast("⚠ Укажи limit/stop цену");
+        return;
+      }
       const res = await apiFetch("/api/trade", {
         method: "POST",
-        body: JSON.stringify({ symbol: activeSymbol, side, amount_usd: 25 }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (data.error) showToast("⚠ " + data.error);
+      else if (data.pending) showToast(`📋 Limit ${side} @ ${payload.limit_price} — ждёт цену`);
       else {
-        showToast(`${side === "buy" ? "💰" : "💵"} Ручная ${side} на ${labelFor(activeSymbol)}`);
+        showToast(`${side === "buy" ? "💰" : "💵"} ${payload.order_type} ${side} на ${labelFor(activeSymbol)}`);
         await refreshStatus();
       }
     };
   });
+
+  document.getElementById("order-type-select")?.addEventListener("change", (e) => {
+    const t = e.target.value;
+    const row = document.getElementById("limit-price-row");
+    const stop = document.getElementById("stop-price-input");
+    if (row) row.classList.toggle("hidden", t === "market");
+    if (stop) stop.classList.toggle("hidden", t !== "stop_limit");
+  });
+
+  document.getElementById("btn-open-orders")?.addEventListener("click", loadOpenOrders);
+  document.getElementById("btn-chatroom-refresh")?.addEventListener("click", loadAgentChatroom);
 
   document.getElementById("agent-modal-close")?.addEventListener("click", () => {
     document.getElementById("agent-modal")?.classList.add("hidden");
@@ -2129,6 +2230,7 @@ function bindUi() {
       if (id === "report") renderDailyReport();
       if (id === "strategies") renderStrategyReport();
       if (id === "brain-timeline") renderBrainTimeline();
+      if (id === "agent-chatroom") loadAgentChatroom();
       if (id === "movements") loadMovementsTable();
       if (id === "deposits") loadDepositsTable();
     };
@@ -2583,6 +2685,7 @@ async function main() {
     await loadLiveReadiness();
     await loadLivePrep();
     await loadSmokeTest();
+    await loadAgentChatroom();
     await loadIntegrations();
     await loadScorecard();
     await loadAutoTactics();

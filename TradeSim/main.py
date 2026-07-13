@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from starlette.requests import Request
 
 import config
+from assistant.chatroom import build_chatroom, build_chatroom_history
 from assistant.coordinator import CentralBrain
 from exchange.binance_live import BinanceLiveExchange
 from exchange.paper_sync import mirror_base_from_exchange, recover_exchange_to_paper, sync_order_to_paper, sync_trade_to_exchange
@@ -94,6 +95,7 @@ state: dict[str, Any] = {
     "brain_cycle": None,
     "background_tasks": [],
     "last_smoke_test": None,
+    "brain_chatroom_history": [],
 }
 
 _PORTFOLIO_STATE_FILE = config.DATA_DIR / "portfolio_state.json"
@@ -147,6 +149,9 @@ class ManualTradeRequest(BaseModel):
     side: str  # buy | sell
     amount_usd: float = 25.0
     reason: str = "ручная сделка"
+    order_type: str = "market"  # market | limit | stop_limit
+    limit_price: float | None = None
+    stop_price: float | None = None
 
 
 class BacktestRequest(BaseModel):
@@ -244,7 +249,7 @@ def _learning_honesty(stats: dict) -> dict[str, Any]:
         "version": config.APP_VERSION,
         "markets_configured": len(config.MARKETS),
         "markets_active": len(sessions),
-        "project_readiness": f"v{config.APP_VERSION} — Sharpe/Sortino бэктест, smoke test сертификация, Telegram, Protections",
+        "project_readiness": f"v{config.APP_VERSION} — limit/stop-limit ордера, Agent chatroom, smoke test, Telegram",
         "really_learns": True,
         "learning_kind": "эвристики + статистика (не нейросеть)",
         "what_is_real": [
@@ -614,6 +619,14 @@ async def brain_loop():
             await logger_db.log_brain_cycle(cycle["decision"], cycle["verdict"])
             await logger_db.log_assistant("brain", cycle["summary"])
             await broadcast({"type": "brain_update", "cycle": _brain_public(cycle)})
+            state["brain_chatroom"] = build_chatroom(cycle)
+            hist = state.get("brain_chatroom_history", [])
+            hist.insert(0, state["brain_chatroom"])
+            state["brain_chatroom_history"] = hist[:20]
+            await broadcast({
+                "type": "brain_chatroom",
+                "chatroom": state["brain_chatroom"],
+            })
         except Exception as e:
             logger.warning("brain loop error: %s", e)
         await asyncio.sleep(config.BRAIN_CYCLE_SEC)
@@ -1162,6 +1175,8 @@ async def lifespan(app: FastAPI):
         try:
             cycle = await brain.think(all_contexts(), total_portfolio())
             state["brain_cycle"] = cycle
+            state["brain_chatroom"] = build_chatroom(cycle)
+            state["brain_chatroom_history"] = [state["brain_chatroom"]]
             brain.apply_decision(sessions, cycle["decision"])
             ctx = all_contexts()
             tuned = brain.apply_learning_boost(sessions, ctx)
@@ -1562,6 +1577,25 @@ async def api_brain_timeline(limit: int = 25):
     return {"history": await logger_db.brain_history(min(limit, 50))}
 
 
+@app.get("/api/brain/chatroom")
+async def api_brain_chatroom():
+    cycle = state.get("brain_cycle")
+    if cycle:
+        return build_chatroom(cycle)
+    if state.get("brain_chatroom"):
+        return state["brain_chatroom"]
+    return build_chatroom(None)
+
+
+@app.get("/api/brain/chatroom/history")
+async def api_brain_chatroom_history(limit: int = 10):
+    hist = state.get("brain_chatroom_history") or []
+    if hist:
+        return {"history": hist[: min(limit, 20)]}
+    db_hist = await logger_db.brain_history(min(limit, 20))
+    return {"history": build_chatroom_history(db_hist, limit=limit)}
+
+
 @app.get("/api/strategy/history")
 async def api_strategy_history(symbol: str | None = None, limit: int = 15):
     return {"history": await logger_db.strategy_history(symbol, limit)}
@@ -1910,14 +1944,42 @@ async def api_exchange_order(body: ManualTradeRequest):
     snap = s.engine.snapshot(s.feed.price or s.demo_price)
     price = s.feed.price or s.demo_price
     tot = total_portfolio()
-    result = await live_exchange.place_market_order(
-        body.symbol, body.side, body.amount_usd,
-        tot["total_value"], snap.get("pnl_pct", 0),
-        price=price,
-        portfolio_pnl_pct=tot["pnl_pct"],
-    )
+    order_type = (body.order_type or "market").lower()
+
+    if order_type == "limit":
+        if not body.limit_price:
+            return api_fail("limit_price required for limit orders")
+        result = await live_exchange.place_limit_order(
+            body.symbol, body.side, body.amount_usd, body.limit_price,
+            tot["total_value"], snap.get("pnl_pct", 0),
+            price=price, portfolio_pnl_pct=tot["pnl_pct"],
+        )
+    elif order_type == "stop_limit":
+        if not body.limit_price or not body.stop_price:
+            return api_fail("limit_price and stop_price required for stop_limit")
+        result = await live_exchange.place_stop_limit_order(
+            body.symbol, body.side, body.amount_usd,
+            body.stop_price, body.limit_price,
+            tot["total_value"], snap.get("pnl_pct", 0),
+            price=price, portfolio_pnl_pct=tot["pnl_pct"],
+        )
+    else:
+        result = await live_exchange.place_market_order(
+            body.symbol, body.side, body.amount_usd,
+            tot["total_value"], snap.get("pnl_pct", 0),
+            price=price,
+            portfolio_pnl_pct=tot["pnl_pct"],
+        )
+
     if isinstance(result, dict) and result.get("error"):
         return result
+
+    if order_type in ("limit", "stop_limit") and result.get("ok"):
+        await logger_db.log_stability_event(
+            "exchange_order", True, f"{order_type} {result.get('status', 'placed')}", body.symbol,
+        )
+        return result
+
     if (
         result.get("ok")
         and config.EXCHANGE_SYNC_TO_PAPER
@@ -2303,6 +2365,61 @@ async def toggle_bot(symbol: str = config.MARKETS[0]["symbol"]):
     return {"ok": True, "symbol": symbol, "enabled": s.bot.enabled}
 
 
+@app.get("/api/orders/open")
+async def api_orders_open(symbol: str | None = None):
+    paper: list[dict[str, Any]] = []
+    sym_filter = None
+    if symbol:
+        sym_filter = symbol.upper()
+        if not sym_filter.endswith("USDT"):
+            sym_filter = f"{sym_filter}USDT"
+    for sym, s in sessions.items():
+        if sym_filter and sym != sym_filter:
+            continue
+        for o in s.limit_book.open_orders():
+            paper.append({**o, "source": "paper"})
+    exchange_orders: list[dict[str, Any]] = []
+    if live_exchange.enabled:
+        sym = symbol.upper() if symbol and not symbol.endswith("USDT") else symbol
+        if sym and not sym.endswith("USDT"):
+            sym = f"{sym}USDT"
+        raw = await live_exchange.open_orders(sym)
+        for o in raw:
+            exchange_orders.append({
+                "source": "exchange",
+                "id": str(o.get("orderId")),
+                "symbol": o.get("symbol"),
+                "side": (o.get("side") or "").lower(),
+                "order_type": (o.get("type") or "").lower(),
+                "limit_price": float(o.get("price", 0) or 0),
+                "stop_price": float(o.get("stopPrice", 0) or 0) or None,
+                "amount_usd": float(o.get("origQty", 0) or 0) * float(o.get("price", 0) or 0),
+                "status": o.get("status", "NEW"),
+            })
+    return {
+        "paper": paper,
+        "exchange": exchange_orders,
+        "count": len(paper) + len(exchange_orders),
+    }
+
+
+@app.post("/api/orders/cancel")
+async def api_orders_cancel(symbol: str, order_id: str, source: str = "paper"):
+    if source == "exchange":
+        if not live_exchange.enabled:
+            return api_fail("exchange disabled")
+        try:
+            oid = int(order_id)
+        except ValueError:
+            return api_fail("invalid order_id")
+        result = await live_exchange.cancel_order(symbol, oid)
+        return result
+    if symbol not in sessions:
+        return api_fail("unknown symbol")
+    ok = sessions[symbol].limit_book.cancel(order_id)
+    return {"ok": ok, "symbol": symbol, "order_id": order_id}
+
+
 @app.post("/api/trade")
 async def manual_trade(body: ManualTradeRequest):
     if body.symbol not in sessions:
@@ -2312,6 +2429,32 @@ async def manual_trade(body: ManualTradeRequest):
     if body.amount_usd <= 0 or body.amount_usd > 500:
         return api_fail("amount_usd must be 1–500")
     s = sessions[body.symbol]
+    order_type = (body.order_type or "market").lower()
+
+    if order_type in ("limit", "stop_limit") and config.LIMIT_ORDERS_ENABLED:
+        if not body.limit_price:
+            return api_fail("limit_price required")
+        if order_type == "stop_limit" and not body.stop_price:
+            return api_fail("stop_price required for stop_limit")
+        try:
+            order = s.limit_book.add(
+                body.side,
+                body.amount_usd,
+                body.limit_price,
+                order_type=order_type,  # type: ignore[arg-type]
+                stop_price=body.stop_price,
+                reason=body.reason or order_type.upper(),
+            )
+        except ValueError as e:
+            return api_fail(str(e))
+        await broadcast({
+            "type": "limit_order",
+            "symbol": body.symbol,
+            "label": s.label,
+            "order": order.to_dict(),
+        })
+        return {"ok": True, "pending": True, "order": order.to_dict()}
+
     trade = await s.manual_trade(body.side, body.amount_usd, body.reason)
     if not trade:
         return api_fail("trade failed — insufficient balance or price")

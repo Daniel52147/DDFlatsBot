@@ -803,7 +803,22 @@ footer {
 }
 .btn.small { border-radius: 10px; }
 .agent.warn-agent { border-color: var(--accent2); background: rgba(255, 200, 87, 0.08); }
-.agent.halt-agent { border-color: var(--red); background: rgba(255, 107, 138, 0.1); }
+.agent-chatroom { max-height: 420px; overflow-y: auto; font-size: 0.82rem; }
+.chatroom-feed { display: flex; flex-direction: column; gap: 0.45rem; margin-top: 0.5rem; }
+.chatroom-msg {
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.03);
+}
+.chatroom-brain {
+  border-color: var(--accent);
+  background: rgba(0, 240, 184, 0.08);
+}
+.chatroom-head { margin-bottom: 0.2rem; font-size: 0.78rem; }
+.chatroom-text { color: var(--text); line-height: 1.35; }
+.limit-fields { gap: 0.35rem; }
+.limit-fields input { flex: 1; min-width: 0; }
 .shadow-apply-btn {
   font-size: 0.68rem;
   padding: 0.15rem 0.4rem;
