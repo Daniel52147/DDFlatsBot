@@ -347,6 +347,7 @@ def _default_bind_host() -> str:
 
 BIND_HOST = _default_bind_host()
 API_TOKEN = os.environ.get("TRADESIM_API_TOKEN", "")
+SERVER_PORT = int(os.environ.get("PORT", os.environ.get("TRADESIM_PORT", "8765")))
 
 # Live exchange (optional — set env BINANCE_API_KEY + BINANCE_API_SECRET + EXCHANGE_ENABLED=true)
 EXCHANGE_ENABLED = os.environ.get("EXCHANGE_ENABLED", "false").lower() in ("1", "true", "yes")

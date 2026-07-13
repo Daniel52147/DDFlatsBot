@@ -933,8 +933,9 @@ async def lifespan(app: FastAPI):
     tasks.append(asyncio.create_task(candle_health_loop()))
 
     logger.info(
-        "TradeSim v%s HTTP ready — свечи синхронизированы — http://127.0.0.1:8765",
+        "TradeSim v%s HTTP ready — свечи синхронизированы — port %s",
         config.APP_VERSION,
+        config.SERVER_PORT,
     )
 
     async def first_brain_cycle():
@@ -968,14 +969,17 @@ async def lifespan(app: FastAPI):
     async def _open_browser_when_ready():
         await asyncio.sleep(1.0)
         import webbrowser
-        url = "http://127.0.0.1:8765/health"
+        url = f"http://127.0.0.1:{config.SERVER_PORT}/health"
         webbrowser.open(url)
         logger.info("Браузер открыт: %s → затем перейди на главную", url)
 
-    if sys.platform == "win32":
+    if sys.platform == "win32" and host == "127.0.0.1":
         asyncio.create_task(_open_browser_when_ready())
 
-    logger.info("Сайт: http://127.0.0.1:8765  (не localhost, не agent.cvm.dev)")
+    if host == "127.0.0.1":
+        logger.info("Сайт: http://127.0.0.1:%s", config.SERVER_PORT)
+    else:
+        logger.info("Сервер слушает 0.0.0.0:%s — открой URL Render в браузере", config.SERVER_PORT)
 
     yield
 
@@ -2027,4 +2031,4 @@ if __name__ == "__main__":
         logger.info(
             "Локальный режим без TRADESIM_API_TOKEN — для облака задай токен в .env"
         )
-    uvicorn.run("main:app", host=host, port=8765, reload=False)
+    uvicorn.run("main:app", host=host, port=config.SERVER_PORT, reload=False)
