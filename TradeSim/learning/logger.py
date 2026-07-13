@@ -142,6 +142,13 @@ class LearningLogger:
           note TEXT, total_after REAL, wallet TEXT DEFAULT 'paper'
         )
       """)
+      await db.execute("""
+        CREATE TABLE IF NOT EXISTS stability_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          ts REAL, kind TEXT, ok INTEGER, symbol TEXT DEFAULT '',
+          detail TEXT
+        )
+      """)
       await self._migrate(db)
       await db.commit()
 
@@ -329,7 +336,7 @@ class LearningLogger:
       for table in (
         "trades", "snapshots", "strategy_versions", "assistant_messages",
         "sessions", "total_snapshots", "brain_cycles", "deposits", "withdrawals",
-        "strategy_switches", "exchange_snapshots",
+        "stability_events", "strategy_switches", "exchange_snapshots",
       ):
         await db.execute(f"DELETE FROM {table}")
       await db.commit()
@@ -483,6 +490,76 @@ class LearningLogger:
       })
     rows.sort(key=lambda r: r["ts"], reverse=True)
     return rows[:limit]
+
+  async def log_stability_event(
+      self, kind: str, ok: bool, detail: str = "", symbol: str = "",
+  ):
+    async with self._connect() as db:
+      await db.execute(
+        "INSERT INTO stability_events (ts, kind, ok, symbol, detail) VALUES (?,?,?,?,?)",
+        (time.time(), kind, 1 if ok else 0, symbol or "", detail[:500]),
+      )
+      await db.commit()
+
+  async def stability_summary(self, hours: int = 168) -> dict[str, Any]:
+    since = time.time() - hours * 3600
+    async with self._connect() as db:
+      db.row_factory = aiosqlite.Row
+      cur = await db.execute(
+        "SELECT kind, ok, COUNT(*) as c FROM stability_events WHERE ts >= ? GROUP BY kind, ok",
+        (since,),
+      )
+      rows = await cur.fetchall()
+      cur2 = await db.execute(
+        "SELECT * FROM stability_events WHERE ts >= ? ORDER BY ts DESC LIMIT 10",
+        (since,),
+      )
+      recent = [dict(r) for r in await cur2.fetchall()]
+    exchange_orders = 0
+    sync_ok = 0
+    sync_failures = 0
+    verify_ok = 0
+    verify_fail = 0
+    for r in rows:
+      kind = r["kind"]
+      ok = bool(r["ok"])
+      c = int(r["c"])
+      if kind == "exchange_order":
+        exchange_orders += c
+        if ok:
+          sync_ok += c
+      elif kind == "paper_sync":
+        if ok:
+          sync_ok += c
+        else:
+          sync_failures += c
+      elif kind == "verify":
+        if ok:
+          verify_ok += c
+        else:
+          verify_fail += c
+    total_sync = sync_ok + sync_failures
+    success_rate = (sync_ok / total_sync * 100) if total_sync else 100.0
+    async with self._connect() as db:
+      db.row_factory = aiosqlite.Row
+      cur = await db.execute(
+        "SELECT COUNT(*) as c FROM trades WHERE ts >= ? AND reason LIKE 'EXCHANGE%'",
+        (since,),
+      )
+      row = await cur.fetchone()
+      ex_trades = int(row["c"]) if row else 0
+    if exchange_orders == 0 and ex_trades > 0:
+      exchange_orders = ex_trades
+    return {
+      "hours": hours,
+      "exchange_orders": exchange_orders,
+      "sync_ok": sync_ok,
+      "sync_failures": sync_failures,
+      "success_rate_pct": round(success_rate, 1),
+      "verify_ok": verify_ok,
+      "verify_fail": verify_fail,
+      "recent": recent,
+    }
 
   async def learning_stats(self) -> dict[str, Any]:
     async with self._connect() as db:

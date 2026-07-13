@@ -48,6 +48,8 @@ from learning.paper_learn_mode import (
     apply_paper_learn_trading,
     is_paper_learn_mode,
 )
+from learning.live_prep import build_live_prep
+from learning.live_micro_mode import apply_live_micro_all, set_live_micro_active
 from learning.testnet_mode import apply_testnet_conservative_all, apply_testnet_on_mode_switch
 from learning.trade_mode import apply_active_all, apply_active_trading
 from learning.logger import LearningLogger
@@ -630,6 +632,22 @@ def _bootstrap_payload() -> dict[str, Any]:
     }
 
 
+async def _live_prep_payload() -> dict[str, Any]:
+    verify = None
+    if live_exchange.enabled:
+        verify = await live_exchange.verify_connection()
+    readiness = await _live_readiness_payload()
+    return await build_live_prep(
+        sessions,
+        live_exchange,
+        logger_db,
+        trading_mode,
+        readiness=readiness,
+        benchmark=portfolio_benchmark(),
+        verify=verify,
+    )
+
+
 async def _live_readiness_payload() -> dict[str, Any]:
     verify = None
     if live_exchange.enabled:
@@ -705,6 +723,7 @@ async def _bootstrap_payload_async() -> dict[str, Any]:
         payload["shadow_lab"] = shadow_lab.status()
     payload["auto_tactics"] = _auto_tactics_payload()
     payload["live_readiness"] = await _live_readiness_payload()
+    payload["live_prep"] = await _live_prep_payload()
     payload["scorecard"] = await _scorecard_payload()
     return payload
 
@@ -799,6 +818,13 @@ async def after_paper_trade(session, trade):
             portfolio_value=tot["total_value"],
             portfolio_pnl_pct=tot["pnl_pct"],
         )
+        if result:
+            await logger_db.log_stability_event(
+                "paper_sync",
+                bool(result.get("ok")),
+                result.get("error") or "ok",
+                session.symbol,
+            )
     payload = {
         "type": "exchange_sync",
         "symbol": session.symbol,
@@ -1479,6 +1505,70 @@ async def api_live_readiness():
     return await _live_readiness_payload()
 
 
+@app.get("/api/live-prep")
+async def api_live_prep():
+    return await _live_prep_payload()
+
+
+@app.post("/api/live-prep/start-micro")
+async def api_live_prep_start_micro(target: str = "testnet"):
+    """Rare trades + $10 orders — testnet drill or first Live money."""
+    target = (target or "testnet").lower()
+    apply_live_micro_all(sessions, reset_timers=True)
+    for session in sessions.values():
+        await session.persist()
+
+    if target == "live":
+        readiness = await _live_readiness_payload()
+        if not readiness.get("ready_for_live"):
+            return {
+                "ok": False,
+                "error": f"Live Micro заблокирован — readiness {readiness.get('score_pct', 0)}%",
+                "live_readiness": readiness,
+                "live_prep": await _live_prep_payload(),
+            }
+        set_live_micro_active(True)
+        if not live_exchange.enabled:
+            return api_fail("Нужны BINANCE_API_KEY + EXCHANGE_ENABLED=true + EXCHANGE_TESTNET=false")
+        mode_result = trading_mode.set_mode(
+            "live", exchange=live_exchange, readiness=readiness,
+        )
+    else:
+        set_live_micro_active(False)
+        mode_result = trading_mode.set_mode("testnet", exchange=live_exchange)
+        if mode_result.get("ok"):
+            apply_testnet_on_mode_switch(sessions, "testnet")
+
+    prep = await _live_prep_payload()
+    if mode_result.get("ok"):
+        await broadcast({"type": "trading_mode", **trading_mode.status(live_exchange)})
+    return {
+        "ok": mode_result.get("ok", False),
+        "target": target,
+        "live_micro": target == "live",
+        "trading_mode": mode_result,
+        "live_prep": prep,
+        "hint": (
+            f"Live Micro: ордер ≤${config.LIVE_MICRO_ORDER_USD}, DCA ≥{config.LIVE_MICRO_DCA_HOURS}ч. "
+            "Цель — стабильность, не прибыль."
+            if target == "live"
+            else "Testnet drill: те же редкие сделки. Проверь verify и sync ≥85%."
+        ),
+    }
+
+
+@app.post("/api/live-prep/stability-check")
+async def api_live_prep_stability_check():
+    """Ping exchange + log verify event for stability scorecard."""
+    if not live_exchange.enabled:
+        return api_fail("Биржа выключена")
+    verify = await live_exchange.verify_connection()
+    await logger_db.log_stability_event(
+        "verify", bool(verify.get("ok")), verify.get("error") or verify.get("note", ""), "",
+    )
+    return {"ok": True, "verify": verify, "live_prep": await _live_prep_payload()}
+
+
 @app.post("/api/week-prep/start")
 async def api_week_prep_start():
     """One-click: conservative Testnet trading for the 7-day path to Live."""
@@ -1559,6 +1649,16 @@ async def api_exchange_order(body: ManualTradeRequest):
         and not result.get("from_paper_sync")
     ):
         paper_sync = await recover_exchange_to_paper(s, live_exchange, result)
+        await logger_db.log_stability_event(
+            "exchange_order", bool(result.get("ok")), result.get("status") or "placed", body.symbol,
+        )
+        if paper_sync:
+            await logger_db.log_stability_event(
+                "paper_sync",
+                bool(paper_sync.get("ok")),
+                paper_sync.get("error") or paper_sync.get("recovered_via") or "ok",
+                body.symbol,
+            )
         result["paper_sync"] = paper_sync
         if paper_sync and not paper_sync.get("ok"):
             result["ok"] = False

@@ -320,7 +320,15 @@ TRADE_MODE = os.environ.get("TRADE_MODE", "active").lower()
 ACTIVE_TRADE_ON_START = _env_bool("ACTIVE_TRADE_ON_START", True)
 ACTIVE_TRADE_RESET_TIMERS = _env_bool("ACTIVE_TRADE_RESET_TIMERS", False)
 
-APP_VERSION = 45
+APP_VERSION = 46
+
+# Live Micro — first real money ($10–15, rare trades)
+LIVE_MICRO_MODE = _env_bool("LIVE_MICRO_MODE", False)
+LIVE_MICRO_ORDER_USD = float(os.environ.get("LIVE_MICRO_ORDER_USD", "10"))
+LIVE_MICRO_DCA_HOURS = float(os.environ.get("LIVE_MICRO_DCA_HOURS", "12"))
+LIVE_MICRO_DIP_COOLDOWN_MIN = float(os.environ.get("LIVE_MICRO_DIP_COOLDOWN_MIN", "45"))
+LIVE_MICRO_TAKE_PROFIT_PCT = float(os.environ.get("LIVE_MICRO_TAKE_PROFIT_PCT", "2.5"))
+LIVE_MICRO_MAX_TRADES_PER_DAY = int(os.environ.get("LIVE_MICRO_MAX_TRADES_PER_DAY", "3"))
 
 # Live trading prep — gate real money (v36)
 LIVE_REQUIRE_READINESS = _env_bool("LIVE_REQUIRE_READINESS", True)

@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TradeSim v45 — wallet & fixes</title>
-  <link rel="stylesheet" href="/static/style.css?v=45" />
+  <title>TradeSim v46 — live prep</title>
+  <link rel="stylesheet" href="/static/style.css?v=46" />
   <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
 </head>
-<body class="v45">
+<body class="v46">
   <div id="version-banner" class="version-banner hidden"></div>
   <div id="alerts-ticker" class="alerts-ticker" aria-live="polite">
     <span class="alerts-label">📡 Сканер</span>
@@ -17,8 +17,8 @@
     <div class="brand">
       <span class="logo">◆</span>
       <div>
-        <h1>TradeSim <span class="ver-badge">v45</span></h1>
-        <p class="tagline">Кошелёк · вывод · wallet bridge · путь к Live</p>
+        <h1>TradeSim <span class="ver-badge">v46</span></h1>
+        <p class="tagline">Путь к Live · Micro $10 · честная подготовка</p>
       </div>
     </div>
     <div class="header-stats">
@@ -209,13 +209,19 @@
           <button type="button" id="btn-exchange-refresh" class="btn ghost small">Баланс</button>
         </div>
         <div id="live-readiness-panel" class="live-readiness-panel muted">Загрузка готовности к Live...</div>
+        <div id="live-prep-panel" class="live-prep-panel muted">Загрузка пути к Live...</div>
+        <div class="live-prep-actions" style="display:flex;gap:0.35rem;flex-wrap:wrap;margin:0.5rem 0">
+          <button type="button" id="btn-live-prep-refresh" class="btn ghost small">🎯 Путь к Live</button>
+          <button type="button" id="btn-live-micro-testnet" class="btn small" title="Редкие сделки $10 на Testnet">Micro Testnet</button>
+          <button type="button" id="btn-stability-check" class="btn ghost small">🔌 API стабильность</button>
+        </div>
         <div id="exchange-panel-body" class="exchange-panel-body muted">Загрузка балансов...</div>
       </section>
 
       <section class="card assistant-card v16-card">
         <div class="card-header"><h2>💬 Помощник</h2></div>
         <div id="chat-messages" class="chat-messages">
-          <div class="chat-bubble chat-bot">TradeSim v45: <b>кошелёк</b> · <b>вывод</b> · <b>wallet bridge</b> · desync recovery</div>
+          <div class="chat-bubble chat-bot">TradeSim v46: <b>путь к Live</b> · <b>Micro $10</b> · <b>стабильность API</b> · честные предупреждения</div>
         </div>
         <form id="chat-form" class="chat-form">
           <input id="chat-input" type="text" placeholder="тренд / grid / momentum / DOGE?" autocomplete="off" />
@@ -243,7 +249,7 @@
   </details>
 
   <footer class="v16-footer">
-    <span>TradeSim v45 · complete</span>
+    <span>TradeSim v46 · live prep</span>
     <div class="footer-actions">
       <input id="api-token-input" type="password" placeholder="API-токен" class="token-input" />
       <button id="btn-save-token" class="btn ghost small">🔐</button>
@@ -320,6 +326,6 @@
   </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=45"></script>
+  <script src="/static/app.js?v=46"></script>
 </body>
 </html>

@@ -342,6 +342,9 @@ class BinanceLiveExchange:
 
     def order_limits(self) -> dict[str, float]:
         from exchange.trading_mode import trading_mode
+        from learning.live_micro_mode import is_live_micro_active, live_micro_limits
+        if trading_mode.is_live() and is_live_micro_active():
+            return live_micro_limits()
         if trading_mode.is_live():
             return {
                 "max_order_usd": config.LIVE_MAX_ORDER_USD,

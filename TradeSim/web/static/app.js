@@ -1229,6 +1229,46 @@ function renderScorecardPanel(data) {
     <ul class="auto-tactics-list">${steps}</ul>`;
 }
 
+function renderLivePrepPanel(data) {
+  const el = document.getElementById("live-prep-panel");
+  if (!el || !data) return;
+  window.lastLivePrep = data;
+  const phases = (data.phases || []).map(p => {
+    const icon = p.done ? "✅" : p.current ? "▶️" : "⬜";
+    return `<li class="${p.done ? "up" : p.current ? "warn" : ""}">${icon} <b>${escapeHtml(p.title)}</b>
+      <span class="muted"> — ${escapeHtml(p.detail || "")}</span></li>`;
+  }).join("");
+  const warnings = (data.realism_warnings || []).slice(0, 4).map(w =>
+    `<li><b>${escapeHtml(w.title)}</b>: ${escapeHtml(w.text)}</li>`
+  ).join("");
+  const stab = data.stability || {};
+  const env = (data.recommended_env || []).map(l => `<code>${escapeHtml(l)}</code>`).join("<br>");
+  el.innerHTML = `
+    <div class="honesty-box ${data.readiness?.ready_for_live ? "ok" : "warn"}">
+      <p><b>🎯 ${escapeHtml(data.summary || "")}</b></p>
+      <p class="muted">Фазы: ${data.phase_progress || "?"} · sync ${stab.success_rate_pct ?? 100}% · биржа ${stab.exchange_orders ?? 0} ордеров</p>
+      <p class="muted">${escapeHtml(data.fee_hint || "")}</p>
+    </div>
+    <p class="muted"><b>Путь (реальный трейдинг ≠ paper):</b></p>
+    <ul class="auto-tactics-list">${phases}</ul>
+    <p class="muted"><b>Что пойдёт не так на Live:</b></p>
+    <ul class="auto-tactics-list">${warnings}</ul>
+    <p class="muted"><b>.env для следующего шага:</b></p>
+    <div class="muted" style="font-size:0.75rem;line-height:1.4">${env}</div>`;
+}
+
+async function loadLivePrep() {
+  try {
+    const data = await (await fetch("/api/live-prep")).json();
+    renderLivePrepPanel(data);
+    return data;
+  } catch (_) {
+    const el = document.getElementById("live-prep-panel");
+    if (el) el.innerHTML = "<p class='muted'>Путь к Live: обнови страницу</p>";
+    return null;
+  }
+}
+
 function renderLiveReadinessPanel(data) {
   const el = document.getElementById("live-readiness-panel");
   if (!el) return;
@@ -1728,6 +1768,7 @@ function applyBootstrap(data) {
   if (data.profit_focus) renderProfitFocusPanel(data.profit_focus);
   if (data.scorecard) renderScorecardPanel(data.scorecard);
   if (data.live_readiness) renderLiveReadinessPanel(data.live_readiness);
+  if (data.live_prep) renderLivePrepPanel(data.live_prep);
   renderAllTables(data);
   setLiveStatus("live");
   return Object.keys(marketsData).length > 0;
@@ -1994,6 +2035,28 @@ function bindUi() {
   document.getElementById("btn-strategy-apply")?.addEventListener("click", applyStrategy);
   document.getElementById("btn-exchange-refresh")?.addEventListener("click", loadExchangePanel);
   document.getElementById("btn-live-readiness-refresh")?.addEventListener("click", loadLiveReadiness);
+  document.getElementById("btn-live-prep-refresh")?.addEventListener("click", loadLivePrep);
+  document.getElementById("btn-stability-check")?.addEventListener("click", async () => {
+    const res = await apiFetch("/api/live-prep/stability-check", { method: "POST", body: "{}" });
+    const data = await res.json();
+    if (data.error) showToast("⚠ " + data.error);
+    else {
+      showToast(data.verify?.ok ? "🔌 API OK" : "⚠ API: " + (data.verify?.error || "?"));
+      renderLivePrepPanel(data.live_prep);
+    }
+  });
+  document.getElementById("btn-live-micro-testnet")?.addEventListener("click", async () => {
+    if (!confirm("Micro Testnet: DCA ≥12ч, ордер ~$10, редкие сделки. Цель — стабильность API, не P&L. OK?")) return;
+    const res = await apiFetch("/api/live-prep/start-micro?target=testnet", { method: "POST", body: "{}" });
+    const data = await res.json();
+    if (!data.ok) showToast("⚠ " + (data.error || data.trading_mode?.error || "?"), 8000);
+    else {
+      showToast("🎯 " + (data.hint || "Micro Testnet"));
+      if (data.live_prep) renderLivePrepPanel(data.live_prep);
+      await refreshStatus();
+      loadExchangePanel();
+    }
+  });
   document.getElementById("btn-week-prep")?.addEventListener("click", async () => {
     if (!confirm("🚀 Неделя Testnet: активная торговля + режим Testnet. Продолжить?")) return;
     try {
@@ -2412,6 +2475,7 @@ async function main() {
     await loadExchangeBadge();
     await loadExchangePanel();
     await loadLiveReadiness();
+    await loadLivePrep();
     await loadScorecard();
     await loadAutoTactics();
     await loadProfitFocus();

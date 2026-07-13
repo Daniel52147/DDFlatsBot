@@ -18,6 +18,7 @@ API_TOKEN: str = os.environ.get("TRADESIM_API_TOKEN", getattr(config, "API_TOKEN
 WRITE_PREFIXES = (
     "/api/deposit",
     "/api/withdraw",
+    "/api/live-prep/",
     "/api/wallet/",
     "/api/reset",
     "/api/trade",
