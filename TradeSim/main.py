@@ -482,7 +482,7 @@ async def daily_summary_loop():
         try:
             if telegram_service.should_send_daily(86400):
                 t = total_portfolio()
-                fees = await logger_db.fee_summary(since_ts=time.time() - 86400)
+                fees = await logger_db.fee_summary(24)
                 text = (
                     f"P&L: {t['pnl_pct']:+.2f}%\n"
                     f"vs Hold: {t.get('vs_hold_pct', 0):+.2f}%\n"
@@ -2122,7 +2122,11 @@ async def api_exchange_reconcile(symbol: str = "BTCUSDT"):
 
 @app.get("/api/exchange/balances")
 async def api_exchange_balances():
-    return await live_exchange.account_balances()
+    try:
+        return await live_exchange.account_balances()
+    except Exception as e:
+        logger.warning("exchange balances: %s", e)
+        return api_fail(str(e)[:200])
 
 
 @app.get("/api/brain/history")
