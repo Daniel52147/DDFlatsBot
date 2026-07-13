@@ -24,7 +24,13 @@ import config
 from assistant.chatroom import build_chatroom, build_chatroom_history
 from assistant.coordinator import CentralBrain
 from exchange.binance_live import BinanceLiveExchange
-from exchange.paper_sync import mirror_base_from_exchange, recover_exchange_to_paper, sync_order_to_paper, sync_trade_to_exchange
+from exchange.paper_sync import (
+    mirror_all_from_exchange,
+    mirror_base_from_exchange,
+    recover_exchange_to_paper,
+    sync_order_to_paper,
+    sync_trade_to_exchange,
+)
 from exchange.trading_mode import trading_mode
 from exchange.wallet_service import (
     deposit_info,
@@ -2107,6 +2113,19 @@ async def api_exchange_sync_paper(symbol: str = "BTCUSDT"):
             "mirror": result,
             "total": total_portfolio(),
         })
+    return result
+
+
+@app.post("/api/exchange/sync-paper-all")
+async def api_exchange_sync_paper_all():
+    """Mirror exchange base balances into paper for all markets (fix reconcile drift)."""
+    if not live_exchange.enabled:
+        return api_fail("Биржа выключена")
+    if not config.EXCHANGE_SYNC_TO_PAPER:
+        return api_fail("EXCHANGE_SYNC_TO_PAPER=false в .env")
+    result = await mirror_all_from_exchange(sessions, live_exchange)
+    if result.get("ok"):
+        await broadcast({"type": "exchange_sync_all", "result": result, "total": total_portfolio()})
     return result
 
 

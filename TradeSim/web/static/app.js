@@ -2314,6 +2314,21 @@ function bindUi() {
   document.getElementById("btn-live-prep-refresh")?.addEventListener("click", loadLivePrep);
   document.getElementById("btn-integrations-refresh")?.addEventListener("click", loadIntegrations);
   document.getElementById("btn-smoke-test")?.addEventListener("click", runSmokeTest);
+  document.getElementById("btn-sync-paper-all")?.addEventListener("click", async () => {
+    if (!confirm("Подогнать paper под баланс биржи на всех рынках? Paper-позиции изменятся.")) return;
+    try {
+      const res = await apiFetch("/api/exchange/sync-paper-all", { method: "POST", body: "{}" });
+      const data = await res.json();
+      if (data.ok) {
+        showToast(`🔗 Sync: ${data.synced}/${data.total} рынков`, 5000);
+        await runSmokeTest();
+      } else {
+        showToast(data.error || "Sync не удался", 5000);
+      }
+    } catch (_) {
+      showToast("Sync paper (все) — ошибка", 4000);
+    }
+  });
   document.getElementById("btn-stability-check")?.addEventListener("click", async () => {
     const res = await apiFetch("/api/live-prep/stability-check", { method: "POST", body: "{}" });
     const data = await res.json();

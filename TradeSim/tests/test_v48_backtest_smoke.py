@@ -101,6 +101,50 @@ class TestSmokeTest(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(result["score_pct"], 80)
         self.assertIn("checks", result)
 
+    async def test_testnet_paper_only_reconcile_passes(self):
+        """Paper positions without exchange mirror should not fail smoke reconcile."""
+        session = MagicMock()
+        session._candles_ready = True
+        session.candles.lag_sec = MagicMock(return_value=30.0)
+        session.feed.price = 100000.0
+        session.demo_price = 100000.0
+        session.engine.position = MagicMock(base=0.01, quote=500.0)
+        sessions = {"BTCUSDT": session}
+
+        exchange = MagicMock()
+        exchange.enabled = True
+        exchange.verify_connection = AsyncMock(return_value={"ok": True, "usdt_free": 10000})
+        exchange.reconcile = AsyncMock(return_value={
+            "paper_base": 0.01,
+            "exchange_base": 0.0,
+            "base_diff": -0.01,
+            "base_synced": False,
+        })
+
+        logger_db = MagicMock()
+        logger_db.stability_summary = AsyncMock(return_value={
+            "success_rate_pct": 95, "exchange_orders": 5, "sync_failures": 0,
+        })
+
+        mode = MagicMock()
+        mode.mode = "testnet"
+        mode.status = MagicMock(return_value={"label": "Testnet"})
+
+        with patch.object(config, "EXCHANGE_SYNC_FROM_PAPER", False):
+            result = await run_smoke_test(
+                sessions=sessions,
+                exchange=exchange,
+                logger_db=logger_db,
+                trading_mode_mgr=mode,
+                live_readiness={"score_pct": 80, "stats": {"trade_count": 50}, "ready_for_live": False},
+                live_prep={"phase_progress": "3/5", "summary": "test"},
+                telegram_enabled=True,
+                feed_hub_ok=True,
+            )
+        reconcile = next(c for c in result["checks"] if c["id"] == "reconcile")
+        self.assertTrue(reconcile["ok"])
+        self.assertIn("paper-only", reconcile["detail"])
+
 
 if __name__ == "__main__":
     unittest.main()

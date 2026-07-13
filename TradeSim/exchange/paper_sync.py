@@ -289,3 +289,30 @@ async def recover_exchange_to_paper(session, exchange, exchange_result: dict[str
         "mirror": mirror,
         "exchange_order_placed": bool(exchange_result.get("ok")),
     }
+
+
+async def mirror_all_from_exchange(sessions: dict, exchange) -> dict[str, Any]:
+    """Align paper base balances with exchange wallet for every market."""
+    if not exchange.enabled:
+        return {"ok": False, "error": "exchange disabled"}
+    results: list[dict[str, Any]] = []
+    synced = 0
+    for sym, session in sessions.items():
+        try:
+            row = await mirror_base_from_exchange(session, exchange)
+        except Exception as e:
+            row = {"ok": False, "symbol": sym, "error": str(e)[:120]}
+        results.append(row)
+        if row.get("ok") and row.get("diff", 0) != 0:
+            synced += 1
+        elif row.get("ok"):
+            synced += 1
+    failed = [r for r in results if not r.get("ok")]
+    return {
+        "ok": len(failed) < len(results),
+        "synced": synced,
+        "total": len(results),
+        "failed": len(failed),
+        "results": results,
+        "note": "Paper подогнан под баланс биржи (биржа = источник правды)",
+    }

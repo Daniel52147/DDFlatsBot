@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TradeSim v50 — limit orders & chatroom</title>
-  <link rel="stylesheet" href="/static/style.css?v=50" />
+  <link rel="stylesheet" href="/static/style.css?v=51" />
   <script>
     (function () {
       const t = localStorage.getItem("tradesim_theme") || "dark";
@@ -236,6 +236,7 @@
           <button type="button" id="btn-live-micro-testnet" class="btn small" title="Редкие сделки $10 на Testnet">Micro Testnet</button>
           <button type="button" id="btn-stability-check" class="btn ghost small">🔌 API стабильность</button>
           <button type="button" id="btn-smoke-test" class="btn small" title="Полная сертификация Testnet">🧪 Smoke test</button>
+          <button type="button" id="btn-sync-paper-all" class="btn ghost small testnet-btn" title="Подогнать paper под биржу">🔗 Sync paper (все)</button>
         </div>
         <div id="smoke-test-panel" class="smoke-test-panel muted"></div>
         <div id="exchange-panel-body" class="exchange-panel-body muted">Загрузка балансов...</div>
@@ -374,6 +375,6 @@
   </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=50"></script>
+  <script src="/static/app.js?v=51"></script>
 </body>
 </html>

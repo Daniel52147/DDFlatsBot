@@ -159,13 +159,23 @@ async def run_smoke_test(
     if exchange.enabled and mode in ("testnet", "live"):
         try:
             reconcile = await _quick_reconcile(sessions, exchange)
-            bad = [r for r in reconcile if abs(r.get("diff_pct", 0)) > 15]
+            bad = [r for r in reconcile if r.get("bad")]
+            paper_only = [r for r in reconcile if r.get("status") == "paper_only"]
+            if paper_only and not config.EXCHANGE_SYNC_FROM_PAPER:
+                detail = (
+                    f"{len(reconcile)} рынков · paper-only: {len(paper_only)} "
+                    "(OK без EXCHANGE_SYNC_FROM_PAPER)"
+                )
+                if bad:
+                    detail += f" · реальный drift: {len(bad)}"
+            else:
+                detail = f"{len(reconcile)} рынков · красных Δ>15%: {len(bad)}"
             _check(
                 checks,
                 cid="reconcile",
                 label="Paper ↔ биржа reconcile",
-                ok=len(bad) <= 2,
-                detail=f"{len(reconcile)} рынков · красных Δ>15%: {len(bad)}",
+                ok=len(bad) == 0,
+                detail=detail,
                 required=mode == "testnet",
             )
         except Exception as e:
@@ -205,10 +215,40 @@ async def _quick_reconcile(sessions: dict, exchange) -> list[dict[str, Any]]:
     for sym, s in list(sessions.items())[:6]:
         paper = s.engine.position
         rec = await exchange.reconcile(sym, paper.base, paper.quote)
+        price = float(s.feed.price or s.demo_price or 0)
         paper_base = float(rec.get("paper_base", 0) or 0)
-        base_diff = abs(float(rec.get("base_diff", 0) or 0))
-        diff_pct = (base_diff / paper_base * 100) if paper_base > 1e-8 else (100.0 if base_diff > 1e-6 else 0.0)
-        rows.append({**rec, "diff_pct": round(diff_pct, 2)})
+        ex_base = float(rec.get("exchange_base", 0) or 0)
+        paper_usd = paper_base * price
+        ex_usd = ex_base * price
+
+        if rec.get("base_synced"):
+            status = "synced"
+            bad = False
+            diff_pct = 0.0
+        elif paper_usd < 3 and ex_usd < 3:
+            status = "empty"
+            bad = False
+            diff_pct = 0.0
+        elif not config.EXCHANGE_SYNC_FROM_PAPER and ex_usd < 3 and paper_usd >= 3:
+            status = "paper_only"
+            bad = False
+            diff_pct = round(
+                abs(ex_base - paper_base) / max(paper_base, 1e-8) * 100, 2,
+            )
+        else:
+            denom = max(paper_base, ex_base, 1e-8)
+            diff_pct = round(abs(ex_base - paper_base) / denom * 100, 2)
+            bad = diff_pct > 15
+            status = "drift" if bad else "ok"
+
+        rows.append({
+            **rec,
+            "diff_pct": diff_pct,
+            "bad": bad,
+            "status": status,
+            "paper_usd": round(paper_usd, 2),
+            "exchange_usd": round(ex_usd, 2),
+        })
     return rows
 
 
