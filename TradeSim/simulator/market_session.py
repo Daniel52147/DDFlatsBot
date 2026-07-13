@@ -16,6 +16,7 @@ from simulator.candles import CandleBuilder
 from simulator.engine import SimulatorEngine, Trade
 from simulator.feed import PriceFeed
 from simulator.limit_orders import LimitOrderBook
+from simulator.price_walk import prices_for_tick, run_strategy_prices
 from simulator.strategies import create_bot, STRATEGY_META, default_params
 
 logger = logging.getLogger(__name__)

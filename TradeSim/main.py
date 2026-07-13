@@ -1139,6 +1139,24 @@ async def lifespan(app: FastAPI):
                 logger.warning("Trading mode auto-apply failed: %s", mode_result.get("error"))
 
     _register_telegram_commands()
+    if telegram_service.enabled:
+        logger.info(
+            "Telegram: включён — chat_id=%s, команды=%s",
+            config.TELEGRAM_CHAT_ID,
+            config.TELEGRAM_COMMANDS_ENABLED,
+        )
+    else:
+        missing = []
+        if not config.TELEGRAM_ENABLED:
+            missing.append("TELEGRAM_ENABLED=true")
+        if not config.TELEGRAM_BOT_TOKEN:
+            missing.append("TELEGRAM_BOT_TOKEN")
+        if not config.TELEGRAM_CHAT_ID:
+            missing.append("TELEGRAM_CHAT_ID")
+        logger.warning(
+            "Telegram выключен — добавь в .env: %s",
+            ", ".join(missing) if missing else "проверь TELEGRAM_*",
+        )
     state["running"] = True
 
     async def parallel_market_startup():
@@ -1180,8 +1198,8 @@ async def lifespan(app: FastAPI):
     tasks.append(asyncio.create_task(shadow_eval_loop()))
     tasks.append(asyncio.create_task(snapshot_loop()))
     tasks.append(asyncio.create_task(candle_health_loop()))
+    tasks.append(asyncio.create_task(telegram_loop()))
     if telegram_service.enabled:
-        tasks.append(asyncio.create_task(telegram_loop()))
         tasks.append(asyncio.create_task(daily_summary_loop()))
 
     logger.info(
