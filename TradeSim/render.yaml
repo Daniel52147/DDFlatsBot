@@ -1,0 +1,37 @@
+# TradeSim на Render — 24/7 дашборд + боты (Paper/Testnet)
+# Dashboard: New → Blueprint → подключи репозиторий DDFlatsBot
+# rootDir: TradeSim (или укажи вручную при создании Web Service)
+
+services:
+  - type: web
+    name: tradesim
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      - key: TRADESIM_BIND_HOST
+        value: "0.0.0.0"
+      - key: DATA_DIR
+        value: /var/data
+      - key: TRADING_MODE_DEFAULT
+        value: paper
+      - key: AUTO_APPLY_TRADING_MODE_ON_START
+        value: "false"
+      - key: EXCHANGE_ENABLED
+        value: "false"
+      - key: EXCHANGE_TESTNET
+        value: "true"
+      - key: PAPER_LEARN_ENABLED
+        value: "true"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      # Обязательно задай в Render Dashboard → Environment (Secret):
+      # TRADESIM_API_TOKEN — длинный случайный пароль для кнопок и WS
+      # Опционально для Testnet (может не работать с IP Render — см. RENDER.md):
+      # BINANCE_API_KEY, BINANCE_API_SECRET, EXCHANGE_ENABLED=true
+    disk:
+      name: tradesim-data
+      mountPath: /var/data
+      sizeGB: 1
