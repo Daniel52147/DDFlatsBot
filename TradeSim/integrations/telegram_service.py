@@ -71,6 +71,8 @@ class TelegramService:
                 return {"ok": bool(data.get("ok")), "bot": data.get("result", {})}
         except Exception as e:
             return {"ok": False, "error": str(e)[:120]}
+
+    async def send_message(
         self,
         text: str,
         chat_id: str | None = None,
@@ -79,20 +81,17 @@ class TelegramService:
         if not self.enabled:
             return False
         cid = chat_id or config.TELEGRAM_CHAT_ID
-        safe_text = _escape_html(text) if parse_mode == "HTML" else text
         try:
             async with httpx.AsyncClient(timeout=15) as client:
-                r = await client.post(
-                    self._api_url("sendMessage"),
-                    json={
-                        "chat_id": cid,
-                        "text": safe_text[:4000],
-                        "parse_mode": parse_mode,
-                        "disable_web_page_preview": True,
-                    },
-                )
+                payload: dict[str, Any] = {
+                    "chat_id": cid,
+                    "text": text[:4000],
+                    "disable_web_page_preview": True,
+                }
+                if parse_mode:
+                    payload["parse_mode"] = parse_mode
+                r = await client.post(self._api_url("sendMessage"), json=payload)
                 if r.status_code != 200:
-                    # Retry without HTML if parse failed
                     if parse_mode == "HTML":
                         return await self.send_message(text, chat_id=cid, parse_mode="")
                     logger.warning("Telegram send failed: %s", r.text[:200])
@@ -180,7 +179,10 @@ class TelegramService:
     async def run_loop(self, running: Callable[[], bool]) -> None:
         if not self.enabled:
             return
-        await self.send_message("✅ TradeSim v47 — Telegram подключён")
+        await self.send_message(
+            f"✅ TradeSim v{config.APP_VERSION} — Telegram подключён\n"
+            "Команды: /status /balance /pause /resume /help"
+        )
         while running():
             await self.poll_once()
             await _sleep(1)
