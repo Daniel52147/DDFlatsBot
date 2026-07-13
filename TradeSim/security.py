@@ -37,6 +37,7 @@ WRITE_PREFIXES = (
     "/api/backtest",
     "/api/assistant/chat",
     "/api/protections/clear",
+    "/api/smoke-test",
 )
 
 RATE_LIMITS: dict[str, tuple[int, float]] = {

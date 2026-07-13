@@ -34,6 +34,7 @@ class Backtester:
         sma_period = int(self.bot.params.get("sma_period", 20))
         closes: list[float] = []
         executed = []
+        equity_curve: list[float] = [self.engine.start_balance]
 
         for candle in candles:
             closes.append(float(candle["close"]))
@@ -46,10 +47,25 @@ class Backtester:
                 self.engine.note_price(price)
                 executed.extend(run_strategy_prices(self.bot, [price], sma))
 
+            last_price = float(candle["close"])
+            equity_curve.append(self.engine.snapshot(last_price)["portfolio_value"])
+
         last_price = float(candles[-1]["close"])
         snap = self.engine.snapshot(last_price)
         sells = sum(1 for t in executed if t.side == "sell")
         buys = sum(1 for t in executed if t.side == "buy")
+
+        from learning.backtest_metrics import compute_backtest_metrics, metrics_summary_line
+
+        interval_min = 1
+        if config.CANDLE_INTERVAL.endswith("m"):
+            interval_min = int(config.CANDLE_INTERVAL[:-1] or 1)
+        metrics = compute_backtest_metrics(
+            equity_curve=equity_curve,
+            executed_trades=executed,
+            pnl_pct=snap["pnl_pct"],
+            interval_minutes=interval_min,
+        )
 
         return {
             "strategy_type": self.strategy_type,
@@ -63,6 +79,8 @@ class Backtester:
             "hold_pnl_pct": snap.get("hold_pnl_pct", 0),
             "avg_entry": snap.get("avg_entry"),
             "params": self.bot.get_params(),
+            "metrics": metrics,
+            "metrics_summary": metrics_summary_line(metrics),
             "trade_log": [
                 {
                     "side": t.side,

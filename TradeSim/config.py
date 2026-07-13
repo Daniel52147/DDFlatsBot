@@ -320,7 +320,7 @@ TRADE_MODE = os.environ.get("TRADE_MODE", "active").lower()
 ACTIVE_TRADE_ON_START = _env_bool("ACTIVE_TRADE_ON_START", True)
 ACTIVE_TRADE_RESET_TIMERS = _env_bool("ACTIVE_TRADE_RESET_TIMERS", False)
 
-APP_VERSION = 47
+APP_VERSION = 48
 
 # v47 — Telegram + TradingView + Protections
 TELEGRAM_ENABLED = _env_bool("TELEGRAM_ENABLED", False)

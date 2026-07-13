@@ -55,6 +55,7 @@ from learning.trade_mode import apply_active_all, apply_active_trading
 from learning.logger import LearningLogger
 from learning.optimizer import StrategyOptimizer
 from learning.protections import protections_engine
+from learning.smoke_test import run_smoke_test
 from integrations.telegram_service import telegram_service
 from integrations.tradingview_webhook import handle_tradingview_signal
 from security import SecurityMiddleware, auth_required
@@ -92,6 +93,7 @@ state: dict[str, Any] = {
     "chat_history": [],
     "brain_cycle": None,
     "background_tasks": [],
+    "last_smoke_test": None,
 }
 
 _PORTFOLIO_STATE_FILE = config.DATA_DIR / "portfolio_state.json"
@@ -242,7 +244,7 @@ def _learning_honesty(stats: dict) -> dict[str, Any]:
         "version": config.APP_VERSION,
         "markets_configured": len(config.MARKETS),
         "markets_active": len(sessions),
-        "project_readiness": f"v{config.APP_VERSION} — Telegram, TradingView webhook, Protections, путь к Live",
+        "project_readiness": f"v{config.APP_VERSION} — Sharpe/Sortino бэктест, smoke test сертификация, Telegram, Protections",
         "really_learns": True,
         "learning_kind": "эвристики + статистика (не нейросеть)",
         "what_is_real": [
@@ -1797,6 +1799,50 @@ async def api_protections_clear(symbol: str | None = None, all_markets: bool = F
         sym = f"{sym}USDT"
     protections_engine.clear_symbol(sym)
     return {"ok": True, "cleared": sym}
+
+
+@app.post("/api/smoke-test")
+async def api_smoke_test():
+    """One-click testnet certification — technical checks, not P&L."""
+    readiness = await _live_readiness_payload()
+    prep = await _live_prep_payload()
+    result = await run_smoke_test(
+        sessions=sessions,
+        exchange=live_exchange,
+        logger_db=logger_db,
+        trading_mode_mgr=trading_mode,
+        live_readiness=readiness,
+        live_prep=prep,
+        telegram_enabled=telegram_service.enabled,
+        feed_hub_ok=feed_hub is not None,
+    )
+    state["last_smoke_test"] = result
+    await logger_db.log_stability_event(
+        "smoke_test",
+        bool(result.get("certified")),
+        result.get("summary", ""),
+        "",
+    )
+    if result.get("certified") and telegram_service.enabled:
+        await telegram_service.notify_event(
+            "Smoke test",
+            result.get("summary", "OK"),
+            level="info",
+        )
+    elif not result.get("certified") and telegram_service.enabled:
+        await telegram_service.notify_event(
+            "Smoke test",
+            result.get("next_action", "failed"),
+            level="warn",
+        )
+    return result
+
+
+@app.get("/api/smoke-test")
+async def api_smoke_test_last():
+    if state.get("last_smoke_test"):
+        return state["last_smoke_test"]
+    return {"ok": False, "note": "Запусти POST /api/smoke-test"}
 
 
 @app.post("/api/week-prep/start")

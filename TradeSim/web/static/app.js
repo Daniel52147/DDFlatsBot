@@ -310,9 +310,12 @@ async function runBacktestTable() {
     const log = (r.trade_log || []).map(t =>
       `<tr><td>${t.side}</td><td>${fmtMoney(t.price)}</td><td>${fmtMoney(t.amount_quote)}</td><td>${t.reason?.slice(0, 40)}</td></tr>`
     ).join("");
+    const m = r.metrics || {};
     el.innerHTML = `<div class="honesty-box ok">
       <p><b>${r.label}</b> · ${r.candles} свечей · ${r.trades} сделок (buy ${r.buys} / sell ${r.sells})</p>
       <p>P&L: <span class="${cls}"><b>${fmtPct(r.pnl_pct)}</b></span> · vs hold ${fmtPct(r.vs_hold_pct)} · портфель ${fmtMoney(r.portfolio_value)}</p>
+      <p class="muted">${escapeHtml(r.metrics_summary || "")}</p>
+      <p class="muted tiny">DD ${m.max_drawdown_pct ?? "—"}% · Sharpe ${m.sharpe ?? "—"} · Sortino ${m.sortino ?? "—"} · Calmar ${m.calmar ?? "—"} · Win ${m.win_rate_pct ?? "—"}%</p>
     </div>
     <table class="data-table"><thead><tr><th>Сторона</th><th>Цена</th><th>Сумма</th><th>Причина</th></tr></thead><tbody>${log || "<tr><td colspan=4>Нет сделок</td></tr>"}</tbody></table>
     <p class="muted" style="margin-top:0.5rem">Та же OHLC-логика что у live бота и Shadow Lab</p>`;
@@ -339,15 +342,17 @@ async function runBacktestCompare() {
     const rows = (data.results || []).map((r, i) => {
       const cls = r.pnl_pct >= 0 ? "up" : "down";
       const win = i === 0 ? " compare-winner" : "";
+      const m = r.metrics || {};
       return `<tr class="${win}"><td><b>${r.strategy_type}</b>${i === 0 ? " 🏆" : ""}</td>
         <td class="${cls}">${fmtPct(r.pnl_pct)}</td><td>${fmtPct(r.vs_hold_pct)}</td>
-        <td>${r.trades}</td><td>${fmtMoney(r.portfolio_value)}</td></tr>`;
+        <td>${m.sharpe ?? "—"}</td><td>${m.sortino ?? "—"}</td><td>${m.max_drawdown_pct ?? "—"}%</td>
+        <td>${r.trades}</td><td>${m.win_rate_pct ?? "—"}%</td></tr>`;
     }).join("");
     el.innerHTML = `<div class="honesty-box ok">
-      <p><b>${data.label}</b> · ${data.candles} свечей · победитель: <b>${data.winner}</b></p>
+      <p><b>${data.label}</b> · ${data.candles} свечей · победитель: <b>${data.winner}</b> (по vs hold)</p>
     </div>
     <table class="data-table"><thead><tr>
-      <th>Стратегия</th><th>P&L</th><th>vs hold</th><th>Сделок</th><th>Портфель</th>
+      <th>Стратегия</th><th>P&L</th><th>vs hold</th><th>Sharpe</th><th>Sortino</th><th>Max DD</th><th>Сделок</th><th>Win%</th>
     </tr></thead><tbody>${rows}</tbody></table>`;
   } catch (_) {
     el.innerHTML = "<p class='muted'>Не удалось сравнить стратегии</p>";
@@ -1304,6 +1309,51 @@ function renderIntegrationsPanel(data) {
     ${paused ? `<p class="muted"><b>Пауза protections:</b></p><ul class="auto-tactics-list">${paused}</ul>` : ""}`;
 }
 
+function renderSmokeTestPanel(data) {
+  const el = document.getElementById("smoke-test-panel");
+  if (!el) return;
+  if (!data) {
+    el.innerHTML = "";
+    return;
+  }
+  window.lastSmokeTest = data;
+  const cls = data.certified ? "ok" : "warn";
+  const rows = (data.checks || []).map(c => {
+    const icon = c.ok ? "✅" : c.required === false ? "⚪" : "❌";
+    return `<li>${icon} <b>${escapeHtml(c.label)}</b> — <span class="muted">${escapeHtml(c.detail || "")}</span></li>`;
+  }).join("");
+  el.innerHTML = `
+    <div class="honesty-box ${cls}">
+      <p><b>${escapeHtml(data.summary || "")}</b></p>
+      <p class="muted">Score ${data.score_pct ?? 0}% · ${data.passed ?? 0}/${data.total_required ?? 0} required · ${data.duration_sec ?? 0}s</p>
+      <p class="muted"><b>Дальше:</b> ${escapeHtml(data.next_action || "")}</p>
+    </div>
+    <ul class="auto-tactics-list">${rows}</ul>`;
+}
+
+async function runSmokeTest() {
+  const el = document.getElementById("smoke-test-panel");
+  if (el) el.innerHTML = "<p class='muted'>🧪 Smoke test — проверка системы...</p>";
+  try {
+    const res = await apiFetch("/api/smoke-test", { method: "POST", body: "{}" });
+    const data = await res.json();
+    renderSmokeTestPanel(data);
+    showToast(data.certified ? "✅ Smoke test пройден" : "⚠ Smoke test — есть проблемы", 6000);
+    if (data.live_prep) renderLivePrepPanel(data.live_prep);
+    return data;
+  } catch (_) {
+    if (el) el.innerHTML = "<p class='muted'>Smoke test не удался</p>";
+    return null;
+  }
+}
+
+async function loadSmokeTest() {
+  try {
+    const data = await (await fetch("/api/smoke-test")).json();
+    if (data.checks) renderSmokeTestPanel(data);
+  } catch (_) {}
+}
+
 async function loadIntegrations() {
   try {
     const data = await (await fetch("/api/integrations")).json();
@@ -2091,6 +2141,7 @@ function bindUi() {
   document.getElementById("btn-live-readiness-refresh")?.addEventListener("click", loadLiveReadiness);
   document.getElementById("btn-live-prep-refresh")?.addEventListener("click", loadLivePrep);
   document.getElementById("btn-integrations-refresh")?.addEventListener("click", loadIntegrations);
+  document.getElementById("btn-smoke-test")?.addEventListener("click", runSmokeTest);
   document.getElementById("btn-stability-check")?.addEventListener("click", async () => {
     const res = await apiFetch("/api/live-prep/stability-check", { method: "POST", body: "{}" });
     const data = await res.json();
@@ -2531,6 +2582,7 @@ async function main() {
     await loadExchangePanel();
     await loadLiveReadiness();
     await loadLivePrep();
+    await loadSmokeTest();
     await loadIntegrations();
     await loadScorecard();
     await loadAutoTactics();
