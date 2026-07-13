@@ -154,6 +154,12 @@ class ManualTradeRequest(BaseModel):
     stop_price: float | None = None
 
 
+class CancelOrderRequest(BaseModel):
+    symbol: str
+    order_id: str
+    source: str = "paper"
+
+
 class BacktestRequest(BaseModel):
     symbol: str = "BTCUSDT"
     limit: int = 500
@@ -249,7 +255,7 @@ def _learning_honesty(stats: dict) -> dict[str, Any]:
         "version": config.APP_VERSION,
         "markets_configured": len(config.MARKETS),
         "markets_active": len(sessions),
-        "project_readiness": f"v{config.APP_VERSION} — limit/stop-limit ордера, Agent chatroom, smoke test, Telegram",
+        "project_readiness": f"v{config.APP_VERSION} — тёмная/светлая тема, панель ордеров, limit, chatroom",
         "really_learns": True,
         "learning_kind": "эвристики + статистика (не нейросеть)",
         "what_is_real": [
@@ -2404,7 +2410,10 @@ async def api_orders_open(symbol: str | None = None):
 
 
 @app.post("/api/orders/cancel")
-async def api_orders_cancel(symbol: str, order_id: str, source: str = "paper"):
+async def api_orders_cancel(body: CancelOrderRequest):
+    symbol = body.symbol
+    order_id = body.order_id
+    source = body.source
     if source == "exchange":
         if not live_exchange.enabled:
             return api_fail("exchange disabled")

@@ -3,11 +3,17 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TradeSim v46 — live prep</title>
-  <link rel="stylesheet" href="/static/style.css?v=46" />
+  <title>TradeSim v50 — limit orders & chatroom</title>
+  <link rel="stylesheet" href="/static/style.css?v=50" />
+  <script>
+    (function () {
+      const t = localStorage.getItem("tradesim_theme") || "dark";
+      document.documentElement.setAttribute("data-theme", t);
+    })();
+  </script>
   <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
 </head>
-<body class="v46">
+<body class="v50">
   <div id="version-banner" class="version-banner hidden"></div>
   <div id="alerts-ticker" class="alerts-ticker" aria-live="polite">
     <span class="alerts-label">📡 Сканер</span>
@@ -17,8 +23,8 @@
     <div class="brand">
       <span class="logo">◆</span>
       <div>
-        <h1>TradeSim <span class="ver-badge">v46</span></h1>
-        <p class="tagline">Путь к Live · Micro $10 · честная подготовка</p>
+        <h1>TradeSim <span class="ver-badge">v50</span></h1>
+        <p class="tagline">Limit ордера · Agent chatroom · путь к Live</p>
       </div>
     </div>
     <div class="header-stats">
@@ -44,6 +50,7 @@
         <button type="button" class="mode-btn" data-mode="live">🏦 Live</button>
       </div>
       <div class="stat badge paper" id="exchange-badge" title="Режим торговли">PAPER</div>
+      <button type="button" id="btn-theme-toggle" class="btn ghost small theme-toggle" title="Тема">🌙</button>
       <button type="button" id="btn-deposit" class="btn small deposit-btn">+ Пополнить</button>
       <button type="button" id="btn-withdraw" class="btn small ghost withdraw-btn">− Вывести</button>
       <div class="stat">
@@ -253,7 +260,7 @@
       <section class="card assistant-card v16-card">
         <div class="card-header"><h2>💬 Помощник</h2></div>
         <div id="chat-messages" class="chat-messages">
-          <div class="chat-bubble chat-bot">TradeSim v49: <b>Limit ордера</b> · <b>Agent chatroom</b> · Smoke test · Telegram</div>
+          <div class="chat-bubble chat-bot">TradeSim v50: <b>Тема</b> · <b>Открытые ордера</b> · Limit · Chatroom · Telegram</div>
         </div>
         <form id="chat-form" class="chat-form">
           <input id="chat-input" type="text" placeholder="тренд / grid / momentum / DOGE?" autocomplete="off" />
@@ -281,7 +288,7 @@
   </details>
 
   <footer class="v16-footer">
-    <span>TradeSim v46 · live prep</span>
+    <span>TradeSim v50 · limit · chatroom</span>
     <div class="footer-actions">
       <input id="api-token-input" type="password" placeholder="API-токен" class="token-input" />
       <button id="btn-save-token" class="btn ghost small">🔐</button>
@@ -290,6 +297,15 @@
       <button id="btn-reset-full" class="btn ghost small">Полный сброс</button>
     </div>
   </footer>
+
+  <div id="orders-modal" class="agent-modal hidden">
+    <div class="agent-modal-inner orders-modal-inner">
+      <button type="button" id="orders-modal-close" class="btn ghost small">✕</button>
+      <h3>📋 Открытые ордера</h3>
+      <p class="muted">Paper limit + биржа (Testnet/Live). Нажми ✕ чтобы отменить.</p>
+      <div id="orders-modal-body" class="orders-modal-body muted">Загрузка...</div>
+    </div>
+  </div>
 
   <div id="withdraw-modal" class="agent-modal hidden">
     <div class="agent-modal-inner deposit-modal-inner">
@@ -358,6 +374,6 @@
   </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=49"></script>
+  <script src="/static/app.js?v=50"></script>
 </body>
 </html>

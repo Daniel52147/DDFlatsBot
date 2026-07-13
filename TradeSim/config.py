@@ -320,7 +320,10 @@ TRADE_MODE = os.environ.get("TRADE_MODE", "active").lower()
 ACTIVE_TRADE_ON_START = _env_bool("ACTIVE_TRADE_ON_START", True)
 ACTIVE_TRADE_RESET_TIMERS = _env_bool("ACTIVE_TRADE_RESET_TIMERS", False)
 
-APP_VERSION = 49
+APP_VERSION = 50
+
+# UI theme default (dark | light) — client override in localStorage
+UI_THEME_DEFAULT = os.environ.get("UI_THEME_DEFAULT", "dark")
 
 # Limit orders (v49)
 LIMIT_ORDERS_ENABLED = _env_bool("LIMIT_ORDERS_ENABLED", True)

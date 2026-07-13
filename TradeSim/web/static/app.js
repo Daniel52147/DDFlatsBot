@@ -811,22 +811,81 @@ function buildOrderPayload(side, amountUsd) {
   return payload;
 }
 
-async function loadOpenOrders() {
+async function loadOpenOrders(showModal = true) {
+  const body = document.getElementById("orders-modal-body");
+  const modal = document.getElementById("orders-modal");
+  if (showModal && body) body.innerHTML = "<p class='muted'>Загрузка...</p>";
+  if (showModal && modal) modal.classList.remove("hidden");
   try {
     const data = await (await fetch(`/api/orders/open?symbol=${activeSymbol}`)).json();
     const rows = [...(data.paper || []), ...(data.exchange || [])];
+    window.lastOpenOrders = data;
     if (!rows.length) {
-      showToast("📋 Нет открытых ордеров");
-      return;
+      if (body) body.innerHTML = "<p class='orders-empty'>Нет открытых ордеров на " + escapeHtml(labelFor(activeSymbol)) + "</p>";
+      if (!showModal) showToast("📋 Нет открытых ордеров");
+      return data;
     }
-    const list = rows.map(o =>
-      `${o.source}: ${o.side} ${o.order_type || "limit"} @ ${o.limit_price || "?"} $${Number(o.amount_usd || 0).toFixed(0)}`
-    ).join("\n");
-    showToast(`📋 ${rows.length} ордер(ов)`, 8000);
-    console.log("Open orders:\n" + list);
+    const tableRows = rows.map(o => {
+      const canCancel = o.source === "paper" || o.source === "exchange";
+      const oid = o.id || o.order_id || "";
+      return `<tr>
+        <td>${o.source === "paper" ? "📄" : "🏦"}</td>
+        <td><b>${escapeHtml(o.side || "")}</b></td>
+        <td>${escapeHtml(o.order_type || "limit")}</td>
+        <td>${fmtMoney(o.limit_price || 0)}</td>
+        <td>${o.stop_price ? fmtMoney(o.stop_price) : "—"}</td>
+        <td>$${Number(o.amount_usd || 0).toFixed(0)}</td>
+        <td>${canCancel && oid ? `<button type="button" class="btn ghost small btn-cancel-order" data-id="${escapeHtml(String(oid))}" data-source="${o.source}" data-symbol="${escapeHtml(o.symbol || activeSymbol)}">✕</button>` : ""}</td>
+      </tr>`;
+    }).join("");
+    if (body) {
+      body.innerHTML = `<table class="orders-table"><thead><tr>
+        <th></th><th>Сторона</th><th>Тип</th><th>Limit</th><th>Stop</th><th>$</th><th></th>
+      </tr></thead><tbody>${tableRows}</tbody></table>
+      <p class="muted tiny" style="margin-top:0.5rem">Всего: ${rows.length} · ${labelFor(activeSymbol)}</p>`;
+      body.querySelectorAll(".btn-cancel-order").forEach(btn => {
+        btn.onclick = async () => {
+          const res = await apiFetch("/api/orders/cancel", {
+            method: "POST",
+            body: JSON.stringify({
+              symbol: btn.dataset.symbol,
+              order_id: btn.dataset.id,
+              source: btn.dataset.source,
+            }),
+          });
+          const r = await res.json();
+          if (r.error || r.ok === false) showToast("⚠ " + (r.error || "отмена не удалась"));
+          else {
+            showToast("✕ Ордер отменён");
+            loadOpenOrders(true);
+          }
+        };
+      });
+    }
+    if (!showModal) showToast(`📋 ${rows.length} открытых ордер(ов)`);
+    return data;
   } catch (_) {
-    showToast("Не удалось загрузить ордера");
+    if (body) body.innerHTML = "<p class='orders-empty'>Не удалось загрузить ордера</p>";
+    if (!showModal) showToast("Не удалось загрузить ордера");
+    return null;
   }
+}
+
+function applyTheme(theme) {
+  const t = theme === "light" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", t);
+  localStorage.setItem("tradesim_theme", t);
+  const btn = document.getElementById("btn-theme-toggle");
+  if (btn) btn.textContent = t === "light" ? "☀️" : "🌙";
+}
+
+function initTheme() {
+  const saved = localStorage.getItem("tradesim_theme") || "dark";
+  applyTheme(saved);
+  document.getElementById("btn-theme-toggle")?.addEventListener("click", () => {
+    const cur = document.documentElement.getAttribute("data-theme") || "dark";
+    applyTheme(cur === "light" ? "dark" : "light");
+  });
 }
 
 async function loadFees() {
@@ -1879,6 +1938,10 @@ function connectWs() {
         showToast(`🛡 ${msg.reason || msg.type || "protection"}`, 6000);
         void loadIntegrations();
       }
+      if (msg.type === "limit_order") {
+        showToast(`📋 Limit ${msg.order?.side || ""} @ ${msg.order?.limit_price || "?"}`);
+        loadOpenOrders(false);
+      }
       if (msg.type === "tradingview_signal") {
         showToast(`📡 TV ${msg.side || ""} ${msg.label || msg.symbol || ""}`, 5000);
       }
@@ -2207,7 +2270,14 @@ function bindUi() {
     if (stop) stop.classList.toggle("hidden", t !== "stop_limit");
   });
 
-  document.getElementById("btn-open-orders")?.addEventListener("click", loadOpenOrders);
+  document.getElementById("btn-open-orders")?.addEventListener("click", () => loadOpenOrders(true));
+  document.getElementById("orders-modal-close")?.addEventListener("click", () => {
+    document.getElementById("orders-modal")?.classList.add("hidden");
+  });
+  document.getElementById("orders-modal")?.addEventListener("click", (e) => {
+    if (e.target.id === "orders-modal") e.currentTarget.classList.add("hidden");
+  });
+  initTheme();
   document.getElementById("btn-chatroom-refresh")?.addEventListener("click", loadAgentChatroom);
 
   document.getElementById("agent-modal-close")?.addEventListener("click", () => {

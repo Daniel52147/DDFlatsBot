@@ -19,6 +19,38 @@
   --v16-gradient: linear-gradient(135deg, #63b3ff 0%, #b794f6 50%, #ffc857 100%);
 }
 
+html[data-theme="light"] {
+  --bg: #f4f6fb;
+  --bg2: #e8ecf4;
+  --card: rgba(255, 255, 255, 0.92);
+  --card-solid: #ffffff;
+  --border: rgba(30, 64, 120, 0.12);
+  --border-strong: rgba(30, 64, 120, 0.28);
+  --text: #0f172a;
+  --muted: #5b6b85;
+  --green: #0d9f6e;
+  --red: #d63a5c;
+  --accent: #2563eb;
+  --accent2: #d97706;
+  --purple: #7c3aed;
+  --glow: rgba(37, 99, 235, 0.12);
+}
+
+html[data-theme="light"] body {
+  background:
+    radial-gradient(ellipse 90% 55% at 20% -15%, rgba(37, 99, 235, 0.08), transparent),
+    radial-gradient(ellipse 70% 45% at 90% 5%, rgba(124, 58, 237, 0.06), transparent),
+    linear-gradient(180deg, var(--bg) 0%, #eef2f8 100%);
+}
+
+html[data-theme="light"] header {
+  background: rgba(255, 255, 255, 0.9);
+}
+
+html[data-theme="light"] .card {
+  box-shadow: 0 4px 24px rgba(15, 23, 42, 0.06);
+}
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
@@ -819,6 +851,18 @@ footer {
 .chatroom-text { color: var(--text); line-height: 1.35; }
 .limit-fields { gap: 0.35rem; }
 .limit-fields input { flex: 1; min-width: 0; }
+
+.theme-toggle {
+  min-width: 2.5rem;
+  padding: 0.35rem 0.55rem;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.orders-modal-inner { max-width: 520px; width: 95vw; }
+.orders-table { width: 100%; font-size: 0.8rem; margin-top: 0.5rem; }
+.orders-table th, .orders-table td { padding: 0.35rem 0.4rem; text-align: left; border-bottom: 1px solid var(--border); }
+.orders-empty { padding: 1rem 0; color: var(--muted); }
 .shadow-apply-btn {
   font-size: 0.68rem;
   padding: 0.15rem 0.4rem;
