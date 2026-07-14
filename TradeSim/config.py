@@ -350,7 +350,7 @@ TRADE_MODE = os.environ.get("TRADE_MODE", "active").lower()
 ACTIVE_TRADE_ON_START = _env_bool("ACTIVE_TRADE_ON_START", True)
 ACTIVE_TRADE_RESET_TIMERS = _env_bool("ACTIVE_TRADE_RESET_TIMERS", False)
 
-APP_VERSION = 53
+APP_VERSION = 54
 
 # UI theme default (dark | light) — client override in localStorage
 UI_THEME_DEFAULT = os.environ.get("UI_THEME_DEFAULT", "dark")

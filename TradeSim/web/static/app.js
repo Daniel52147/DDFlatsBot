@@ -1429,6 +1429,48 @@ async function loadLivePrep() {
   }
 }
 
+function renderLivePlaybookPanel(data) {
+  const el = document.getElementById("live-playbook-panel");
+  if (!el || !data) return;
+  window.lastLivePlaybook = data;
+  const rules = (data.quick_rules || []).map(r => `<li>${escapeHtml(r)}</li>`).join("");
+  const active = new Set(data.active_hints || []);
+  const cats = (data.categories || []).map(cat => {
+    const items = (cat.scenarios || []).map(s => {
+      const cls = [s.severity || "info", s.may_apply || active.has(s.id) ? "active" : ""].filter(Boolean).join(" ");
+      const actions = (s.actions || []).map(a => `<code>${escapeHtml(a)}</code>`).join(" · ");
+      return `<div class="playbook-scenario ${cls}">
+        <p><b>${escapeHtml(s.title)}</b>${s.may_apply ? " <span class='warn'>← может быть активно</span>" : ""}</p>
+        <p class="muted">${escapeHtml(s.situation || "")}</p>
+        <p class="muted"><b>Как узнать:</b> ${escapeHtml(s.detection || "")}</p>
+        <p class="plan-a"><b>План А (бот):</b> ${escapeHtml(s.plan_a || "")}</p>
+        <p class="plan-b"><b>План Б (ты):</b> ${escapeHtml(s.plan_b || "")}</p>
+        ${actions ? `<p class="muted tiny">${actions}</p>` : ""}
+      </div>`;
+    }).join("");
+    return `<div class="playbook-category"><h4>${escapeHtml(cat.title || "")} (${cat.count || 0})</h4>${items}</div>`;
+  }).join("");
+  el.innerHTML = `
+    <div class="honesty-box warn">
+      <p><b>${escapeHtml(data.title || "Live Playbook")}</b></p>
+      <p class="muted">${escapeHtml(data.summary || "")}</p>
+    </div>
+    <ul class="auto-tactics-list">${rules}</ul>
+    ${cats}`;
+}
+
+async function loadLivePlaybook() {
+  try {
+    const data = await (await fetch("/api/live-playbook")).json();
+    renderLivePlaybookPanel(data);
+    return data;
+  } catch (_) {
+    const el = document.getElementById("live-playbook-panel");
+    if (el) el.innerHTML = "<p class='muted'>Playbook: обнови страницу</p>";
+    return null;
+  }
+}
+
 function renderIntegrationsPanel(data) {
   const el = document.getElementById("integrations-panel-body");
   if (!el) return;
@@ -2344,7 +2386,10 @@ function bindUi() {
   document.getElementById("btn-strategy-apply")?.addEventListener("click", applyStrategy);
   document.getElementById("btn-exchange-refresh")?.addEventListener("click", loadExchangePanel);
   document.getElementById("btn-live-readiness-refresh")?.addEventListener("click", loadLiveReadiness);
-  document.getElementById("btn-live-prep-refresh")?.addEventListener("click", loadLivePrep);
+  document.getElementById("btn-live-prep-refresh")?.addEventListener("click", () => {
+    loadLivePrep();
+    loadLivePlaybook();
+  });
   document.getElementById("btn-integrations-refresh")?.addEventListener("click", loadIntegrations);
   document.getElementById("btn-smoke-test")?.addEventListener("click", runSmokeTest);
   document.getElementById("btn-sync-paper-all")?.addEventListener("click", async () => {
@@ -2802,6 +2847,7 @@ async function main() {
     await loadExchangePanel();
     await loadLiveReadiness();
     await loadLivePrep();
+    await loadLivePlaybook();
     await loadSmokeTest();
     await loadAgentChatroom();
     await loadIntegrations();

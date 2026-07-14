@@ -55,6 +55,7 @@ from learning.paper_learn_mode import (
     apply_paper_learn_trading,
     is_paper_learn_mode,
 )
+from learning.live_playbook import build_live_playbook
 from learning.live_prep import build_live_prep
 from learning.live_micro_mode import apply_live_micro_all, set_live_micro_active
 from learning.testnet_mode import apply_testnet_conservative_all, apply_testnet_on_mode_switch
@@ -1779,6 +1780,13 @@ async def api_live_readiness():
 @app.get("/api/live-prep")
 async def api_live_prep():
     return await _live_prep_payload()
+
+
+@app.get("/api/live-playbook")
+async def api_live_playbook():
+    from simulator.risk_gate import risk_status
+
+    return build_live_playbook(risk_status=risk_status())
 
 
 @app.post("/api/live-prep/start-micro")

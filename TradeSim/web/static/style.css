@@ -791,6 +791,40 @@ footer {
 .alerts-scroll .alert-warn { color: var(--accent2); }
 .alerts-scroll .alert-good { color: var(--green); }
 .alerts-scroll .alert-halt { color: var(--red); }
+.live-playbook-details {
+  margin: 0.5rem 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.35rem 0.5rem;
+  background: var(--card-solid);
+}
+.live-playbook-summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.live-playbook-panel {
+  margin-top: 0.5rem;
+  max-height: 420px;
+  overflow-y: auto;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+.playbook-category { margin-bottom: 0.75rem; }
+.playbook-category h4 { margin: 0 0 0.35rem; font-size: 0.8rem; }
+.playbook-scenario {
+  border-left: 3px solid var(--border);
+  padding: 0.35rem 0.5rem;
+  margin: 0.35rem 0;
+  background: rgba(0,0,0,0.15);
+  border-radius: 0 6px 6px 0;
+}
+.playbook-scenario.critical { border-left-color: var(--red); }
+.playbook-scenario.warn { border-left-color: var(--accent2); }
+.playbook-scenario.active { box-shadow: 0 0 0 1px var(--accent2); }
+.playbook-scenario .plan-a { color: var(--green); }
+.playbook-scenario .plan-b { color: var(--accent2); }
 .strategy-picker {
   display: flex;
   flex-wrap: wrap;
