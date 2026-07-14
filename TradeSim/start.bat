@@ -6,10 +6,7 @@ cd /d "%~dp0"
 echo.
 echo [1/4] Обновление кода...
 git fetch origin
-git pull origin cursor/tradesim-v46-live-prep-2631 2>nul
-if errorlevel 1 (
-  git pull origin cursor/tradesim-v45-fix-all-2631 2>nul
-)
+git pull origin cursor/live-contingency-playbook-2631 2>nul
 if errorlevel 1 (
   git pull origin main 2>nul || git pull
 )
@@ -23,11 +20,7 @@ echo [3/4] Файл .env...
 if not exist ".env" (
   if exist ".env.example" (
     copy /Y .env.example .env >nul
-    echo Создан .env — открой блокнотом:
-    echo   notepad .env
-    echo Задай TRADESIM_API_TOKEN и BINANCE ключи (testnet)
-  ) else (
-    echo ВНИМАНИЕ: нет .env.example
+    echo Создан .env — открой: notepad .env
   )
 ) else (
   echo .env уже есть
@@ -36,10 +29,10 @@ if not exist ".env" (
 echo.
 echo [4/4] Запуск сервера...
 echo.
-echo   Открой:  http://127.0.0.1:8765
-echo   Версия v46 в заголовке
-echo   Ctrl+Shift+R если старый кэш
+echo   ПК:      http://127.0.0.1:8765
+echo   Телефон: та же Wi-Fi — после /open в Telegram
+echo   Нужно в .env: TRADESIM_BIND_HOST=0.0.0.0 и TRADESIM_API_TOKEN
 echo.
-set TRADESIM_BIND_HOST=127.0.0.1
+set TRADESIM_BIND_HOST=0.0.0.0
 python main.py
 pause

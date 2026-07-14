@@ -525,17 +525,29 @@ async def _telegram_cmd_live(_cmd: str, _args: list[str], _user_id: int) -> str:
     )
 
 
-async def _telegram_cmd_open(_cmd: str, _args: list[str], user_id: int) -> str:
-  # send_open_dashboard needs chat_id - handler doesn't have chat_id
-  # Return message with URL; open button sent separately in wrapper
-    url = config.TRADESIM_PUBLIC_URL or "http://127.0.0.1:8765"
+async def _telegram_cmd_open(_cmd: str, _args: list[str], _user_id: int) -> str:
+    url = config.get_dashboard_url()
     t = total_portfolio()
-    return (
-        f"📊 TradeSim v{config.APP_VERSION}\n"
-        f"${t['total_value']:,.2f} · {t['pnl_pct']:+.2f}%\n"
-        f"Режим: {trading_mode.mode}\n\n"
-        f"Ссылка: {url}"
-    )
+    lines = [
+        f"📊 TradeSim v{config.APP_VERSION}",
+        f"${t['total_value']:,.2f} · {t['pnl_pct']:+.2f}%",
+        f"Режим: {trading_mode.mode}",
+        "",
+        f"📱 С телефона (Wi‑Fi):",
+        url,
+    ]
+    if config.BIND_HOST == "127.0.0.1":
+        lines.extend([
+            "",
+            "⚠️ Сейчас бот только на ПК (127.0.0.1).",
+            "В .env:",
+            "TRADESIM_BIND_HOST=0.0.0.0",
+            "TRADESIM_API_TOKEN=придумай-пароль",
+            "Перезапуск → /open снова",
+        ])
+    else:
+        lines.append("\nВнизу страницы введи API-токен → 🔐")
+    return "\n".join(lines)
 
 
 async def _telegram_cmd_ask(_cmd: str, args: list[str], _user_id: int) -> str:
@@ -2772,6 +2784,12 @@ if __name__ == "__main__":
         )
     if not config.API_TOKEN and host == "127.0.0.1":
         logger.info(
-            "Локальный режим без TRADESIM_API_TOKEN — для облака задай токен в .env"
+            "Локальный режим без TRADESIM_API_TOKEN — для телефона в Wi‑Fi: "
+            "TRADESIM_BIND_HOST=0.0.0.0 + TRADESIM_API_TOKEN в .env"
         )
+    phone_url = config.get_dashboard_url()
+    if config.TRADESIM_PHONE_ACCESS and host != "127.0.0.1":
+        logger.info("Телефон (Wi‑Fi): %s — Telegram /open", phone_url)
+    elif config.TRADESIM_PHONE_ACCESS:
+        logger.info("Телефон: задай TRADESIM_BIND_HOST=0.0.0.0 + API_TOKEN → %s", phone_url)
     uvicorn.run("main:app", host=host, port=config.SERVER_PORT, reload=False)

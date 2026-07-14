@@ -351,7 +351,7 @@ TRADE_MODE = os.environ.get("TRADE_MODE", "active").lower()
 ACTIVE_TRADE_ON_START = _env_bool("ACTIVE_TRADE_ON_START", True)
 ACTIVE_TRADE_RESET_TIMERS = _env_bool("ACTIVE_TRADE_RESET_TIMERS", False)
 
-APP_VERSION = 56
+APP_VERSION = 57
 
 # UI theme default (dark | light) — client override in localStorage
 UI_THEME_DEFAULT = os.environ.get("UI_THEME_DEFAULT", "dark")
@@ -372,8 +372,9 @@ TELEGRAM_ALERT_SYNC_FAIL = _env_bool("TELEGRAM_ALERT_SYNC_FAIL", True)
 TELEGRAM_DAILY_SUMMARY = _env_bool("TELEGRAM_DAILY_SUMMARY", True)
 TELEGRAM_COMMANDS_ENABLED = _env_bool("TELEGRAM_COMMANDS_ENABLED", True)
 TELEGRAM_FREE_CHAT = _env_bool("TELEGRAM_FREE_CHAT", True)
-# Публичный URL дашборда (Render): https://tradesim-xxxx.onrender.com
+# Публичный URL дашборда; если пусто — авто LAN IP для телефона в той же Wi‑Fi
 TRADESIM_PUBLIC_URL = os.environ.get("TRADESIM_PUBLIC_URL", "").rstrip("/")
+TRADESIM_PHONE_ACCESS = _env_bool("TRADESIM_PHONE_ACCESS", True)
 
 TRADINGVIEW_WEBHOOK_ENABLED = _env_bool("TRADINGVIEW_WEBHOOK_ENABLED", False)
 TRADINGVIEW_WEBHOOK_SECRET = os.environ.get("TRADINGVIEW_WEBHOOK_SECRET", "")
@@ -415,10 +416,23 @@ LIVE_MAX_POSITION_PCT = float(os.environ.get("LIVE_MAX_POSITION_PCT", "0.10"))
 def _default_bind_host() -> str:
     if os.environ.get("TRADESIM_BIND_HOST"):
         return os.environ["TRADESIM_BIND_HOST"]
+    # Телефон в той же Wi‑Fi — слушаем все интерфейсы (нужен TRADESIM_API_TOKEN)
+    if TRADESIM_PHONE_ACCESS and os.environ.get("TRADESIM_API_TOKEN"):
+        return "0.0.0.0"
     # Cursor Cloud / port-forward preview
     if any(os.environ.get(k) for k in ("PORT", "CURSOR_AGENT", "CURSOR_TRACE_ID")):
         return "0.0.0.0"
     return "127.0.0.1"
+
+
+def get_dashboard_url() -> str:
+    from simulator.network_util import dashboard_url
+
+    return dashboard_url(
+        public_url=TRADESIM_PUBLIC_URL,
+        port=SERVER_PORT,
+        prefer_lan=TRADESIM_PHONE_ACCESS,
+    )
 
 
 BIND_HOST = _default_bind_host()

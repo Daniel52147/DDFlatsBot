@@ -112,10 +112,17 @@ class TelegramService:
             return False
 
     async def send_open_dashboard(self, chat_id: str | None = None, extra: str = "") -> bool:
-        url = config.TRADESIM_PUBLIC_URL or "http://127.0.0.1:8765"
-        text = extra or f"📊 TradeSim v{config.APP_VERSION}"
-        if not config.TRADESIM_PUBLIC_URL:
-            text += "\n\n<i>Задай TRADESIM_PUBLIC_URL в .env для ссылки Render.</i>"
+        url = config.get_dashboard_url()
+        text = (extra or f"📊 TradeSim v{config.APP_VERSION}").strip()
+        if config.BIND_HOST == "127.0.0.1" and config.TRADESIM_PHONE_ACCESS:
+            text += (
+                "\n\n⚠️ <b>Телефон не откроет ссылку</b>, пока бот слушает только 127.0.0.1.\n"
+                "В .env добавь:\n"
+                "<code>TRADESIM_BIND_HOST=0.0.0.0</code>\n"
+                "<code>TRADESIM_API_TOKEN=твой-пароль</code>\n"
+                "Перезапусти main.py → снова /open\n"
+                "ПК и телефон — одна Wi‑Fi."
+            )
         markup = {
             "inline_keyboard": [[{"text": "📊 Открыть TradeSim", "url": url}]],
         }
