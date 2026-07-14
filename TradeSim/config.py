@@ -351,7 +351,7 @@ TRADE_MODE = os.environ.get("TRADE_MODE", "active").lower()
 ACTIVE_TRADE_ON_START = _env_bool("ACTIVE_TRADE_ON_START", True)
 ACTIVE_TRADE_RESET_TIMERS = _env_bool("ACTIVE_TRADE_RESET_TIMERS", False)
 
-APP_VERSION = 55
+APP_VERSION = 56
 
 # UI theme default (dark | light) — client override in localStorage
 UI_THEME_DEFAULT = os.environ.get("UI_THEME_DEFAULT", "dark")
@@ -371,6 +371,9 @@ TELEGRAM_ALERT_HALT = _env_bool("TELEGRAM_ALERT_HALT", True)
 TELEGRAM_ALERT_SYNC_FAIL = _env_bool("TELEGRAM_ALERT_SYNC_FAIL", True)
 TELEGRAM_DAILY_SUMMARY = _env_bool("TELEGRAM_DAILY_SUMMARY", True)
 TELEGRAM_COMMANDS_ENABLED = _env_bool("TELEGRAM_COMMANDS_ENABLED", True)
+TELEGRAM_FREE_CHAT = _env_bool("TELEGRAM_FREE_CHAT", True)
+# Публичный URL дашборда (Render): https://tradesim-xxxx.onrender.com
+TRADESIM_PUBLIC_URL = os.environ.get("TRADESIM_PUBLIC_URL", "").rstrip("/")
 
 TRADINGVIEW_WEBHOOK_ENABLED = _env_bool("TRADINGVIEW_WEBHOOK_ENABLED", False)
 TRADINGVIEW_WEBHOOK_SECRET = os.environ.get("TRADINGVIEW_WEBHOOK_SECRET", "")

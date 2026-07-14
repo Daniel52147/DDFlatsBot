@@ -6,6 +6,9 @@ import time
 from typing import Any
 
 import config
+from assistant.crisis_guard import CrisisGuardAgent
+from assistant.live_coach import LiveCoachAgent
+from assistant.sync_watcher import SyncWatcherAgent
 from assistant.correlation_analyst import CorrelationAnalystAgent
 from assistant.performance_analyst import PerformanceAnalystAgent
 from assistant.portfolio_allocator import PortfolioAllocatorAgent
@@ -35,6 +38,9 @@ class CentralBrain:
       📊 Аналитик — метрики и win rate
       🛑 Стоп-охранник — stop-loss и паузы
       ⚖️ Аллокатор — распределение капитала
+      🚀 Live-наставник — путь к Live, readiness, testnet
+      🔗 Синхронизатор — paper ↔ биржа, reconcile
+      🔥 Кризис-страж — обвалы, playbook, halt
     """
 
     def __init__(self):
@@ -50,13 +56,22 @@ class CentralBrain:
         self.guardian = StopGuardianAgent()
         self.allocator = PortfolioAllocatorAgent()
         self.trader_watcher = TraderWatcherAgent()
+        self.live_coach = LiveCoachAgent()
+        self.sync_watcher = SyncWatcherAgent()
+        self.crisis_guard = CrisisGuardAgent()
         self.talker = TradingAssistant()
         self.last_cycle: dict[str, Any] = {}
         self.last_cycle_ts = 0.0
         self.last_applied_decision: str | None = None
 
-    async def think(self, contexts: list[dict], total: dict) -> dict[str, Any]:
+    async def think(
+        self,
+        contexts: list[dict],
+        total: dict,
+        meta: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Run all agents and synthesize central decision."""
+        meta = meta or {}
         mentor = self.mentor.analyze(contexts, total)
         news = await self.news.analyze(contexts, total)
         schemer = self.schemer.analyze(contexts, total)
@@ -69,6 +84,9 @@ class CentralBrain:
         guardian = self.guardian.analyze(contexts, total)
         allocator = self.allocator.analyze(contexts, total)
         trader_watch = await self.trader_watcher.analyze(contexts, total)
+        live_coach = self.live_coach.analyze(contexts, total, meta)
+        sync_watcher = self.sync_watcher.analyze(contexts, total, meta)
+        crisis_guard = self.crisis_guard.analyze(contexts, total, meta)
 
         votes = {
             "continue": 0.0,
@@ -81,7 +99,7 @@ class CentralBrain:
         }
         reports = (
             mentor, news, schemer, volatility, risk, trend, profit, correlation,
-            analyst, guardian, allocator, trader_watch,
+            analyst, guardian, allocator, trader_watch, live_coach, sync_watcher, crisis_guard,
         )
         for report in reports:
             rec = report.get("recommendation", "hold")
@@ -93,6 +111,10 @@ class CentralBrain:
         if pnl_pct <= -config.PORTFOLIO_MAX_DRAWDOWN_PCT:
             votes["reduce_aggression"] += 2.5
             votes["pause_dip"] += 2.0
+
+        if crisis_guard.get("scenarios") and len(crisis_guard["scenarios"]) >= 2:
+            votes["pause_dip"] += 1.5
+            votes["reduce_aggression"] += 1.0
 
         if guardian.get("halts") and len(guardian["halts"]) >= 2:
             decision = "emergency_halt"
@@ -125,7 +147,8 @@ class CentralBrain:
 
         brain_summary = self._format_brain_report(
             mentor, news, schemer, volatility, risk, trend, profit, correlation,
-            analyst, guardian, allocator, trader_watch, verdict,
+            analyst, guardian, allocator, trader_watch, live_coach, sync_watcher,
+            crisis_guard, verdict,
         )
 
         cycle = {
@@ -144,6 +167,9 @@ class CentralBrain:
             "guardian": guardian,
             "allocator": allocator,
             "trader_watcher": trader_watch,
+            "live_coach": live_coach,
+            "sync_watcher": sync_watcher,
+            "crisis_guard": crisis_guard,
             "votes": votes,
             "summary": brain_summary,
         }
@@ -153,7 +179,8 @@ class CentralBrain:
 
     def _format_brain_report(
         self, mentor, news, schemer, volatility, risk, trend, profit, correlation,
-        analyst, guardian, allocator, trader_watch, verdict: str,
+        analyst, guardian, allocator, trader_watch, live_coach, sync_watcher,
+        crisis_guard, verdict: str,
     ) -> str:
         lines = [
             "🧠 ЦЕНТРАЛЬНЫЙ МОЗГ",
@@ -198,6 +225,15 @@ class CentralBrain:
             "",
             f"{trader_watch['emoji']} {trader_watch['name']}: {trader_watch['summary']}",
             f"   → {trader_watch['action_for_brain']}",
+            "",
+            f"{live_coach['emoji']} {live_coach['name']}: {live_coach['summary']}",
+            f"   → {live_coach['action_for_brain']}",
+            "",
+            f"{sync_watcher['emoji']} {sync_watcher['name']}: {sync_watcher['summary']}",
+            f"   → {sync_watcher['action_for_brain']}",
+            "",
+            f"{crisis_guard['emoji']} {crisis_guard['name']}: {crisis_guard['summary']}",
+            f"   → {crisis_guard['action_for_brain']}",
         ]
         for item in schemer.get("learned", [])[:2]:
             lines.append(f"   • {item}")
@@ -505,7 +541,34 @@ class CentralBrain:
                 "Прогон за минуты по OHLC — та же логика что live + Shadow Lab."
             )
 
-        if any(w in msg for w in ("биржа", "binance", "api ключ", "реальн")):
+        if any(w in msg for w in ("live", "лайв", "readiness", "готовност", "testnet", "фаза", "smoke")):
+            lc = self.last_cycle.get("live_coach") if self.last_cycle else None
+            if lc:
+                lines = [f"🚀 {lc['summary']}", "", lc.get("action_for_brain", "")]
+                for lesson in lc.get("lessons", [])[:6]:
+                    lines.append(f"• {lesson}")
+                return "\n".join(lines)
+            return "Live-наставник ждёт данных readiness — обнови через минуту."
+
+        if any(w in msg for w in ("sync", "синх", "reconcile", "биржа", "рассинхрон")):
+            sw = self.last_cycle.get("sync_watcher") if self.last_cycle else None
+            if sw:
+                lines = [f"🔗 {sw['summary']}", "", sw.get("action_for_brain", "")]
+                for w in sw.get("critical", []) + sw.get("warnings", []):
+                    lines.append(f"• {w}")
+                return "\n".join(lines)
+            return "Синхронизатор проверит paper ↔ биржа в следующем цикле."
+
+        if any(w in msg for w in ("обвал", "кризис", "crash", "паник", "playbook", "план а", "план б")):
+            cg = self.last_cycle.get("crisis_guard") if self.last_cycle else None
+            if cg:
+                lines = [f"🔥 {cg['summary']}", "", cg.get("action_for_brain", "")]
+                for h in cg.get("playbook_hints", [])[:4]:
+                    lines.append(f"• {h}")
+                return "\n".join(lines)
+            return "Кризис-страж: смотри панель «Обвалы и рынок» в UI."
+
+        if any(w in msg for w in ("биржа", "binance", "api ключ", "реальн")) and "sync" not in msg:
             return (
                 "🏦 Реальная биржа: задай BINANCE_API_KEY + BINANCE_API_SECRET в env, "
                 "EXCHANGE_ENABLED=true в config. Сейчас paper по умолчанию. "

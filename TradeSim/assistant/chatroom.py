@@ -17,6 +17,9 @@ AGENT_KEYS: list[tuple[str, str]] = [
     ("guardian", "Стоп-охранник"),
     ("allocator", "Аллокатор"),
     ("trader_watcher", "Следопыт"),
+    ("live_coach", "Live-наставник"),
+    ("sync_watcher", "Синхронизатор"),
+    ("crisis_guard", "Кризис-страж"),
 ]
 
 

@@ -377,6 +377,45 @@ def _integrations_status() -> dict[str, Any]:
     }
 
 
+async def _brain_meta_payload() -> dict[str, Any]:
+    """Context for Live/Sync/Crisis agents — cached ~90s."""
+    now = time.time()
+    cached = state.get("_brain_meta")
+    if cached and now - float(state.get("_brain_meta_ts", 0)) < 90:
+        return cached
+
+    from simulator.risk_gate import risk_status
+
+    readiness = await _live_readiness_payload()
+    prep = await _live_prep_payload()
+    reconcile_markets: list[dict[str, Any]] = []
+    if live_exchange.enabled:
+        for sym in list(sessions.keys())[:6]:
+            s = sessions[sym]
+            try:
+                r = await live_exchange.reconcile(
+                    sym, s.engine.position.base, s.engine.position.quote,
+                )
+                delta = float(r.get("base_delta", 0) or 0)
+                if abs(delta) > 0.005:
+                    reconcile_markets.append({**r, "symbol": sym, "label": s.label})
+            except Exception:
+                pass
+
+    payload = {
+        "trading_mode": trading_mode.mode,
+        "live_readiness": readiness,
+        "live_prep": prep,
+        "risk_gate": risk_status(),
+        "correlation_risk": state.get("correlation_risk", {}),
+        "protections": protections_engine.status(),
+        "reconcile": {"markets": reconcile_markets},
+    }
+    state["_brain_meta"] = payload
+    state["_brain_meta_ts"] = now
+    return payload
+
+
 async def _telegram_cmd_status(_cmd: str, _args: list[str], _user_id: int) -> str:
     t = total_portfolio()
     mode = trading_mode.mode
@@ -440,14 +479,84 @@ async def _telegram_cmd_resume(_cmd: str, args: list[str], _user_id: int) -> str
     return "▶️ Все боты активны, protections сброшены"
 
 
+async def _telegram_cmd_brain(_cmd: str, args: list[str], _user_id: int) -> str:
+    cycle = state.get("brain_cycle") or brain.last_cycle
+    if not cycle:
+        return "🧠 Мозг ещё не думал — подожди ~45 сек и повтори /brain"
+    question = " ".join(args).strip()
+    if question:
+        return brain.chat(question, all_contexts(), total_portfolio())
+    verdict = cycle.get("verdict", "")
+    decision = cycle.get("decision", "")
+    lines = [
+        f"🧠 TradeSim v{config.APP_VERSION} · решение: <b>{decision}</b>",
+        verdict,
+        "",
+    ]
+    for key, label in (
+        ("live_coach", "Live"),
+        ("crisis_guard", "Кризис"),
+        ("sync_watcher", "Sync"),
+        ("guardian", "Стоп"),
+        ("risk", "Риск"),
+        ("analyst", "Аналитик"),
+    ):
+        rep = cycle.get(key) or {}
+        if rep.get("summary"):
+            lines.append(f"{rep.get('emoji', '🤖')} {label}: {rep['summary'][:120]}")
+    lines.append("\n<i>Спроси: /brain как live · или просто текст «обвал» «readiness»</i>")
+    return "\n".join(lines)[:4000]
+
+
+async def _telegram_cmd_live(_cmd: str, _args: list[str], _user_id: int) -> str:
+    cycle = state.get("brain_cycle") or brain.last_cycle
+    lc = (cycle or {}).get("live_coach")
+    if lc:
+        lines = [f"🚀 {lc['summary']}", "", lc.get("action_for_brain", "")]
+        for lesson in lc.get("lessons", [])[:8]:
+            lines.append(f"• {lesson}")
+        return "\n".join(lines)[:4000]
+    meta = await _brain_meta_payload()
+    r = meta.get("live_readiness") or {}
+    return (
+        f"🚀 Live readiness: {r.get('score_pct', 0)}%\n"
+        f"Режим: {meta.get('trading_mode')}\n"
+        f"Готов: {'да' if r.get('ready_for_live') else 'нет'}"
+    )
+
+
+async def _telegram_cmd_open(_cmd: str, _args: list[str], user_id: int) -> str:
+  # send_open_dashboard needs chat_id - handler doesn't have chat_id
+  # Return message with URL; open button sent separately in wrapper
+    url = config.TRADESIM_PUBLIC_URL or "http://127.0.0.1:8765"
+    t = total_portfolio()
+    return (
+        f"📊 TradeSim v{config.APP_VERSION}\n"
+        f"${t['total_value']:,.2f} · {t['pnl_pct']:+.2f}%\n"
+        f"Режим: {trading_mode.mode}\n\n"
+        f"Ссылка: {url}"
+    )
+
+
+async def _telegram_cmd_ask(_cmd: str, args: list[str], _user_id: int) -> str:
+    msg = " ".join(args).strip()
+    if not msg:
+        return "Напиши вопрос: /brain как дела · или просто текст без команды"
+    return brain.chat(msg, all_contexts(), total_portfolio())[:4000]
+
+
 async def _telegram_cmd_help(_cmd: str, _args: list[str], _user_id: int) -> str:
     return (
-        "TradeSim Telegram:\n"
-        "/status — портфель и режим\n"
-        "/balance — баланс paper + биржа\n"
-        "/pause [BTC] — пауза бота\n"
-        "/resume [BTC|all] — возобновить\n"
-        "/help — эта справка"
+        "TradeSim Telegram v56:\n"
+        "/brain или /mozg — весь мозг + решение\n"
+        "/brain обвал — вопрос мозгу\n"
+        "/live — Live-наставник (readiness, фазы)\n"
+        "/open — кнопка «Открыть сайт»\n"
+        "/status — портфель\n"
+        "/balance — балансы\n"
+        "/pause [BTC] · /resume [all]\n"
+        "Любой текст без / — вопрос мозгу\n"
+        "/help"
     )
 
 
@@ -456,8 +565,14 @@ def _register_telegram_commands() -> None:
     telegram_service.register_command("balance", _telegram_cmd_balance)
     telegram_service.register_command("pause", _telegram_cmd_pause)
     telegram_service.register_command("resume", _telegram_cmd_resume)
+    telegram_service.register_command("brain", _telegram_cmd_brain)
+    telegram_service.register_command("mozg", _telegram_cmd_brain)
+    telegram_service.register_command("live", _telegram_cmd_live)
+    telegram_service.register_command("open", _telegram_cmd_open)
+    telegram_service.register_command("ask", _telegram_cmd_ask)
     telegram_service.register_command("help", _telegram_cmd_help)
     telegram_service.register_command("start", _telegram_cmd_help)
+    telegram_service.register_free_text(_telegram_cmd_ask)
 
 
 async def telegram_loop():
@@ -465,7 +580,8 @@ async def telegram_loop():
     if telegram_service.enabled:
         ok = await telegram_service.send_message(
             f"✅ TradeSim v{config.APP_VERSION} — Telegram подключён\n"
-            "Команды: /status /balance /pause /resume /help"
+            "Команды: /brain /live /open /status /pause /help\n"
+            "Любой текст — вопрос мозгу"
         )
         if ok:
             logger.info("Telegram: подключён (@TradeSimbot_bot) chat_id=%s", config.TELEGRAM_CHAT_ID)
@@ -592,7 +708,7 @@ async def brain_loop():
                 set_correlation_block(corr.get("block_buys", False), corr.get("reason", ""))
             state["correlation_risk"] = corr
 
-            cycle = await brain.think(ctx, total)
+            cycle = await brain.think(ctx, total, meta=await _brain_meta_payload())
             state["brain_cycle"] = cycle
             decision = cycle.get("decision", "continue")
             set_brain_reduce_aggression(
@@ -1010,6 +1126,23 @@ def _brain_public(cycle: dict) -> dict:
             "warnings": cycle["trader_watcher"].get("warnings", [])[:3],
             "market_plays": list(cycle["trader_watcher"].get("market_plays", {}).values())[:8],
             "copy_candidates": cycle["trader_watcher"].get("copy_candidates", [])[:5],
+        },
+        "live_coach": {
+            **_agent(cycle["live_coach"]),
+            "lessons": cycle["live_coach"].get("lessons", [])[:6],
+            "readiness_pct": cycle["live_coach"].get("readiness_pct"),
+            "phase_progress": cycle["live_coach"].get("phase_progress"),
+        },
+        "sync_watcher": {
+            **_agent(cycle["sync_watcher"]),
+            "warnings": cycle["sync_watcher"].get("warnings", [])[:4],
+            "critical": cycle["sync_watcher"].get("critical", []),
+            "sync_rate_pct": cycle["sync_watcher"].get("sync_rate_pct"),
+        },
+        "crisis_guard": {
+            **_agent(cycle["crisis_guard"]),
+            "scenarios": cycle["crisis_guard"].get("scenarios", [])[:6],
+            "playbook_hints": cycle["crisis_guard"].get("playbook_hints", [])[:4],
         },
         "ts": cycle.get("ts"),
     }

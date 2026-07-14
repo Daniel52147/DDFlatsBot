@@ -979,7 +979,7 @@ function renderLearningPanel(learning, brainHistory, analytics) {
   el.innerHTML = `
     <div class="lp-row"><span class="lp-label">Сделок в БД</span><span class="lp-val">${learning?.trade_count || a?.total_trades || 0}</span></div>
     <div class="lp-row"><span class="lp-label">Продаж / TP / SL</span><span class="lp-val">${a?.total_sells ?? "—"}</span></div>
-    <div class="lp-row"><span class="lp-label">Мозг · 12 агентов</span><span class="lp-val">каждые 45 сек</span></div>
+    <div class="lp-row"><span class="lp-label">Мозг · 15 агентов</span><span class="lp-val">каждые 45 сек</span></div>
     <div class="lp-row"><span class="lp-label">По рынкам</span><span class="lp-val">${markets}</span></div>
     ${metrics}
     ${tune}${bh}

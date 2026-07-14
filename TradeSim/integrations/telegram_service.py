@@ -28,6 +28,7 @@ class TelegramService:
         self._offset = 0
         self._last_daily_ts = 0.0
         self._handlers: dict[str, CommandHandler] = {}
+        self._free_text_handler: CommandHandler | None = None
 
     @property
     def enabled(self) -> bool:
@@ -42,6 +43,10 @@ class TelegramService:
 
     def register_command(self, name: str, handler: CommandHandler) -> None:
         self._handlers[name.lower()] = handler
+
+    def register_free_text(self, handler: CommandHandler) -> None:
+        """Handler for non-command messages: (cmd, args, user_id) -> reply."""
+        self._free_text_handler = handler
 
     def _allowed_user(self, user_id: int) -> bool:
         allowed = config.TELEGRAM_ALLOWED_USER_IDS
@@ -77,6 +82,7 @@ class TelegramService:
         text: str,
         chat_id: str | None = None,
         parse_mode: str = "HTML",
+        reply_markup: dict[str, Any] | None = None,
     ) -> bool:
         if not self.enabled:
             return False
@@ -86,20 +92,34 @@ class TelegramService:
                 payload: dict[str, Any] = {
                     "chat_id": cid,
                     "text": text[:4000],
-                    "disable_web_page_preview": True,
+                    "disable_web_page_preview": False,
                 }
                 if parse_mode:
                     payload["parse_mode"] = parse_mode
+                if reply_markup:
+                    payload["reply_markup"] = reply_markup
                 r = await client.post(self._api_url("sendMessage"), json=payload)
                 if r.status_code != 200:
                     if parse_mode == "HTML":
-                        return await self.send_message(text, chat_id=cid, parse_mode="")
+                        return await self.send_message(
+                            text, chat_id=cid, parse_mode="", reply_markup=reply_markup,
+                        )
                     logger.warning("Telegram send failed: %s", r.text[:200])
                     return False
                 return True
         except Exception as e:
             logger.warning("Telegram send error: %s", e)
             return False
+
+    async def send_open_dashboard(self, chat_id: str | None = None, extra: str = "") -> bool:
+        url = config.TRADESIM_PUBLIC_URL or "http://127.0.0.1:8765"
+        text = extra or f"📊 TradeSim v{config.APP_VERSION}"
+        if not config.TRADESIM_PUBLIC_URL:
+            text += "\n\n<i>Задай TRADESIM_PUBLIC_URL в .env для ссылки Render.</i>"
+        markup = {
+            "inline_keyboard": [[{"text": "📊 Открыть TradeSim", "url": url}]],
+        }
+        return await self.send_message(text, chat_id=chat_id, reply_markup=markup)
 
     async def notify_trade(self, label: str, symbol: str, trade: Any, portfolio: dict | None = None) -> None:
         if not self.enabled or not config.TELEGRAM_ALERT_TRADES:
@@ -146,13 +166,22 @@ class TelegramService:
                     self._offset = max(self._offset, upd["update_id"] + 1)
                     msg = upd.get("message") or {}
                     text = (msg.get("text") or "").strip()
-                    if not text.startswith("/"):
+                    if not text:
                         continue
                     user = msg.get("from") or {}
                     user_id = int(user.get("id", 0))
                     chat_id = str(msg.get("chat", {}).get("id", ""))
                     if not self._allowed_user(user_id):
                         await self.send_message("⛔ Команды запрещены для этого user_id", chat_id=chat_id)
+                        continue
+                    if not text.startswith("/"):
+                        if config.TELEGRAM_FREE_CHAT and self._free_text_handler:
+                            try:
+                                reply = await self._free_text_handler("ask", [text], user_id)
+                            except Exception as e:
+                                logger.exception("Telegram free text: %s", e)
+                                reply = f"Ошибка: {e}"
+                            await self.send_message(reply[:4000], chat_id=chat_id)
                         continue
                     parts = text.split()
                     cmd = parts[0].lstrip("/").split("@")[0].lower()
@@ -164,13 +193,21 @@ class TelegramService:
                         except Exception as e:
                             logger.exception("Telegram cmd %s: %s", cmd, e)
                             reply = f"Ошибка: {e}"
+                        if cmd == "open":
+                            await self.send_open_dashboard(chat_id=chat_id, extra=reply)
+                        else:
+                            await self.send_message(reply, chat_id=chat_id)
                     else:
                         reply = (
-                            "Команды: /status /balance /pause /resume /help\n"
-                            "/pause BTC — пауза одного рынка\n"
-                            "/resume all — снять protections"
+                            "Команды:\n"
+                            "/brain /mozg — весь мозг\n"
+                            "/live — путь к Live\n"
+                            "/open — открыть сайт\n"
+                            "/status /balance\n"
+                            "/pause /resume\n"
+                            "/help"
                         )
-                    await self.send_message(reply, chat_id=chat_id)
+                        await self.send_message(reply, chat_id=chat_id)
         except httpx.ReadTimeout:
             pass
         except Exception as e:
