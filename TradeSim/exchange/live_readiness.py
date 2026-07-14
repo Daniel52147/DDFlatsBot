@@ -112,12 +112,30 @@ async def assess_live_readiness(
         ok=bool(verify.get("ok")),
         detail=verify.get("error") or f"USDT free ${verify.get('usdt_free', 0):.2f}",
     )
+    on_testnet_phase = mode_mgr.mode in ("paper", "testnet") or exchange.testnet
+    _check(
+        checks,
+        cid="testnet_env",
+        label="EXCHANGE_TESTNET=true в .env",
+        ok=exchange.enabled and exchange.testnet,
+        detail=(
+            "Testnet ключи ✓ — api.testnet.binance.vision"
+            if exchange.testnet
+            else "Для Testnet: EXCHANGE_TESTNET=true в .env и перезапуск"
+        ),
+        required=mode_mgr.mode == "testnet",
+    )
     _check(
         checks,
         cid="live_env",
-        label="EXCHANGE_TESTNET=false в .env",
+        label="Live API (EXCHANGE_TESTNET=false — только перед Live)",
         ok=exchange.enabled and not exchange.testnet,
-        detail="Live требует реальные ключи api.binance.com, не testnet",
+        detail=(
+            "Сейчас testnet ✓ — переключишь на Live в день 7"
+            if exchange.testnet
+            else "Live требует реальные ключи api.binance.com, не testnet"
+        ),
+        required=not on_testnet_phase,
     )
     _check(
         checks,

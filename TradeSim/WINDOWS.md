@@ -28,6 +28,14 @@ python -m pip install -r requirements.txt
 (В PowerShell обязательно `.\` перед именем файла — иначе «не распознано».)
 
 Или вручную: `copy .env.example .env` → `notepad .env`
+
+**Авто-настройка Testnet** (исправляет EXCHANGE_TESTNET, sync, режим):
+
+```powershell
+python scripts/apply_testnet_env.py
+```
+
+Или `.\setup-env.bat` — тот же скрипт + откроет блокнот для ключей.
 3. Вставь ключи:
 
 ```env
@@ -68,4 +76,5 @@ Binance testnet OK — USDT ...
 | Старый UI v28/v31 | `git pull` + Ctrl+Shift+R |
 | HTTP 401/403 | Ключ не от testnet или опечатка в Secret |
 | HTTP 451 | Регион блокирует Binance — запускай дома на Windows |
-| Testnet режим не включается | `EXCHANGE_TESTNET=true` в .env |
+| Testnet режим не включается | `python scripts/apply_testnet_env.py` или `EXCHANGE_TESTNET=true` |
+| Красный «Live API» в readiness | Норма на Testnet — нужен только перед Live |

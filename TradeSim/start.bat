@@ -17,13 +17,15 @@ python -m pip install -r requirements.txt -q
 
 echo.
 echo [3/4] Файл .env...
+python scripts\apply_testnet_env.py 2>nul
 if not exist ".env" (
   if exist ".env.example" (
     copy /Y .env.example .env >nul
-    echo Создан .env — открой: notepad .env
+    python scripts\apply_testnet_env.py
+    echo Создан .env — вставь ключи: notepad .env
   )
 ) else (
-  echo .env уже есть
+  echo .env проверен (testnet-настройки)
 )
 
 echo.

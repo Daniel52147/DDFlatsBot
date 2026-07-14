@@ -40,7 +40,10 @@ class LiveCoachAgent:
             lessons.append(f"Ордеров на бирже: {exchange_orders} — нужно ≥5 для фазы стабильности")
         if sync_rate < 85:
             lessons.append(f"Sync {sync_rate:.0f}% — почини перед Live")
+        skip_ids = {"live_env"} if mode == "testnet" and testnet_env else set()
         for c in failed[:4]:
+            if c.get("id") in skip_ids:
+                continue
             lessons.append(f"❌ {c.get('label', '')}: {c.get('detail', '')[:80]}")
 
         recommendation = "hold"

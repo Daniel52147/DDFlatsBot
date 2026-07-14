@@ -3,18 +3,15 @@ chcp 65001 >nul
 cd /d "%~dp0"
 echo === Настройка .env для Binance TESTNET ===
 echo.
-if not exist ".env" (
-  copy /Y .env.example .env >nul
-  echo Создан .env из шаблона
-) else (
-  echo .env уже есть — откроем для редактирования
+python scripts\apply_testnet_env.py
+if errorlevel 1 (
+  echo Ошибка apply_testnet_env.py
+  pause
+  exit /b 1
 )
 echo.
-echo Вставь ключи с https://testnet.binance.vision/
-echo   BINANCE_API_KEY=...
-echo   BINANCE_API_SECRET=...
-echo   EXCHANGE_ENABLED=true
-echo   EXCHANGE_TESTNET=true
+echo Откроем .env — вставь BINANCE_API_KEY и BINANCE_API_SECRET если пусто:
+echo   https://testnet.binance.vision/
 echo.
 notepad .env
 echo.

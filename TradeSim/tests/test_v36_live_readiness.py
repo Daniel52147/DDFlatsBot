@@ -37,6 +37,10 @@ class TestLiveReadiness(unittest.IsolatedAsyncioTestCase):
         self.assertIn("score_pct", r)
         self.assertIn("checks", r)
         self.assertFalse(r["ready_for_live"])
+        ids = {c["id"] for c in r["checks"]}
+        self.assertIn("testnet_env", ids)
+        live_chk = next(c for c in r["checks"] if c["id"] == "live_env")
+        self.assertFalse(live_chk["required"])
 
     def test_live_blocked_without_readiness(self):
         tm = TradingModeManager()
