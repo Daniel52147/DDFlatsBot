@@ -1458,7 +1458,7 @@ async def index(request: Request):
     return templates.TemplateResponse(
         request,
         "index.html",
-        {"initial_json": "null"},
+        {"initial_json": "null", "version": config.APP_VERSION},
     )
 
 

@@ -532,6 +532,17 @@ async function waitForServer(maxAttempts = 30) {
   return null;
 }
 
+function applyServerVersion(v) {
+  if (!v) return;
+  const badge = document.getElementById("app-version-badge");
+  if (badge) badge.textContent = `v${v}`;
+  const foot = document.getElementById("app-version-footer");
+  if (foot) foot.textContent = `TradeSim v${v}`;
+  if (document.title.includes("TradeSim")) {
+    document.title = document.title.replace(/v\d+/, `v${v}`);
+  }
+}
+
 async function checkServerAndSync() {
   try {
     const ping = await waitForServer();
@@ -539,6 +550,7 @@ async function checkServerAndSync() {
       showError("Сервер не отвечает. Останови старый python (Ctrl+C) и запусти: python main.py");
       return null;
     }
+    applyServerVersion(ping.version);
     if (ping.auth_required && !localStorage.getItem("tradesim_token")) {
       showToast("🔐 Для кнопок торговли нужен API-токен — введи внизу (данные грузятся без него)");
     }

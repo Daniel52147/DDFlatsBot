@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TradeSim v53 — smarter sells & UI</title>
-  <link rel="stylesheet" href="/static/style.css?v=53" />
+  <title>TradeSim v{{ version }} — brain & Live</title>
+  <link rel="stylesheet" href="/static/style.css?v={{ version }}" />
   <script>
     (function () {
       const t = localStorage.getItem("tradesim_theme") || "dark";
@@ -23,8 +23,8 @@
     <div class="brand">
       <span class="logo">◆</span>
       <div>
-        <h1>TradeSim <span class="ver-badge">v53</span></h1>
-        <p class="tagline">Limit ордера · Agent chatroom · путь к Live</p>
+        <h1>TradeSim <span class="ver-badge" id="app-version-badge">v{{ version }}</span></h1>
+        <p class="tagline">15 агентов · Telegram /brain · путь к Live</p>
       </div>
     </div>
     <div class="header-stats">
@@ -265,7 +265,7 @@
       <section class="card assistant-card v16-card">
         <div class="card-header"><h2>💬 Помощник</h2></div>
         <div id="chat-messages" class="chat-messages">
-          <div class="chat-bubble chat-bot">TradeSim v50: <b>Тема</b> · <b>Открытые ордера</b> · Limit · Chatroom · Telegram</div>
+          <div class="chat-bubble chat-bot">TradeSim v{{ version }}: <b>Мозг</b> · <b>Live</b> · Telegram /open · Playbook</div>
         </div>
         <form id="chat-form" class="chat-form">
           <input id="chat-input" type="text" placeholder="тренд / grid / momentum / DOGE?" autocomplete="off" />
@@ -293,7 +293,7 @@
   </details>
 
   <footer class="v16-footer">
-    <span>TradeSim v53 · trailing TP · все сделки</span>
+    <span id="app-version-footer">TradeSim v{{ version }}</span>
     <div class="footer-actions">
       <input id="api-token-input" type="password" placeholder="API-токен" class="token-input" />
       <button id="btn-save-token" class="btn ghost small">🔐</button>
@@ -379,6 +379,6 @@
   </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=53"></script>
+  <script src="/static/app.js?v={{ version }}"></script>
 </body>
 </html>
