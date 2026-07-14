@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TradeSim v52 — trades & chart markers</title>
-  <link rel="stylesheet" href="/static/style.css?v=52" />
+  <title>TradeSim v53 — smarter sells & UI</title>
+  <link rel="stylesheet" href="/static/style.css?v=53" />
   <script>
     (function () {
       const t = localStorage.getItem("tradesim_theme") || "dark";
@@ -23,7 +23,7 @@
     <div class="brand">
       <span class="logo">◆</span>
       <div>
-        <h1>TradeSim <span class="ver-badge">v50</span></h1>
+        <h1>TradeSim <span class="ver-badge">v53</span></h1>
         <p class="tagline">Limit ордера · Agent chatroom · путь к Live</p>
       </div>
     </div>
@@ -289,7 +289,7 @@
   </details>
 
   <footer class="v16-footer">
-    <span>TradeSim v52 · все сделки · маркеры на графике</span>
+    <span>TradeSim v53 · trailing TP · все сделки</span>
     <div class="footer-actions">
       <input id="api-token-input" type="password" placeholder="API-токен" class="token-input" />
       <button id="btn-save-token" class="btn ghost small">🔐</button>
@@ -375,6 +375,6 @@
   </div>
   <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
   <div id="js-error" class="js-error" style="display:none"></div>
-  <script src="/static/app.js?v=52"></script>
+  <script src="/static/app.js?v=53"></script>
 </body>
 </html>

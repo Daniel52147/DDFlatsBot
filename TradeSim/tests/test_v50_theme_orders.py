@@ -9,7 +9,7 @@ import config
 
 class TestV50Config(unittest.TestCase):
     def test_version(self):
-        self.assertEqual(config.APP_VERSION, 52)
+        self.assertEqual(config.APP_VERSION, 53)
 
     def test_limit_orders_still_enabled(self):
         self.assertTrue(config.LIMIT_ORDERS_ENABLED)

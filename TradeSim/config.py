@@ -25,14 +25,24 @@ GROWTH_STRATEGY = {
     "sma_period": 16,
     "spike_threshold_pct": 9.0,
     "spike_extra_amount": 28.0,
-    "take_profit_pct": 8.0,
-    "take_profit_cost_pct": 6.5,
-    "take_profit_fraction": 0.20,
-    "take_profit_cooldown_hours": 4,
+    "take_profit_pct": 7.0,
+    "take_profit_cost_pct": 4.5,
+    "take_profit_fraction": 0.22,
+    "take_profit_cooldown_hours": 3,
+    "micro_take_profit_pct": 3.0,
+    "micro_take_profit_fraction": 0.12,
+    "micro_take_profit_cooldown_hours": 2,
+    "trailing_profit_pct": 3.5,
+    "trailing_profit_min_pct": 2.0,
+    "trailing_profit_fraction": 0.18,
+    "trailing_profit_cooldown_hours": 2,
     "dip_cooldown_minutes": 20,
     "spike_cooldown_minutes": 35,
-    "stop_loss_pct": 14.0,
-    "stop_loss_fraction": 0.22,
+    "stop_loss_pct": 12.0,
+    "stop_loss_fraction": 0.25,
+    "stale_loss_pct": 8.0,
+    "stale_loss_hours": 36,
+    "stale_loss_fraction": 0.15,
 }
 
 VOLATILE_STRATEGY = {
@@ -43,14 +53,24 @@ VOLATILE_STRATEGY = {
     "sma_period": 14,
     "spike_threshold_pct": 10.0,
     "spike_extra_amount": 35.0,
-    "take_profit_pct": 6.0,
-    "take_profit_cost_pct": 5.0,
-    "take_profit_fraction": 0.25,
-    "take_profit_cooldown_hours": 3,
+    "take_profit_pct": 5.5,
+    "take_profit_cost_pct": 4.0,
+    "take_profit_fraction": 0.28,
+    "take_profit_cooldown_hours": 2,
+    "micro_take_profit_pct": 2.5,
+    "micro_take_profit_fraction": 0.14,
+    "micro_take_profit_cooldown_hours": 1.5,
+    "trailing_profit_pct": 3.0,
+    "trailing_profit_min_pct": 1.5,
+    "trailing_profit_fraction": 0.20,
+    "trailing_profit_cooldown_hours": 1.5,
     "dip_cooldown_minutes": 15,
     "spike_cooldown_minutes": 30,
-    "stop_loss_pct": 15.0,
-    "stop_loss_fraction": 0.25,
+    "stop_loss_pct": 13.0,
+    "stop_loss_fraction": 0.28,
+    "stale_loss_pct": 7.0,
+    "stale_loss_hours": 30,
+    "stale_loss_fraction": 0.18,
 }
 
 VIRAL_STRATEGY = {
@@ -192,13 +212,23 @@ STRATEGY = {
     "spike_extra_amount": 35.0,
     "spike_cooldown_minutes": 20,
     "sma_period": 20,
-    "take_profit_pct": 10.0,
-    "take_profit_cost_pct": 8.0,
-    "take_profit_fraction": 0.15,
+    "take_profit_pct": 8.0,
+    "take_profit_cost_pct": 4.5,
+    "take_profit_fraction": 0.18,
     "take_profit_cooldown_hours": 3,
+    "micro_take_profit_pct": 3.0,
+    "micro_take_profit_fraction": 0.12,
+    "micro_take_profit_cooldown_hours": 2,
+    "trailing_profit_pct": 3.5,
+    "trailing_profit_min_pct": 2.0,
+    "trailing_profit_fraction": 0.18,
+    "trailing_profit_cooldown_hours": 2,
     "stop_loss_pct": 12.0,
     "stop_loss_fraction": 0.2,
     "stop_loss_cooldown_hours": 6,
+    "stale_loss_pct": 8.0,
+    "stale_loss_hours": 36,
+    "stale_loss_fraction": 0.15,
     "max_buy_pct_of_cash": 0.5,
 }
 
@@ -320,7 +350,7 @@ TRADE_MODE = os.environ.get("TRADE_MODE", "active").lower()
 ACTIVE_TRADE_ON_START = _env_bool("ACTIVE_TRADE_ON_START", True)
 ACTIVE_TRADE_RESET_TIMERS = _env_bool("ACTIVE_TRADE_RESET_TIMERS", False)
 
-APP_VERSION = 52
+APP_VERSION = 53
 
 # UI theme default (dark | light) — client override in localStorage
 UI_THEME_DEFAULT = os.environ.get("UI_THEME_DEFAULT", "dark")

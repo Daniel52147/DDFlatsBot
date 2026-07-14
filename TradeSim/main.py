@@ -1651,7 +1651,7 @@ async def api_export_trades(symbol: str | None = None, limit: int | None = None)
 
 
 @app.get("/api/trades")
-async def api_all_trades(symbol: str | None = None, limit: int = 200):
+async def api_all_trades(symbol: str | None = None, limit: int = 500):
     trades = await _all_trades_db(limit=limit, symbol=symbol)
     mem_count = sum(len(s.engine.trades) for s in sessions.values())
     return {

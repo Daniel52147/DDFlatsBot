@@ -75,6 +75,9 @@ class TestStopLossTakeProfit(unittest.TestCase):
             "take_profit_cost_pct": 5.0,
             "take_profit_fraction": 0.5,
             "take_profit_cooldown_hours": 0,
+            "micro_take_profit_pct": 99.0,
+            "trailing_profit_pct": 99.0,
+            "stale_loss_pct": 99.0,
             "dca_interval_hours": 999,
         }
         bot = StrategyBot(engine, params=params)

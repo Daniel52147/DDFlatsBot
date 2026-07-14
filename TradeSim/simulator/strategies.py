@@ -51,6 +51,37 @@ def default_params(strategy_type: str) -> dict:
     return dict(mapping.get(strategy_type, config.STRATEGY))
 
 
+SELL_PARAM_KEYS = (
+    "take_profit_pct",
+    "take_profit_cost_pct",
+    "take_profit_fraction",
+    "take_profit_cooldown_hours",
+    "micro_take_profit_pct",
+    "micro_take_profit_fraction",
+    "micro_take_profit_cooldown_hours",
+    "trailing_profit_pct",
+    "trailing_profit_min_pct",
+    "trailing_profit_fraction",
+    "trailing_profit_cooldown_hours",
+    "stop_loss_pct",
+    "stop_loss_fraction",
+    "stop_loss_cooldown_hours",
+    "stale_loss_pct",
+    "stale_loss_hours",
+    "stale_loss_fraction",
+)
+
+
+def merge_sell_params(strategy_type: str, params: dict) -> dict:
+    """Apply latest sell/trailing defaults without wiping user DCA tuning."""
+    fresh = default_params(strategy_type)
+    out = dict(params)
+    for key in SELL_PARAM_KEYS:
+        if key in fresh:
+            out[key] = fresh[key]
+    return out
+
+
 def create_bot(
     engine: SimulatorEngine,
     strategy_type: str = "dca",
@@ -59,6 +90,7 @@ def create_bot(
     base = default_params(strategy_type)
     if params:
         base = {**base, **params}
+    base = merge_sell_params(strategy_type, base)
     cls = {
         "dca": DCAStrategyBot,
         "grid": GridStrategyBot,

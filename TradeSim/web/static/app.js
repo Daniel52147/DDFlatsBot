@@ -190,7 +190,7 @@ async function loadTradesTable(symbolOrAll) {
   el.innerHTML = "<p class='muted'>Загрузка сделок из SQLite...</p>";
   try {
     const sym = filter === "all" ? "" : (filter || activeSymbol);
-    const url = sym ? `/api/trades?limit=300&symbol=${sym}` : "/api/trades?limit=300";
+    const url = sym ? `/api/trades?limit=500&symbol=${sym}` : "/api/trades?limit=500";
     const data = await (await fetch(url)).json();
     const trades = data.trades || [];
     const markets = Object.keys(marketsData).sort();
@@ -1117,7 +1117,7 @@ async function loadCandlesForSymbol(symbol, force = false) {
     const d = marketsData[symbol];
     const lag = d?.candle_lag_sec ?? 0;
     const refresh = force || lag > 90 || !d?.candles_ready || !(d?.candles?.length >= 40);
-    const url = `/api/candles?symbol=${symbol}&limit=200${refresh ? "&refresh=1" : ""}`;
+    const url = `/api/candles?symbol=${symbol}&limit=500${refresh ? "&refresh=1" : ""}`;
     const res = await fetch(url);
     const data = await res.json();
     if (data.candles?.length) {
@@ -1601,7 +1601,7 @@ async function renderAllTrades() {
   if (!ul) return;
   let all = [];
   try {
-    const res = await fetch("/api/trades?limit=300");
+    const res = await fetch("/api/trades?limit=500");
     const data = await res.json();
     all = data.trades || [];
   } catch (_) {}
@@ -1784,7 +1784,7 @@ function updateTradeMarkers(trades) {
 
 async function refreshTradeMarkers(symbol) {
   try {
-    const tr = await (await fetch(`/api/trades?symbol=${symbol}&limit=50`)).json();
+    const tr = await (await fetch(`/api/trades?symbol=${symbol}&limit=120`)).json();
     updateTradeMarkers(tr.trades || []);
   } catch (_) {
     updateTradeMarkers(marketsData[symbol]?.trades || []);
