@@ -824,7 +824,8 @@ footer {
 .playbook-scenario.warn { border-left-color: var(--accent2); }
 .playbook-scenario.active { box-shadow: 0 0 0 1px var(--accent2); }
 .playbook-scenario .plan-a { color: var(--green); }
-.playbook-scenario .plan-b { color: var(--accent2); }
+.playbook-other-cat { margin: 0.35rem 0; font-size: 0.78rem; }
+.playbook-other-cat summary { cursor: pointer; color: var(--muted); }
 .strategy-picker {
   display: flex;
   flex-wrap: wrap;

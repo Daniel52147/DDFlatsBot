@@ -1435,28 +1435,33 @@ function renderLivePlaybookPanel(data) {
   window.lastLivePlaybook = data;
   const rules = (data.quick_rules || []).map(r => `<li>${escapeHtml(r)}</li>`).join("");
   const active = new Set(data.active_hints || []);
-  const cats = (data.categories || []).map(cat => {
-    const items = (cat.scenarios || []).map(s => {
-      const cls = [s.severity || "info", s.may_apply || active.has(s.id) ? "active" : ""].filter(Boolean).join(" ");
-      const actions = (s.actions || []).map(a => `<code>${escapeHtml(a)}</code>`).join(" · ");
-      return `<div class="playbook-scenario ${cls}">
-        <p><b>${escapeHtml(s.title)}</b>${s.may_apply ? " <span class='warn'>← может быть активно</span>" : ""}</p>
-        <p class="muted">${escapeHtml(s.situation || "")}</p>
-        <p class="muted"><b>Как узнать:</b> ${escapeHtml(s.detection || "")}</p>
-        <p class="plan-a"><b>План А (бот):</b> ${escapeHtml(s.plan_a || "")}</p>
-        <p class="plan-b"><b>План Б (ты):</b> ${escapeHtml(s.plan_b || "")}</p>
-        ${actions ? `<p class="muted tiny">${actions}</p>` : ""}
-      </div>`;
-    }).join("");
-    return `<div class="playbook-category"><h4>${escapeHtml(cat.title || "")} (${cat.count || 0})</h4>${items}</div>`;
+  const renderScenario = s => {
+    const cls = [s.severity || "info", s.may_apply || active.has(s.id) ? "active" : ""].filter(Boolean).join(" ");
+    const actions = (s.actions || []).map(a => `<code>${escapeHtml(a)}</code>`).join(" · ");
+    return `<div class="playbook-scenario ${cls}">
+      <p><b>${escapeHtml(s.title)}</b>${s.may_apply ? " <span class='warn'>← сейчас</span>" : ""}</p>
+      <p class="muted">${escapeHtml(s.situation || "")}</p>
+      <p class="muted"><b>Как узнать:</b> ${escapeHtml(s.detection || "")}</p>
+      <p class="plan-a"><b>План А (бот):</b> ${escapeHtml(s.plan_a || "")}</p>
+      <p class="plan-b"><b>План Б (ты):</b> ${escapeHtml(s.plan_b || "")}</p>
+      ${actions ? `<p class="muted tiny">${actions}</p>` : ""}
+    </div>`;
+  };
+  const marketBlock = (data.market_crises || []).map(renderScenario).join("");
+  const otherCats = (data.categories || []).filter(c => c.id !== "market").map(cat => {
+    const items = (cat.scenarios || []).map(renderScenario).join("");
+    return `<details class="playbook-other-cat"><summary>${escapeHtml(cat.title || "")} (${cat.count || 0})</summary>${items}</details>`;
   }).join("");
   el.innerHTML = `
     <div class="honesty-box warn">
-      <p><b>${escapeHtml(data.title || "Live Playbook")}</b></p>
+      <p><b>${escapeHtml(data.title || "Рыночные кризисы")}</b></p>
       <p class="muted">${escapeHtml(data.summary || "")}</p>
     </div>
     <ul class="auto-tactics-list">${rules}</ul>
-    ${cats}`;
+    <p class="muted"><b>🔥 Обвалы, пампы, паника — план А / Б:</b></p>
+    ${marketBlock}
+    <p class="muted" style="margin-top:0.75rem"><b>Техническое (API, sync, Telegram):</b></p>
+    ${otherCats}`;
 }
 
 async function loadLivePlaybook() {

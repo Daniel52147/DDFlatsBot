@@ -28,8 +28,12 @@ class TestLivePlaybook(unittest.TestCase):
         self.assertEqual(total, len(LIVE_PLAYBOOK))
         self.assertIn("max_drawdown", data["active_hints"])
 
-    def test_minimum_coverage(self):
-        self.assertGreaterEqual(len(LIVE_PLAYBOOK), 30)
+    def test_market_crises_focus(self):
+        data = build_live_playbook()
+        self.assertGreaterEqual(len(data["market_crises"]), 15)
+        self.assertEqual(data["focus"], "market_crises")
+        for s in data["market_crises"]:
+            self.assertEqual(s["category"], "market")
 
 
 if __name__ == "__main__":
