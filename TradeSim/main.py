@@ -2641,4 +2641,4 @@ if __name__ == "__main__":
         logger.info(
             "Локальный режим без TRADESIM_API_TOKEN — для облака задай токен в .env"
         )
-    uvicorn.run("main:app", host=host, port=8765, reload=False)
+    uvicorn.run("main:app", host=host, port=config.SERVER_PORT, reload=False)

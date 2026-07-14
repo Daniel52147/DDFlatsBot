@@ -9,8 +9,9 @@ except ImportError:
     pass
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data"
-DATA_DIR.mkdir(exist_ok=True)
+_data_dir_override = os.environ.get("DATA_DIR", "").strip()
+DATA_DIR = Path(_data_dir_override) if _data_dir_override else BASE_DIR / "data"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 DB_PATH = DATA_DIR / "tradesim.db"
 
@@ -418,6 +419,8 @@ def _default_bind_host() -> str:
 
 
 BIND_HOST = _default_bind_host()
+# Render sets PORT; locally default 8765
+SERVER_PORT = int(os.environ.get("PORT", os.environ.get("TRADESIM_PORT", "8765")))
 API_TOKEN = os.environ.get("TRADESIM_API_TOKEN", "")
 
 # Live exchange (optional — set env BINANCE_API_KEY + BINANCE_API_SECRET + EXCHANGE_ENABLED=true)
