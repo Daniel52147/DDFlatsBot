@@ -28,10 +28,14 @@ class SyncWatcherAgent:
             bad_list = [
                 {"symbol": k, **(v if isinstance(v, dict) else {"delta": v})}
                 for k, v in bad.items()
-                if isinstance(v, dict) and abs(float(v.get("base_delta", v.get("delta", 0)) or 0)) > 0.01
+                if isinstance(v, dict)
+                and abs(float(v.get("base_diff", v.get("base_delta", v.get("delta", 0))) or 0)) > 0.01
             ]
         else:
-            bad_list = [m for m in bad if abs(float(m.get("base_delta", m.get("delta", 0)) or 0)) > 0.01]
+            bad_list = [
+                m for m in bad
+                if abs(float(m.get("base_diff", m.get("base_delta", m.get("delta", 0))) or 0)) > 0.01
+            ]
 
         warnings: list[str] = []
         critical: list[str] = []
@@ -41,7 +45,7 @@ class SyncWatcherAgent:
             warnings.append(f"сбоев sync: {sync_failures}")
         for m in bad_list[:4]:
             sym = m.get("symbol", m.get("label", "?"))
-            delta = float(m.get("base_delta", m.get("delta", 0)) or 0)
+            delta = float(m.get("base_diff", m.get("base_delta", m.get("delta", 0))) or 0)
             if abs(delta) > 0.1:
                 critical.append(f"{sym}: Δ base {delta:+.4f}")
             elif abs(delta) > 0.01:

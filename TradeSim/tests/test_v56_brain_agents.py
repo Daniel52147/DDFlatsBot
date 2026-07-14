@@ -28,7 +28,7 @@ class TestNewBrainAgents(unittest.TestCase):
         agent = SyncWatcherAgent()
         rep = agent.analyze([], {}, meta={
             "live_prep": {"stability": {"success_rate_pct": 70, "sync_failures": 5, "exchange_orders": 2}},
-            "reconcile": {"markets": [{"symbol": "BTCUSDT", "base_delta": 0.5}]},
+            "reconcile": {"markets": [{"symbol": "BTCUSDT", "base_diff": 0.98}]},
         })
         self.assertEqual(rep["recommendation"], "reduce_aggression")
         self.assertTrue(rep.get("critical"))

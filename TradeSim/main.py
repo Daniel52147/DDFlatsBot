@@ -382,7 +382,12 @@ async def _brain_meta_payload() -> dict[str, Any]:
     now = time.time()
     cached = state.get("_brain_meta")
     if cached and now - float(state.get("_brain_meta_ts", 0)) < 90:
-        return cached
+        payload = dict(cached)
+        payload["trading_mode"] = trading_mode.mode
+        payload["risk_gate"] = risk_status()
+        payload["correlation_risk"] = state.get("correlation_risk", {})
+        payload["protections"] = protections_engine.status()
+        return payload
 
     from simulator.risk_gate import risk_status
 
@@ -396,7 +401,7 @@ async def _brain_meta_payload() -> dict[str, Any]:
                 r = await live_exchange.reconcile(
                     sym, s.engine.position.base, s.engine.position.quote,
                 )
-                delta = float(r.get("base_delta", 0) or 0)
+                delta = float(r.get("base_diff", r.get("base_delta", 0)) or 0)
                 if abs(delta) > 0.005:
                     reconcile_markets.append({**r, "symbol": sym, "label": s.label})
             except Exception:
