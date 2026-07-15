@@ -108,6 +108,8 @@ class BinanceLiveExchange:
         self._time_offset_ms = 0
         self._time_sync_ts = 0.0
         self._recv_window = int(os.environ.get("BINANCE_RECV_WINDOW", "60000"))
+        self._balances_cache: dict[str, float] = {}
+        self._balances_cache_ts = 0.0
 
     def status(self) -> dict[str, Any]:
         return {
@@ -275,9 +277,14 @@ class BinanceLiveExchange:
     def _round_step(qty: float, step: float) -> float:
         if step <= 0:
             return qty
-        precision = max(0, len(str(step).rstrip("0").split(".")[-1]) if "." in str(step) else 0)
-        floored = (int(qty / step)) * step
-        return round(floored, precision)
+        from decimal import Decimal, ROUND_DOWN
+
+        d_qty = Decimal(str(qty))
+        d_step = Decimal(str(step))
+        if d_step <= 0:
+            return qty
+        units = (d_qty / d_step).to_integral_value(rounding=ROUND_DOWN)
+        return float(units * d_step)
 
     async def account_balances(self) -> dict[str, Any]:
         if not self.enabled:
@@ -288,7 +295,15 @@ class BinanceLiveExchange:
             for b in data.get("balances", [])
             if float(b["free"]) + float(b["locked"]) > 0
         ]
+        self._balances_cache = {b["asset"]: b["free"] + b["locked"] for b in balances}
+        self._balances_cache_ts = time.time()
         return {"mode": "testnet" if self.testnet else "live", "balances": balances[:30]}
+
+    async def asset_balance(self, asset: str) -> float:
+        """Free+locked for one asset (cached ~20s)."""
+        if time.time() - self._balances_cache_ts > 20:
+            await self.account_balances()
+        return float(self._balances_cache.get(asset, 0.0))
 
     async def deposit_address(self, coin: str = "USDT", network: str = "TRC20") -> dict[str, Any]:
         if not self.enabled:

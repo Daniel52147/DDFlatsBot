@@ -169,7 +169,10 @@ async def run_smoke_test(
                 if bad:
                     detail += f" · реальный drift: {len(bad)}"
             else:
+                faucet = [r for r in reconcile if r.get("status") == "testnet_faucet"]
                 detail = f"{len(reconcile)} рынков · красных Δ>15%: {len(bad)}"
+                if faucet:
+                    detail += f" · faucet testnet: {len(faucet)} (игнор)"
             _check(
                 checks,
                 cid="reconcile",
@@ -229,6 +232,11 @@ async def _quick_reconcile(sessions: dict, exchange) -> list[dict[str, Any]]:
             status = "empty"
             bad = False
             diff_pct = 0.0
+        elif ex_base > max(paper_base * 5, 0.01) and paper_usd < 500 and ex_usd > 500:
+            # Testnet faucet: 1 BTC на счёте, paper только бот-позиция
+            status = "testnet_faucet"
+            bad = False
+            diff_pct = round(abs(ex_base - paper_base) / max(ex_base, 1e-8) * 100, 2)
         elif not config.EXCHANGE_SYNC_FROM_PAPER and ex_usd < 3 and paper_usd >= 3:
             status = "paper_only"
             bad = False

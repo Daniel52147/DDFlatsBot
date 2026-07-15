@@ -168,6 +168,25 @@ class TestPaperToExchange(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["direction"], "paper_to_exchange")
         self.assertTrue(exchange.last_call.get("from_paper_sync"))
 
+    async def test_skips_sell_without_exchange_base(self):
+        session = MockSession(base=1.0, price=100.0)
+        trade = session.engine.sell(100.0, 0.5, "TAKE-PROFIT")
+        assert trade is not None
+
+        class NoBaseExchange(MockExchange):
+            async def asset_balance(self, asset: str) -> float:
+                return 0.0
+
+            async def _load_symbol_rules(self, symbol: str) -> dict:
+                return {"min_notional": 10.0, "step_size": 0.00001, "min_qty": 0.0}
+
+        exchange = NoBaseExchange(exchange_base=0.0)
+        with patch.object(config, "EXCHANGE_SYNC_FROM_PAPER", True):
+            result = await sync_trade_to_exchange(session, trade, exchange)
+        assert result is not None
+        self.assertTrue(result["ok"])
+        self.assertTrue(result.get("skipped"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 import config
+from exchange.binance_live import BinanceLiveExchange
 
 logger = logging.getLogger(__name__)
 
@@ -221,6 +222,21 @@ async def sync_trade_to_exchange(
     if trade.side == "sell":
         amount_base = float(getattr(trade, "amount_base", 0) or 0)
         amount_usd = amount_base * price if amount_base > 0 else float(getattr(trade, "amount_quote", 0) or 0)
+        sell_base = amount_base if amount_base > 0 else (amount_usd / price if price else 0)
+        base_asset = session.symbol.replace("USDT", "")
+        try:
+            ex_base = await exchange.asset_balance(base_asset)
+        except Exception:
+            ex_base = 0.0
+        rules = await exchange._load_symbol_rules(session.symbol)
+        need_base = BinanceLiveExchange._round_step(sell_base, rules.get("step_size", 0.00001))
+        if need_base > ex_base * 0.98:
+            return {
+                "ok": True,
+                "skipped": True,
+                "side": "sell",
+                "reason": f"sell skip — на бирже {ex_base:.6f} {base_asset}, нужно ~{need_base:.6f}",
+            }
     else:
         amount_usd = float(getattr(trade, "amount_quote", 0) or 0)
     if amount_usd <= 0:

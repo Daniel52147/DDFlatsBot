@@ -1192,10 +1192,14 @@ async def after_paper_trade(session, trade):
             portfolio_pnl_pct=tot["pnl_pct"],
         )
         if result:
+            ok = bool(result.get("ok"))
+            detail = result.get("error") or result.get("reason") or "ok"
+            if result.get("skipped"):
+                ok = True
             await logger_db.log_stability_event(
                 "paper_sync",
-                bool(result.get("ok")),
-                result.get("error") or "ok",
+                ok,
+                str(detail)[:500],
                 session.symbol,
             )
     payload = {
@@ -1205,9 +1209,11 @@ async def after_paper_trade(session, trade):
         "total": total_portfolio(),
         "trading_mode": trading_mode.mode,
     }
-    if result and result.get("ok"):
+    if result and result.get("ok") and not result.get("skipped"):
         payload["paper_to_exchange"] = result
         await broadcast(payload)
+    elif result and result.get("skipped"):
+        pass  # ожидаемо — paper впереди биржи по sells
     elif result and not result.get("ok"):
         payload["paper_to_exchange"] = result
         await broadcast(payload)
@@ -1967,6 +1973,10 @@ async def api_live_prep_start_micro(target: str = "testnet"):
         mode_result = trading_mode.set_mode("testnet", exchange=live_exchange)
         if mode_result.get("ok"):
             apply_testnet_on_mode_switch(sessions, "testnet")
+            cleared = await logger_db.clear_stability_events(kind="paper_sync")
+            await logger_db.log_stability_event(
+                "paper_sync", True, f"micro testnet start — сброшено {cleared} старых событий", "",
+            )
 
     prep = await _live_prep_payload()
     if mode_result.get("ok"):

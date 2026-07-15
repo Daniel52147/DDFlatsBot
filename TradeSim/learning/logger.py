@@ -501,6 +501,25 @@ class LearningLogger:
       )
       await db.commit()
 
+  async def clear_stability_events(self, *, kind: str | None = None, hours: int | None = None) -> int:
+    """Reset sync stats — e.g. before Micro Testnet drill."""
+    async with self._connect() as db:
+      if hours is not None:
+        since = time.time() - hours * 3600
+        if kind:
+          cur = await db.execute(
+            "DELETE FROM stability_events WHERE kind = ? AND ts < ?",
+            (kind, since),
+          )
+        else:
+          cur = await db.execute("DELETE FROM stability_events WHERE ts < ?", (since,))
+      elif kind:
+        cur = await db.execute("DELETE FROM stability_events WHERE kind = ?", (kind,))
+      else:
+        cur = await db.execute("DELETE FROM stability_events")
+      await db.commit()
+      return cur.rowcount or 0
+
   async def stability_summary(self, hours: int = 168) -> dict[str, Any]:
     since = time.time() - hours * 3600
     async with self._connect() as db:

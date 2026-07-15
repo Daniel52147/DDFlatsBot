@@ -92,14 +92,20 @@ function smaPeriod(symbol) {
   return d?.strategy?.params?.sma_period || 20;
 }
 
+function asText(v, fallback = "") {
+  if (v == null) return fallback;
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  if (typeof v === "object") {
+    return v.error || v.message || v.note || v.detail || v.reason || fallback || JSON.stringify(v);
+  }
+  return String(v);
+}
+
 function showToast(text, ms = 5000) {
   const el = document.getElementById("toast");
   if (!el) return;
-  let msg = text;
-  if (msg != null && typeof msg !== "string") {
-    msg = msg.error || msg.message || msg.note || JSON.stringify(msg);
-  }
-  el.textContent = msg == null ? "" : String(msg);
+  el.textContent = asText(text);
   el.classList.remove("hidden");
   clearTimeout(showToast._t);
   showToast._t = setTimeout(() => el.classList.add("hidden"), ms);
@@ -1075,7 +1081,7 @@ function renderLearningPanel(learning, brainHistory, analytics) {
 }
 
 function pushActivity(text) {
-  activityLog.unshift({ ts: Date.now(), text });
+  activityLog.unshift({ ts: Date.now(), text: asText(text) });
   activityLog = activityLog.slice(0, 12);
   renderActivityFeed();
 }
@@ -1994,7 +2000,7 @@ function connectWs() {
       if (msg.type === "brain_update" && msg.cycle) {
         renderBrain(msg.cycle);
         if (msg.cycle.verdict) {
-          pushActivity(`Мозг: ${msg.cycle.verdict.slice(0, 80)}`);
+          pushActivity(`Мозг: ${asText(msg.cycle.verdict).slice(0, 80)}`);
         }
         loadAgentChatroom();
       }
@@ -2097,8 +2103,8 @@ function connectWs() {
       }
       if (msg.type === "profit_focus") {
         const icon = msg.action === "pause" ? "⏸" : msg.action === "resume" ? "▶️" : "💎";
-        showToast(`${icon} Profit Focus · ${msg.label}: ${msg.reason || msg.action}`);
-        pushActivity(`${icon} ${msg.label}: ${msg.reason || msg.action}`);
+        showToast(`${icon} Profit Focus · ${msg.label}: ${asText(msg.reason || msg.action)}`);
+        pushActivity(`${icon} ${msg.label}: ${asText(msg.reason || msg.action)}`);
         if (msg.symbol) {
           mergeMarket(msg.symbol, { strategy: { enabled: msg.action !== "pause" } });
           if (msg.symbol === activeSymbol) renderBotStatus(marketsData[msg.symbol]);
