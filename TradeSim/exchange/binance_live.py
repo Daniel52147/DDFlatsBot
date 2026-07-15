@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import logging
 import os
 import time
@@ -96,14 +97,17 @@ class BinanceLiveExchange:
     LIVE = "https://api.binance.com"
 
     def __init__(self):
-        self.api_key = os.environ.get("BINANCE_API_KEY", "")
-        self.api_secret = os.environ.get("BINANCE_API_SECRET", "")
+        self.api_key = os.environ.get("BINANCE_API_KEY", "").strip()
+        self.api_secret = os.environ.get("BINANCE_API_SECRET", "").strip()
         self.testnet = config.EXCHANGE_TESTNET
         self.base_url = self.TESTNET if self.testnet else self.LIVE
         self.risk = ExchangeRiskManager()
         self.enabled = bool(self.api_key and self.api_secret and config.EXCHANGE_ENABLED)
         self._symbol_rules: dict[str, dict[str, Any]] = {}
         self._rules_ts = 0.0
+        self._time_offset_ms = 0
+        self._time_sync_ts = 0.0
+        self._recv_window = int(os.environ.get("BINANCE_RECV_WINDOW", "60000"))
 
     def status(self) -> dict[str, Any]:
         return {
@@ -138,12 +142,62 @@ class BinanceLiveExchange:
         ).hexdigest()
         return f"{query}&signature={sig}"
 
+    async def _sync_server_time(self) -> None:
+        """Align local clock with Binance — fixes -1021 / HTTP 400 timestamp errors."""
+        if time.time() - self._time_sync_ts < 300:
+            return
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.get(f"{self.base_url}/api/v3/time")
+                r.raise_for_status()
+                server_ms = int(r.json().get("serverTime", 0))
+            local_ms = int(time.time() * 1000)
+            self._time_offset_ms = server_ms - local_ms
+            self._time_sync_ts = time.time()
+            if abs(self._time_offset_ms) > 3000:
+                logger.warning("Binance time skew: %d ms — using server offset", self._time_offset_ms)
+        except Exception as e:
+            logger.debug("time sync skipped: %s", e)
+
+    def _timestamp_ms(self) -> int:
+        return int(time.time() * 1000) + self._time_offset_ms
+
+    @staticmethod
+    def _parse_binance_error(body: str, status: int, *, testnet: bool = True) -> str:
+        """Human-readable hint from Binance JSON error body."""
+        try:
+            data = json.loads(body)
+        except Exception:
+            return f"HTTP {status} — {body[:200]}"
+        code = data.get("code")
+        msg = data.get("msg", "")
+        hints = {
+            -1021: "Время ПК не совпадает с Binance — синхронизируй часы Windows или перезапусти бота",
+            -1022: "Неверная подпись — проверь BINANCE_API_SECRET без пробелов в .env",
+            -2014: "Неверный формат API Key — ключ с testnet.binance.vision, не с binance.com",
+            -2015: "Ключ недействителен — перевыпусти на testnet.binance.vision",
+            -1102: "Параметр запроса неверен — обнови TradeSim (git pull)",
+        }
+        hint = hints.get(code, "")
+        where = "testnet.binance.vision" if testnet else "api.binance.com"
+        base = f"Binance {code}: {msg}" if code else f"HTTP {status}: {msg or body[:120]}"
+        if hint:
+            return f"{base} — {hint}"
+        if status == 400 and not code:
+            return (
+                f"{base} — проверь ключи на {where}, без пробелов в .env, "
+                "перевыпусти если светились в чате"
+            )
+        return base
+
     async def _request(self, method: str, path: str, params: dict | None = None, signed: bool = False):
         params = dict(params or {})
         url = f"{self.base_url}{path}"
         headers = {"X-MBX-APIKEY": self.api_key} if signed else {}
         if signed:
-            params["timestamp"] = int(time.time() * 1000)
+            await self._sync_server_time()
+            params["timestamp"] = self._timestamp_ms()
+            params["recvWindow"] = self._recv_window
             url = f"{url}?{self._sign(params)}"
             params = None
         async with httpx.AsyncClient(timeout=20) as client:
@@ -161,7 +215,8 @@ class BinanceLiveExchange:
                     f"Binance отклонил ключ (HTTP {r.status_code}) — проверь API Key/Secret и "
                     f"что ключ создан на {'testnet.binance.vision' if self.testnet else 'binance.com'}"
                 )
-            r.raise_for_status()
+            if r.status_code >= 400:
+                raise RuntimeError(self._parse_binance_error(r.text, r.status_code, testnet=self.testnet))
             return r.json()
 
     async def verify_connection(self) -> dict[str, Any]:

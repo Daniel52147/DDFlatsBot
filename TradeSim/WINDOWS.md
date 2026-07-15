@@ -77,4 +77,5 @@ Binance testnet OK — USDT ...
 | HTTP 401/403 | Ключ не от testnet или опечатка в Secret |
 | HTTP 451 | Регион блокирует Binance — запускай дома на Windows |
 | Testnet режим не включается | `python scripts/apply_testnet_env.py` или `EXCHANGE_TESTNET=true` |
+| API 400 / ключи | `python scripts/check_binance_keys.py` → перевыпусти ключ на testnet |
 | Красный «Live API» в readiness | Норма на Testnet — нужен только перед Live |

@@ -1591,7 +1591,7 @@ function renderLiveReadinessPanel(data) {
   const score = data.score_pct ?? 0;
   const cls = data.ready_for_live ? "ok" : score >= 60 ? "warn" : "bad";
   const checks = (data.checks || []).map(c => {
-    const icon = c.ok ? "✅" : "❌";
+    const icon = c.ok ? "✅" : c.required === false ? "⏳" : "❌";
     return `<li>${icon} <b>${escapeHtml(c.label)}</b> — <span class="muted">${escapeHtml(c.detail || "")}</span></li>`;
   }).join("");
   const plan = (data.week_plan || []).map(p =>
