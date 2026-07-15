@@ -92,7 +92,11 @@ function smaPeriod(symbol) {
 function showToast(text, ms = 5000) {
   const el = document.getElementById("toast");
   if (!el) return;
-  el.textContent = text;
+  let msg = text;
+  if (msg != null && typeof msg !== "string") {
+    msg = msg.error || msg.message || msg.note || JSON.stringify(msg);
+  }
+  el.textContent = msg == null ? "" : String(msg);
   el.classList.remove("hidden");
   clearTimeout(showToast._t);
   showToast._t = setTimeout(() => el.classList.add("hidden"), ms);
@@ -1551,6 +1555,11 @@ async function runSmokeTest() {
   try {
     const res = await apiFetch("/api/smoke-test", { method: "POST", body: "{}" });
     const data = await res.json();
+    if (!data.checks?.length) {
+      if (el) el.innerHTML = `<p class='muted'>⚠ ${escapeHtml(data.error || data.note || "Smoke test — нет данных")}</p>`;
+      showToast(data.error || data.note || "Smoke test — ошибка", 6000);
+      return null;
+    }
     renderSmokeTestPanel(data);
     showToast(data.certified ? "✅ Smoke test пройден" : "⚠ Smoke test — есть проблемы", 6000);
     if (data.live_prep) renderLivePrepPanel(data.live_prep);
@@ -1605,7 +1614,7 @@ function renderLiveReadinessPanel(data) {
   }
   el.innerHTML = `
     <div class="honesty-box ${cls}">
-      <p><b>Готовность к Live: ${score}%</b> ${data.ready_for_live ? "— можно включать 🏦 Live" : "— доработай пункты"}</p>
+      <p><b>Готовность к Live: ${score}%</b> ${data.ready_for_live ? "— можно Live Micro ($10–15)" : "— доработай пункты"}</p>
       <p class="muted">Paper ${st.paper_days ?? 0}д · Testnet ${st.testnet_days ?? 0}д · сделок ${st.trade_count ?? 0} · P&L ${fmtPct(st.pnl_pct)}</p>
       ${vsNote}
       <p class="muted">На Live: макс. $${lim.max_order_usd ?? 25}/ордер · дневной стоп ${lim.max_daily_loss_pct ?? 3}%</p>

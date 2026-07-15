@@ -222,6 +222,22 @@ async def assess_live_readiness(
         detail=f"Просадка портфеля {dd_pct:.1f}% от пика ${peak_val:,.0f}",
     )
 
+    stability_24h = await logger_db.stability_summary(hours=24)
+    sync_rate_24h = float(stability_24h.get("success_rate_pct", 100))
+    sync_failures_24h = int(stability_24h.get("sync_failures", 0))
+    ex_orders_24h = int(stability_24h.get("exchange_orders", 0))
+    _check(
+        checks,
+        cid="sync_stability",
+        label="Sync стабильность ≥ 85% (24ч)",
+        ok=sync_rate_24h >= 85 or mode_mgr.mode == "paper",
+        detail=(
+            f"{sync_rate_24h:.0f}% · сбоев {sync_failures_24h} · ордеров {ex_orders_24h} · "
+            "кнопка Sync paper (все) + Micro Testnet"
+        ),
+        required=mode_mgr.mode in ("testnet", "live"),
+    )
+
     required = [c for c in checks if c.get("required", True)]
     passed = sum(1 for c in required if c["ok"])
     score = round(passed / len(required) * 100) if required else 0
@@ -245,7 +261,7 @@ async def assess_live_readiness(
         },
         "week_plan": _week_plan(paper_days, testnet_days, trade_count, mode_mgr.mode),
         "summary": (
-            "Все проверки пройдены — можно включать Live с малыми лимитами"
+            "Все проверки пройдены — можно пробовать Live Micro ($10–15), не полный депозит"
             if ready
             else "Доработай пункты ниже перед реальными деньгами"
         ),

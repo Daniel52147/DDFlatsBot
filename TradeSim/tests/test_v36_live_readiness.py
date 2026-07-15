@@ -28,6 +28,10 @@ class TestLiveReadiness(unittest.IsolatedAsyncioTestCase):
         tm.milestones.return_value = {}
         logger = AsyncMock()
         logger.performance_summary.return_value = {"trade_count": 5}
+        logger.stability_summary = AsyncMock(return_value={
+            "success_rate_pct": 90, "sync_failures": 1, "exchange_orders": 5,
+        })
+        logger.equity_curve = AsyncMock(return_value=[])
         bench = {"vs_hold_pct": 1.0, "live_pnl_pct": 0.5, "hold_pnl_pct": -0.5}
         r = await assess_live_readiness(
             sessions, ex, logger, tm,
@@ -39,6 +43,7 @@ class TestLiveReadiness(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(r["ready_for_live"])
         ids = {c["id"] for c in r["checks"]}
         self.assertIn("testnet_env", ids)
+        self.assertIn("sync_stability", ids)
         live_chk = next(c for c in r["checks"] if c["id"] == "live_env")
         self.assertFalse(live_chk["required"])
 
