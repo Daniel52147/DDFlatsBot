@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import unittest
+from unittest.mock import patch
 
 import config
 from learning.analytics import analyze_market_trades
@@ -59,12 +60,8 @@ class TestSecurity(unittest.TestCase):
         self.assertFalse(rl.allow(key, path))
 
     def test_auth_required_without_token(self):
-        orig = __import__("security").API_TOKEN
-        try:
-            __import__("security").API_TOKEN = ""
+        with patch.object(config, "API_TOKEN", ""):
             self.assertFalse(auth_required())
-        finally:
-            __import__("security").API_TOKEN = orig
 
 
 if __name__ == "__main__":

@@ -2323,6 +2323,24 @@ async def api_ready():
     }
 
 
+@app.post("/api/auth/verify")
+async def api_auth_verify(request: Request):
+    """Check X-API-Token — для кнопки 🔐 в UI."""
+    from security import auth_required, current_api_token, token_valid, write_auth_exempt
+
+    if not auth_required():
+        return {"ok": True, "required": False, "note": "TRADESIM_API_TOKEN не задан — auth выключен"}
+    header = (request.headers.get("x-api-token") or "").strip()
+    ok = token_valid(header) or write_auth_exempt(request)
+    return {
+        "ok": ok,
+        "required": True,
+        "local_exempt": write_auth_exempt(request),
+        "token_len": len(current_api_token()),
+        "note": "OK" if ok else "Неверный токен — скопируй TRADESIM_API_TOKEN из .env без пробелов",
+    }
+
+
 @app.get("/api/ping")
 async def api_ping():
     from simulator.risk_gate import risk_status
@@ -2749,13 +2767,15 @@ async def reset_portfolio(full: bool = False):
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
-    from security import API_TOKEN, token_valid
+    from security import current_api_token, is_loopback_ip, token_valid
 
-    if API_TOKEN:
-        qs_token = ws.query_params.get("token")
-        if not token_valid(qs_token):
-            await ws.close(code=1008, reason="auth required")
-            return
+    if current_api_token():
+        client_host = ws.client.host if ws.client else ""
+        if not is_loopback_ip(client_host):
+            qs_token = ws.query_params.get("token")
+            if not token_valid(qs_token):
+                await ws.close(code=1008, reason="auth required")
+                return
     await ws.accept()
     ensure_all_markets()
     state["connected_clients"].add(ws)

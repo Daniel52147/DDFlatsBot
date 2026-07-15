@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import time
 from collections import defaultdict
 from typing import Callable
@@ -11,9 +10,6 @@ from fastapi import Header, HTTPException, Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
 import config
-
-# Set TRADESIM_API_TOKEN in env to protect write endpoints when exposed beyond localhost.
-API_TOKEN: str = os.environ.get("TRADESIM_API_TOKEN", getattr(config, "API_TOKEN", ""))
 
 WRITE_PREFIXES = (
     "/api/deposit",
@@ -42,6 +38,9 @@ WRITE_PREFIXES = (
     "/api/smoke-test",
 )
 
+# Public — token check only, no write side effects
+AUTH_CHECK_PATHS = ("/api/auth/verify",)
+
 RATE_LIMITS: dict[str, tuple[int, float]] = {
     "/api/backtest": (10, 60.0),
     "/api/bootstrap": (30, 60.0),
@@ -69,15 +68,25 @@ class RateLimiter:
 
 rate_limiter = RateLimiter()
 
+# Back-compat for tests patching security.API_TOKEN
+API_TOKEN: str = ""
+
+
+def current_api_token() -> str:
+    """Fresh token from config (.env), whitespace stripped."""
+    return (getattr(config, "API_TOKEN", "") or "").strip()
+
 
 def auth_required() -> bool:
-    return bool(API_TOKEN)
+    return bool(current_api_token())
 
 
 def token_valid(token: str | None) -> bool:
-    if not API_TOKEN:
+    expected = current_api_token()
+    if not expected:
         return True
-    return bool(token) and token == API_TOKEN
+    got = (token or "").strip()
+    return bool(got) and got == expected
 
 
 def ws_token_from_scope(scope: dict) -> str | None:
@@ -90,17 +99,35 @@ def ws_token_from_scope(scope: dict) -> str | None:
 
 def require_exposure_auth(bind_host: str) -> None:
     """Refuse public bind without API token."""
-    if bind_host == "0.0.0.0" and not API_TOKEN:
+    if bind_host == "0.0.0.0" and not current_api_token():
         raise SystemExit(
             "TRADESIM_API_TOKEN обязателен при TRADESIM_BIND_HOST=0.0.0.0 — "
             "задай токен в .env или слушай 127.0.0.1"
         )
 
 
+def is_loopback_ip(ip: str | None) -> bool:
+    if not ip:
+        return False
+    ip = ip.strip().lower()
+    if ip in ("127.0.0.1", "::1", "localhost"):
+        return True
+    if ip.startswith("127."):
+        return True
+    return False
+
+
+def write_auth_exempt(request: Request) -> bool:
+    """PC localhost — кнопки без токена; телефон/LAN — нужен X-API-Token."""
+    if not current_api_token():
+        return True
+    return is_loopback_ip(client_ip(request))
+
+
 def require_write_auth(x_api_token: str | None = Header(None, alias="X-API-Token")) -> None:
-    if not API_TOKEN:
+    if not current_api_token():
         return
-    if x_api_token != API_TOKEN:
+    if not token_valid(x_api_token):
         raise HTTPException(status_code=401, detail="Нужен заголовок X-API-Token")
 
 
@@ -124,10 +151,12 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                 )
             if request.method in ("POST", "PUT", "DELETE", "PATCH"):
                 if any(path.startswith(p) for p in WRITE_PREFIXES):
-                    if API_TOKEN and request.headers.get("x-api-token") != API_TOKEN:
-                        return Response(
-                            '{"error":"401 — нужен X-API-Token"}',
-                            status_code=401,
-                            media_type="application/json",
-                        )
+                    if current_api_token() and not write_auth_exempt(request):
+                        header = (request.headers.get("x-api-token") or "").strip()
+                        if not token_valid(header):
+                            return Response(
+                                '{"error":"401 — нужен X-API-Token (тот же что TRADESIM_API_TOKEN в .env)"}',
+                                status_code=401,
+                                media_type="application/json",
+                            )
         return await call_next(request)

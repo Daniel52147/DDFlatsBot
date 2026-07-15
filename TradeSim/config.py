@@ -351,7 +351,7 @@ TRADE_MODE = os.environ.get("TRADE_MODE", "active").lower()
 ACTIVE_TRADE_ON_START = _env_bool("ACTIVE_TRADE_ON_START", True)
 ACTIVE_TRADE_RESET_TIMERS = _env_bool("ACTIVE_TRADE_RESET_TIMERS", False)
 
-APP_VERSION = 63
+APP_VERSION = 64
 
 # UI theme default (dark | light) — client override in localStorage
 UI_THEME_DEFAULT = os.environ.get("UI_THEME_DEFAULT", "dark")
@@ -438,7 +438,7 @@ def get_dashboard_url() -> str:
 BIND_HOST = _default_bind_host()
 # Render sets PORT; locally default 8765
 SERVER_PORT = int(os.environ.get("PORT", os.environ.get("TRADESIM_PORT", "8765")))
-API_TOKEN = os.environ.get("TRADESIM_API_TOKEN", "")
+API_TOKEN = os.environ.get("TRADESIM_API_TOKEN", "").strip()
 
 # Live exchange (optional — set env BINANCE_API_KEY + BINANCE_API_SECRET + EXCHANGE_ENABLED=true)
 EXCHANGE_ENABLED = os.environ.get("EXCHANGE_ENABLED", "false").lower() in ("1", "true", "yes")

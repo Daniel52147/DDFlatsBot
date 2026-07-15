@@ -56,13 +56,13 @@ class TestV41Remaining(unittest.TestCase):
         self.assertFalse(r["ok"])
 
     def test_token_valid(self):
-        with patch("security.API_TOKEN", "secret"):
+        with patch.object(config, "API_TOKEN", "secret"):
             self.assertTrue(token_valid("secret"))
             self.assertFalse(token_valid("wrong"))
             self.assertFalse(token_valid(None))
 
     def test_block_public_bind_without_token(self):
-        with patch("security.API_TOKEN", ""):
+        with patch.object(config, "API_TOKEN", ""):
             with self.assertRaises(SystemExit):
                 require_exposure_auth("0.0.0.0")
 
@@ -70,7 +70,7 @@ class TestV41Remaining(unittest.TestCase):
         from fastapi.testclient import TestClient
         import main
 
-        with patch("security.API_TOKEN", "secret"):
+        with patch.object(config, "API_TOKEN", "secret"):
             client = TestClient(main.app)
             r = client.post("/api/trading-mode", json={"mode": "paper"})
             self.assertEqual(r.status_code, 401)
@@ -80,6 +80,17 @@ class TestV41Remaining(unittest.TestCase):
                 headers={"X-API-Token": "secret"},
             )
             self.assertEqual(r2.status_code, 200)
+
+    def test_localhost_bypasses_write_auth(self):
+        from fastapi.testclient import TestClient
+        import main
+
+        with patch.object(config, "API_TOKEN", "secret"), patch(
+            "security.client_ip", return_value="127.0.0.1",
+        ):
+            client = TestClient(main.app)
+            r = client.post("/api/smoke-test", json={})
+            self.assertNotEqual(r.status_code, 401)
 
     def test_benchmark_persisted_in_save_session(self):
         import asyncio

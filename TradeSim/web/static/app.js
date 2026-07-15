@@ -545,6 +545,43 @@ function restoreApiTokenInput() {
   if (input && saved && !input.value) input.value = saved;
 }
 
+async function verifyApiToken(showOk = true) {
+  const input = document.getElementById("api-token-input");
+  const t = (input?.value || localStorage.getItem("tradesim_token") || "").trim();
+  if (!t) {
+    showToast("Введи токен из .env (TRADESIM_API_TOKEN)", 6000);
+    return false;
+  }
+  try {
+    const res = await fetch("/api/auth/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Token": t },
+      body: "{}",
+    });
+    const data = await res.json();
+    if (data.ok) {
+      localStorage.setItem("tradesim_token", t);
+      if (input) input.value = t;
+      showAuthBanner(false);
+      if (showOk) {
+        showToast(
+          data.local_exempt
+            ? "✅ Токен OK (на этом ПК localhost — кнопки и без токена)"
+            : "✅ Токен OK — кнопки разблокированы",
+          6000,
+        );
+      }
+      connectWs();
+      return true;
+    }
+    showToast("❌ " + (data.note || "Неверный токен"), 8000);
+    return false;
+  } catch (_) {
+    showToast("Не удалось проверить токен", 5000);
+    return false;
+  }
+}
+
 function showAuthBanner(show) {
   const el = document.getElementById("version-banner");
   if (!el) return;
@@ -582,8 +619,13 @@ async function checkServerAndSync() {
     applyServerVersion(ping.version);
     restoreApiTokenInput();
     if (ping.auth_required && !localStorage.getItem("tradesim_token")) {
-      showAuthBanner(true);
-      showToast("🔐 Для кнопок (Sync, Smoke test, торговля) — API-токен из .env внизу страницы", 12000);
+      const onLocal = location.hostname === "127.0.0.1" || location.hostname === "localhost";
+      if (onLocal) {
+        showAuthBanner(false);
+      } else {
+        showAuthBanner(true);
+        showToast("🔐 С телефона/LAN — вставь TRADESIM_API_TOKEN из .env внизу → 🔐", 12000);
+      }
     } else {
       showAuthBanner(false);
     }
@@ -2362,13 +2404,15 @@ function bindUi() {
     }
   });
 
-  document.getElementById("btn-save-token")?.addEventListener("click", () => {
+  document.getElementById("btn-save-token")?.addEventListener("click", async () => {
     const t = document.getElementById("api-token-input")?.value?.trim();
-    if (t) localStorage.setItem("tradesim_token", t);
-    else localStorage.removeItem("tradesim_token");
-    showToast(t ? "🔐 Токен сохранён — переподключение WS" : "Токен удалён");
-    if (t) showAuthBanner(false);
-    connectWs();
+    if (!t) {
+      localStorage.removeItem("tradesim_token");
+      showToast("Токен удалён");
+      connectWs();
+      return;
+    }
+    await verifyApiToken(true);
   });
 
   document.querySelectorAll(".manual-btn").forEach(btn => {
