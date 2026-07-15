@@ -111,7 +111,8 @@ def main() -> int:
     print(
         "\nДальше:\n"
         "  1. Проверь BINANCE_API_KEY и BINANCE_API_SECRET в .env\n"
-        "  2. Перезапусти: python main.py  (или start.bat)\n"
+        "  2. API-токен в браузер: python scripts/show_api_token.py → внизу UI → 🔐\n"
+        "  3. Перезапусти: python main.py  (или start.bat)\n"
         "  3. В UI: 🧪 Testnet + Ctrl+Shift+R\n"
         "\n"
         "Красный пункт «Live API» в readiness — норма на Testnet.\n"

@@ -44,7 +44,10 @@ function apiHeaders(json = true) {
 async function apiFetch(url, options = {}) {
   const opts = { ...options, headers: { ...apiHeaders(options.body != null), ...(options.headers || {}) } };
   const res = await fetch(url, opts);
-  if (res.status === 401) showToast("🔐 Нужен API-токен — введи в настройках внизу");
+  if (res.status === 401) {
+    showAuthBanner(true);
+    showToast("🔐 401 — введи API-токен внизу (тот же что TRADESIM_API_TOKEN в .env) и нажми 🔐", 10000);
+  }
   if (res.status === 429) showToast("⏳ Слишком много запросов — подожди");
   return res;
 }
@@ -536,6 +539,28 @@ async function waitForServer(maxAttempts = 30) {
   return null;
 }
 
+function restoreApiTokenInput() {
+  const saved = localStorage.getItem("tradesim_token");
+  const input = document.getElementById("api-token-input");
+  if (input && saved && !input.value) input.value = saved;
+}
+
+function showAuthBanner(show) {
+  const el = document.getElementById("version-banner");
+  if (!el) return;
+  if (!show) {
+    if (el.dataset.authBanner === "1") el.classList.add("hidden");
+    return;
+  }
+  el.dataset.authBanner = "1";
+  el.className = "version-banner warn";
+  el.classList.remove("hidden");
+  el.innerHTML =
+    "🔐 <b>Нужен API-токен</b> — открой .env, скопируй <code>TRADESIM_API_TOKEN</code>, " +
+    "вставь в поле внизу страницы и нажми 🔐. " +
+    "PowerShell: <code>python scripts\\show_api_token.py</code>";
+}
+
 function applyServerVersion(v) {
   if (!v) return;
   const badge = document.getElementById("app-version-badge");
@@ -555,8 +580,12 @@ async function checkServerAndSync() {
       return null;
     }
     applyServerVersion(ping.version);
+    restoreApiTokenInput();
     if (ping.auth_required && !localStorage.getItem("tradesim_token")) {
-      showToast("🔐 Для кнопок торговли нужен API-токен — введи внизу (данные грузятся без него)");
+      showAuthBanner(true);
+      showToast("🔐 Для кнопок (Sync, Smoke test, торговля) — API-токен из .env внизу страницы", 12000);
+    } else {
+      showAuthBanner(false);
     }
     if (ping.market_meta?.length) applyMarketMeta(ping.market_meta);
     seedMarketsFromMeta();
@@ -2338,6 +2367,7 @@ function bindUi() {
     if (t) localStorage.setItem("tradesim_token", t);
     else localStorage.removeItem("tradesim_token");
     showToast(t ? "🔐 Токен сохранён — переподключение WS" : "Токен удалён");
+    if (t) showAuthBanner(false);
     connectWs();
   });
 
