@@ -1949,6 +1949,7 @@ async def api_live_playbook():
 async def api_live_prep_start_micro(target: str = "testnet"):
     """Rare trades + $10 orders — testnet drill or first Live money."""
     target = (target or "testnet").lower()
+    cleared = 0
     apply_live_micro_all(sessions, reset_timers=True)
     for session in sessions.values():
         await session.persist()
@@ -1973,26 +1974,31 @@ async def api_live_prep_start_micro(target: str = "testnet"):
         mode_result = trading_mode.set_mode("testnet", exchange=live_exchange)
         if mode_result.get("ok"):
             apply_testnet_on_mode_switch(sessions, "testnet")
-            cleared = await logger_db.clear_stability_events(kind="paper_sync")
-            await logger_db.log_stability_event(
-                "paper_sync", True, f"micro testnet start — сброшено {cleared} старых событий", "",
-            )
+        # Always re-baseline sync stats on Micro Testnet (even if already testnet)
+        cleared = await logger_db.clear_stability_events(kind="paper_sync")
+        await logger_db.log_stability_event(
+            "paper_sync", True, f"micro testnet start — сброшено {cleared} старых событий", "",
+        )
 
     prep = await _live_prep_payload()
     if mode_result.get("ok"):
         await broadcast({"type": "trading_mode", **trading_mode.status(live_exchange)})
+    hint = (
+        f"Live Micro: ордер ≤${config.LIVE_MICRO_ORDER_USD}, DCA ≥{config.LIVE_MICRO_DCA_HOURS}ч. "
+        "Цель — стабильность, не прибыль."
+        if target == "live"
+        else "Testnet drill: те же редкие сделки. Проверь verify и sync ≥85%."
+    )
+    if target != "live":
+        hint += f" Sync-сбои сброшены ({cleared})."
     return {
         "ok": mode_result.get("ok", False),
         "target": target,
         "live_micro": target == "live",
         "trading_mode": mode_result,
         "live_prep": prep,
-        "hint": (
-            f"Live Micro: ордер ≤${config.LIVE_MICRO_ORDER_USD}, DCA ≥{config.LIVE_MICRO_DCA_HOURS}ч. "
-            "Цель — стабильность, не прибыль."
-            if target == "live"
-            else "Testnet drill: те же редкие сделки. Проверь verify и sync ≥85%."
-        ),
+        "sync_events_cleared": cleared if target != "live" else 0,
+        "hint": hint,
     }
 
 
@@ -2068,6 +2074,25 @@ async def api_protections_clear(symbol: str | None = None, all_markets: bool = F
         sym = f"{sym}USDT"
     protections_engine.clear_symbol(sym)
     return {"ok": True, "cleared": sym}
+
+
+@app.post("/api/live-prep/reset-sync-stats")
+async def api_reset_sync_stats(only_failures: bool = True):
+    """Drop poisoned paper_sync history so sync ≥85% can be remeasured."""
+    cleared = await logger_db.clear_stability_events(
+        kind="paper_sync", only_failures=only_failures,
+    )
+    await logger_db.log_stability_event(
+        "paper_sync", True, f"ручной сброс sync — удалено {cleared} событий", "",
+    )
+    stability = await logger_db.stability_summary(hours=24)
+    return {
+        "ok": True,
+        "cleared": cleared,
+        "only_failures": only_failures,
+        "stability": stability,
+        "hint": "Теперь Smoke test — sync должен пересчитаться без старых сбоев",
+    }
 
 
 @app.post("/api/smoke-test")

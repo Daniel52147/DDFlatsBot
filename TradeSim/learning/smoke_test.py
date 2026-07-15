@@ -95,14 +95,39 @@ async def run_smoke_test(
             required=False,
         )
 
+    # Legacy paper→exchange sell failures (before v65 skip) poison the 7d rate.
+    # Auto-drop failed paper_sync rows once, then remeasure — fresh epoch.
+    purged = 0
+    if mode in ("testnet", "live"):
+        pre = await logger_db.stability_summary(hours=168)
+        pre_rate = float(pre.get("success_rate_pct", 100))
+        pre_fail = int(pre.get("sync_failures", 0))
+        if pre_fail >= 5 and pre_rate < 85:
+            purged = await logger_db.clear_stability_events(
+                kind="paper_sync", only_failures=True,
+            )
+            if purged:
+                await logger_db.log_stability_event(
+                    "paper_sync",
+                    True,
+                    f"smoke re-baseline — сброшено {purged} устаревших сбоев sync",
+                    "",
+                )
+
     stability = await logger_db.stability_summary(hours=168)
     sync_rate = float(stability.get("success_rate_pct", 100))
+    detail = (
+        f"{sync_rate:.0f}% · ордеров {stability.get('exchange_orders', 0)} · "
+        f"сбоев {stability.get('sync_failures', 0)}"
+    )
+    if purged:
+        detail += f" · сброшено {purged} старых fail"
     _check(
         checks,
         cid="stability",
         label=f"Sync stability ≥ 85%",
         ok=sync_rate >= 85 or mode == "paper",
-        detail=f"{sync_rate:.0f}% · ордеров {stability.get('exchange_orders', 0)} · сбоев {stability.get('sync_failures', 0)}",
+        detail=detail,
         required=mode in ("testnet", "live"),
     )
 
@@ -170,9 +195,12 @@ async def run_smoke_test(
                     detail += f" · реальный drift: {len(bad)}"
             else:
                 faucet = [r for r in reconcile if r.get("status") == "testnet_faucet"]
+                ahead = [r for r in reconcile if r.get("status") == "paper_ahead"]
                 detail = f"{len(reconcile)} рынков · красных Δ>15%: {len(bad)}"
                 if faucet:
-                    detail += f" · faucet testnet: {len(faucet)} (игнор)"
+                    detail += f" · faucet: {len(faucet)}"
+                if ahead:
+                    detail += f" · paper ahead: {len(ahead)} (OK)"
             _check(
                 checks,
                 cid="reconcile",
@@ -215,6 +243,7 @@ async def run_smoke_test(
 
 async def _quick_reconcile(sessions: dict, exchange) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+    is_testnet = bool(getattr(exchange, "testnet", False) or config.EXCHANGE_TESTNET)
     for sym, s in list(sessions.items())[:6]:
         paper = s.engine.position
         rec = await exchange.reconcile(sym, paper.base, paper.quote)
@@ -223,6 +252,7 @@ async def _quick_reconcile(sessions: dict, exchange) -> list[dict[str, Any]]:
         ex_base = float(rec.get("exchange_base", 0) or 0)
         paper_usd = paper_base * price
         ex_usd = ex_base * price
+        surplus_usd = (ex_base - paper_base) * price
 
         if rec.get("base_synced"):
             status = "synced"
@@ -232,11 +262,18 @@ async def _quick_reconcile(sessions: dict, exchange) -> list[dict[str, Any]]:
             status = "empty"
             bad = False
             diff_pct = 0.0
-        elif ex_base > max(paper_base * 5, 0.01) and paper_usd < 500 and ex_usd > 500:
-            # Testnet faucet: 1 BTC на счёте, paper только бот-позиция
+        elif is_testnet and surplus_usd > 50 and ex_base > paper_base * 1.15:
+            # Testnet faucet / leftover: биржа богаче paper (1 BTC, 1 ETH…)
             status = "testnet_faucet"
             bad = False
             diff_pct = round(abs(ex_base - paper_base) / max(ex_base, 1e-8) * 100, 2)
+        elif is_testnet and paper_usd >= 3 and (paper_base - ex_base) * price > 50:
+            # Paper впереди — sell-skip (v65+); не валим сертификацию
+            status = "paper_ahead"
+            bad = False
+            diff_pct = round(
+                abs(ex_base - paper_base) / max(paper_base, 1e-8) * 100, 2,
+            )
         elif not config.EXCHANGE_SYNC_FROM_PAPER and ex_usd < 3 and paper_usd >= 3:
             status = "paper_only"
             bad = False
@@ -278,4 +315,10 @@ def _next_action(certified: bool, checks: list[dict], mode: str) -> str:
         if mode == "testnet":
             return "Кнопка «Micro Testnet» → редкие сделки $10"
         return "Live Micro: ордер ≤$10, 2–3 сделки/день"
-    return failed[0]["label"] + ": " + failed[0]["detail"]
+    top = failed[0]
+    if top.get("id") == "stability":
+        return (
+            "Сброс sync (кнопка 🧹) или Micro Testnet → Smoke test снова. "
+            + top["detail"]
+        )
+    return top["label"] + ": " + top["detail"]

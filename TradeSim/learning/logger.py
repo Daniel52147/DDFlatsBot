@@ -501,22 +501,27 @@ class LearningLogger:
       )
       await db.commit()
 
-  async def clear_stability_events(self, *, kind: str | None = None, hours: int | None = None) -> int:
-    """Reset sync stats — e.g. before Micro Testnet drill."""
+  async def clear_stability_events(
+      self,
+      *,
+      kind: str | None = None,
+      hours: int | None = None,
+      only_failures: bool = False,
+  ) -> int:
+    """Reset sync stats — e.g. before Micro Testnet drill or smoke re-baseline."""
     async with self._connect() as db:
+      clauses: list[str] = []
+      params: list[Any] = []
+      if kind:
+        clauses.append("kind = ?")
+        params.append(kind)
       if hours is not None:
-        since = time.time() - hours * 3600
-        if kind:
-          cur = await db.execute(
-            "DELETE FROM stability_events WHERE kind = ? AND ts < ?",
-            (kind, since),
-          )
-        else:
-          cur = await db.execute("DELETE FROM stability_events WHERE ts < ?", (since,))
-      elif kind:
-        cur = await db.execute("DELETE FROM stability_events WHERE kind = ?", (kind,))
-      else:
-        cur = await db.execute("DELETE FROM stability_events")
+        clauses.append("ts < ?")
+        params.append(time.time() - hours * 3600)
+      if only_failures:
+        clauses.append("ok = 0")
+      where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+      cur = await db.execute(f"DELETE FROM stability_events{where}", params)
       await db.commit()
       return cur.rowcount or 0
 

@@ -2522,6 +2522,22 @@ function bindUi() {
       renderLivePrepPanel(data.live_prep);
     }
   });
+  document.getElementById("btn-reset-sync-stats")?.addEventListener("click", async () => {
+    if (!confirm("Сбросить старые сбои Sync (paper↔биржа)? Успешные ордера останутся. Потом запусти Smoke test.")) return;
+    try {
+      const res = await apiFetch("/api/live-prep/reset-sync-stats?only_failures=true", { method: "POST", body: "{}" });
+      const data = await res.json();
+      if (!data.ok) {
+        showToast("⚠ " + (data.error || "сброс не удался"), 6000);
+        return;
+      }
+      const rate = data.stability?.success_rate_pct;
+      showToast(`🧹 Sync: удалено ${data.cleared ?? 0} сбоев · сейчас ${rate ?? "?"}%`, 7000);
+      await runSmokeTest();
+    } catch (_) {
+      showToast("Сброс sync — ошибка", 4000);
+    }
+  });
   document.getElementById("btn-live-micro-testnet")?.addEventListener("click", async () => {
     if (!confirm("Micro Testnet: DCA ≥12ч, ордер ~$10, редкие сделки. Цель — стабильность API, не P&L. OK?")) return;
     const res = await apiFetch("/api/live-prep/start-micro?target=testnet", { method: "POST", body: "{}" });
@@ -2532,6 +2548,7 @@ function bindUi() {
       if (data.live_prep) renderLivePrepPanel(data.live_prep);
       await refreshStatus();
       loadExchangePanel();
+      await runSmokeTest();
     }
   });
   document.getElementById("btn-week-prep")?.addEventListener("click", async () => {

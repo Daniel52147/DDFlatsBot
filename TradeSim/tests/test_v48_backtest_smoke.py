@@ -113,6 +113,7 @@ class TestSmokeTest(unittest.IsolatedAsyncioTestCase):
 
         exchange = MagicMock()
         exchange.enabled = True
+        exchange.testnet = False
         exchange.verify_connection = AsyncMock(return_value={"ok": True, "usdt_free": 10000})
         exchange.reconcile = AsyncMock(return_value={
             "paper_base": 0.01,
@@ -125,12 +126,15 @@ class TestSmokeTest(unittest.IsolatedAsyncioTestCase):
         logger_db.stability_summary = AsyncMock(return_value={
             "success_rate_pct": 95, "exchange_orders": 5, "sync_failures": 0,
         })
+        logger_db.clear_stability_events = AsyncMock(return_value=0)
+        logger_db.log_stability_event = AsyncMock()
 
         mode = MagicMock()
         mode.mode = "testnet"
         mode.status = MagicMock(return_value={"label": "Testnet"})
 
-        with patch.object(config, "EXCHANGE_SYNC_FROM_PAPER", False):
+        with patch.object(config, "EXCHANGE_SYNC_FROM_PAPER", False), \
+             patch.object(config, "EXCHANGE_TESTNET", False):
             result = await run_smoke_test(
                 sessions=sessions,
                 exchange=exchange,
@@ -144,6 +148,80 @@ class TestSmokeTest(unittest.IsolatedAsyncioTestCase):
         reconcile = next(c for c in result["checks"] if c["id"] == "reconcile")
         self.assertTrue(reconcile["ok"])
         self.assertIn("paper-only", reconcile["detail"])
+
+    async def test_testnet_faucet_and_paper_ahead_not_bad(self):
+        from learning.smoke_test import _quick_reconcile
+
+        btc = MagicMock()
+        btc.feed.price = 65000.0
+        btc.demo_price = 65000.0
+        btc.engine.position = MagicMock(base=0.03, quote=200.0)
+
+        eth = MagicMock()
+        eth.feed.price = 2000.0
+        eth.demo_price = 2000.0
+        eth.engine.position = MagicMock(base=0.5, quote=200.0)  # paper $1000
+
+        sessions = {"BTCUSDT": btc, "ETHUSDT": eth}
+        exchange = MagicMock()
+        exchange.testnet = True
+
+        async def _rec(sym, paper_base, paper_quote):
+            if sym.startswith("BTC"):
+                return {"paper_base": paper_base, "exchange_base": 1.0, "base_synced": False}
+            return {"paper_base": paper_base, "exchange_base": 0.0, "base_synced": False}
+
+        exchange.reconcile = AsyncMock(side_effect=_rec)
+        with patch.object(config, "EXCHANGE_TESTNET", True):
+            rows = await _quick_reconcile(sessions, exchange)
+        self.assertFalse(any(r["bad"] for r in rows))
+        statuses = {r["status"] for r in rows}
+        self.assertIn("testnet_faucet", statuses)
+        self.assertIn("paper_ahead", statuses)
+
+    async def test_smoke_purges_legacy_sync_failures(self):
+        session = MagicMock()
+        session._candles_ready = True
+        session.candles.lag_sec = MagicMock(return_value=30.0)
+        session.feed.price = 100.0
+        session.demo_price = 100.0
+        session.engine.position = MagicMock(base=0.0, quote=500)
+        sessions = {m["symbol"]: session for m in config.MARKETS[:1]}
+
+        exchange = MagicMock()
+        exchange.enabled = True
+        exchange.testnet = True
+        exchange.verify_connection = AsyncMock(return_value={"ok": True, "usdt_free": 100})
+        exchange.reconcile = AsyncMock(return_value={
+            "paper_base": 0.0, "exchange_base": 0.0, "base_synced": True,
+        })
+
+        logger_db = MagicMock()
+        logger_db.stability_summary = AsyncMock(side_effect=[
+            {"success_rate_pct": 57, "exchange_orders": 15, "sync_failures": 113},
+            {"success_rate_pct": 100, "exchange_orders": 15, "sync_failures": 0},
+        ])
+        logger_db.clear_stability_events = AsyncMock(return_value=113)
+        logger_db.log_stability_event = AsyncMock()
+
+        mode = MagicMock()
+        mode.mode = "testnet"
+        mode.status = MagicMock(return_value={"label": "Testnet"})
+
+        result = await run_smoke_test(
+            sessions=sessions,
+            exchange=exchange,
+            logger_db=logger_db,
+            trading_mode_mgr=mode,
+            live_readiness={"score_pct": 90, "stats": {"trade_count": 50}, "ready_for_live": False},
+            live_prep={"phase_progress": "2/5", "summary": "test"},
+            telegram_enabled=False,
+            feed_hub_ok=True,
+        )
+        logger_db.clear_stability_events.assert_awaited()
+        stab = next(c for c in result["checks"] if c["id"] == "stability")
+        self.assertTrue(stab["ok"])
+        self.assertIn("113", stab["detail"])
 
 
 if __name__ == "__main__":

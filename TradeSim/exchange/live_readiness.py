@@ -233,7 +233,7 @@ async def assess_live_readiness(
         ok=sync_rate_24h >= 85 or mode_mgr.mode == "paper",
         detail=(
             f"{sync_rate_24h:.0f}% · сбоев {sync_failures_24h} · ордеров {ex_orders_24h} · "
-            "кнопка Sync paper (все) + Micro Testnet"
+            "🧹 Сброс sync / Micro Testnet → Smoke test"
         ),
         required=mode_mgr.mode in ("testnet", "live"),
     )
