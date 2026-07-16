@@ -129,6 +129,18 @@ async def mirror_base_from_exchange(session, exchange, tolerance: float | None =
     if abs(diff) <= tol:
         return {"ok": True, "synced": True, "symbol": symbol, "diff": 0, "note": "already aligned"}
 
+    # Testnet + paper→exchange: paper впереди биржи — не продаём paper в ноль
+    is_testnet = bool(getattr(exchange, "testnet", False) or config.EXCHANGE_TESTNET)
+    if diff < 0 and is_testnet and config.EXCHANGE_SYNC_FROM_PAPER:
+        return {
+            "ok": True,
+            "skipped": True,
+            "symbol": symbol,
+            "label": session.label,
+            "diff": round(diff, 8),
+            "note": "paper ahead of exchange on testnet — mirror sell skipped",
+        }
+
     eng = session.engine
     reason = f"EXCHANGE MIRROR: align base Δ {diff:+.8f}"
 

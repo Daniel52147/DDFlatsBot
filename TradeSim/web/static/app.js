@@ -436,7 +436,7 @@ async function loadAlerts() {
     } else {
       scroll.innerHTML = items.map(a => {
         const cls = a.level === "warn" ? "alert-warn" : a.level === "good" ? "alert-good" : a.level === "halt" ? "alert-halt" : "";
-        return `<span class="${cls}">${escapeHtml(a.text)}</span>`;
+        return `<span class="${cls}">${escapeHtml(asText(a.text))}</span>`;
       }).join("");
     }
     const vh = document.getElementById("vs-hold");
@@ -2544,7 +2544,7 @@ function bindUi() {
     const data = await res.json();
     if (!data.ok) showToast("⚠ " + (data.error || data.trading_mode?.error || "?"), 8000);
     else {
-      showToast("🎯 " + (data.hint || "Micro Testnet"));
+      showToast(`🎯 ${asText(data.hint || "Micro Testnet")}`);
       if (data.live_prep) renderLivePrepPanel(data.live_prep);
       await refreshStatus();
       loadExchangePanel();
@@ -2945,7 +2945,7 @@ async function setTradingMode(mode) {
       return;
     }
     renderTradingMode(data);
-    showToast(`Режим: ${data.label || mode} — ${data.warning || data.note || ""}`);
+    showToast(`Режим: ${data.label || mode} — ${asText(data.warning || data.note || "")}`);
     loadExchangePanel();
     loadLiveReadiness();
   } catch (_) {

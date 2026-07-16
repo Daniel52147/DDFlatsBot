@@ -13,6 +13,7 @@ from simulator.engine import SimulatorEngine
 
 class MockExchange:
     enabled = True
+    testnet = False
 
     def __init__(self, exchange_base: float):
         self._exchange_base = exchange_base
@@ -118,10 +119,25 @@ class TestMirrorBaseFromExchange(unittest.IsolatedAsyncioTestCase):
     async def test_mirror_sell_adds_usdt(self):
         session = MockSession(quote=500.0, base=2.0, price=100.0)
         exchange = MockExchange(exchange_base=1.0)
-        result = await mirror_base_from_exchange(session, exchange, tolerance=0.0)
+        with patch.object(config, "EXCHANGE_TESTNET", False), \
+             patch.object(config, "EXCHANGE_SYNC_FROM_PAPER", False):
+            result = await mirror_base_from_exchange(session, exchange, tolerance=0.0)
         self.assertTrue(result["ok"])
         self.assertAlmostEqual(session.engine.position.base, 1.0)
         self.assertAlmostEqual(session.engine.position.quote, 600.0)
+
+    async def test_mirror_skips_sell_when_paper_ahead_on_testnet(self):
+        """Sync paper (все) must not liquidate paper when exchange has no alt coins."""
+        session = MockSession(quote=500.0, base=10.0, price=1.0)
+        exchange = MockExchange(exchange_base=0.0)
+        exchange.testnet = True
+
+        with patch.object(config, "EXCHANGE_SYNC_FROM_PAPER", True), \
+             patch.object(config, "EXCHANGE_TESTNET", True):
+            result = await mirror_base_from_exchange(session, exchange, tolerance=0.0)
+        self.assertTrue(result["ok"])
+        self.assertTrue(result.get("skipped"))
+        self.assertAlmostEqual(session.engine.position.base, 10.0)
 
 
 class TestSyncOrderToPaper(unittest.IsolatedAsyncioTestCase):
