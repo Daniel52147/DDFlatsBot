@@ -179,6 +179,26 @@ class TestSmokeTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("testnet_faucet", statuses)
         self.assertIn("paper_ahead", statuses)
 
+    async def test_testnet_moderate_drift_not_bad(self):
+        from learning.smoke_test import _quick_reconcile
+
+        bnb = MagicMock()
+        bnb.feed.price = 576.0
+        bnb.demo_price = 576.0
+        bnb.engine.position = MagicMock(base=0.1, quote=200.0)
+
+        sessions = {"BNBUSDT": bnb}
+        exchange = MagicMock()
+        exchange.testnet = True
+        exchange.reconcile = AsyncMock(return_value={
+            "paper_base": 0.1, "exchange_base": 0.05, "base_synced": False,
+        })
+        with patch.object(config, "EXCHANGE_TESTNET", True):
+            rows = await _quick_reconcile(sessions, exchange)
+        self.assertEqual(len(rows), 1)
+        self.assertFalse(rows[0]["bad"])
+        self.assertEqual(rows[0]["status"], "testnet_drift")
+
     async def test_smoke_purges_legacy_sync_failures(self):
         session = MagicMock()
         session._candles_ready = True

@@ -60,7 +60,7 @@ let lastShadowLab = null;
 
 function showError(msg) {
   const el = document.getElementById("js-error");
-  if (el) { el.style.display = "block"; el.textContent = "⚠ " + msg; }
+  if (el) { el.style.display = "block"; el.textContent = "⚠ " + asText(msg); }
 }
 
 function fmtMoney(n, decimals = 2) {
@@ -498,19 +498,21 @@ async function syncAllMarkets() {
   }
 }
 
-function showVersionBanner(ping) {
+function showMarketsBanner(ping) {
   const el = document.getElementById("version-banner");
   if (!el || !ping) return;
   const expected = ping.markets_count || 17;
   const active = ping.sessions_active || Object.keys(marketsData).length;
   if (active < expected || marketMeta.length < expected) {
     el.classList.remove("hidden");
+    el.dataset.marketsBanner = "1";
     el.innerHTML = `⚠️ Видно ${active} из ${expected} монет (сервер v${ping.version}). 
       <button type="button" id="btn-sync-markets" class="btn small">Подключить все ${expected}</button>
       · или git pull → python main.py → Ctrl+Shift+R`;
     document.getElementById("btn-sync-markets")?.addEventListener("click", syncAllMarkets);
-  } else {
+  } else if (el.dataset.marketsBanner === "1") {
     el.classList.add("hidden");
+    delete el.dataset.marketsBanner;
   }
 }
 
@@ -1322,10 +1324,10 @@ function updateLiveCandle(candle) {
   if (clientChartLagSec() > 180) void syncChartIfStale();
 }
 
-function showVersionBanner(text, level = "info") {
+function showBenchmarkBanner(text, level = "info") {
   const el = document.getElementById("version-banner");
   if (!el || !text) return;
-  el.textContent = text;
+  el.textContent = asText(text);
   el.className = "version-banner " + (level === "warn" ? "warn" : "ok");
   el.classList.remove("hidden");
 }
@@ -1358,7 +1360,7 @@ function updateTotal(total) {
     }
   }
   if (benchmark.benchmark_note) {
-    showVersionBanner(benchmark.benchmark_note, benchmark.benchmark_misleading ? "warn" : "info");
+    showBenchmarkBanner(benchmark.benchmark_note, benchmark.benchmark_misleading ? "warn" : "info");
   }
 }
 
@@ -2295,7 +2297,7 @@ async function loadInitial() {
   let ok = loadEmbeddedData();
   if (!ok) ok = await fetchBootstrap();
   if (!ok) await refreshStatus();
-  showVersionBanner(ping);
+  showMarketsBanner(ping);
   renderTabs();
   switchMarket(activeSymbol);
   await loadBrain();

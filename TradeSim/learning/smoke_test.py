@@ -201,6 +201,9 @@ async def run_smoke_test(
                     detail += f" · faucet: {len(faucet)}"
                 if ahead:
                     detail += f" · paper ahead: {len(ahead)} (OK)"
+                drift = [r for r in reconcile if r.get("status") == "testnet_drift"]
+                if drift:
+                    detail += f" · drift testnet: {len(drift)} (OK)"
             _check(
                 checks,
                 cid="reconcile",
@@ -283,8 +286,12 @@ async def _quick_reconcile(sessions: dict, exchange) -> list[dict[str, Any]]:
         else:
             denom = max(paper_base, ex_base, 1e-8)
             diff_pct = round(abs(ex_base - paper_base) / denom * 100, 2)
-            bad = diff_pct > 15
-            status = "drift" if bad else "ok"
+            if is_testnet:
+                status = "testnet_drift" if diff_pct > 15 else "ok"
+                bad = False
+            else:
+                bad = diff_pct > 15
+                status = "drift" if bad else "ok"
 
         rows.append({
             **rec,
