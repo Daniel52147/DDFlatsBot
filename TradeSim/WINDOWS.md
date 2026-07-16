@@ -1,82 +1,72 @@
-# Запуск на Windows (PowerShell)
+# Запуск на Windows
 
-## 1. Обновить код (ветка v36 — путь к Live)
+## Быстро: обновить и запустить
+
+1. **Закрой** старый бот (окно с `python main.py` → Ctrl+C)
+2. Двойной клик **`UPDATE.bat`** (в папке TradeSim)
+3. Двойной клик **`start.bat`**
+4. Браузер: **Ctrl+Shift+R** — в шапке должно быть **TradeSim v67+**
+5. Кнопка **🧪 Smoke test**
+
+## Важно: ветка git
+
+Все фиксы sync (v65–v67) только в ветке:
+
+`cursor/live-contingency-playbook-2631`
+
+Ветка **`main`** — другой проект (DDFlatsBot), **без TradeSim v67**.  
+Если в шапке **v65** — ты на старом коде.
+
+### Вручную (PowerShell)
 
 ```powershell
-cd C:\Users\de381\DDFlatsBot\TradeSim
+cd C:\Users\de381\DDFlatsBot
 git fetch origin
-git pull origin cursor/tradesim-v36-live-prep-2631
+git checkout cursor/live-contingency-playbook-2631
+git pull origin cursor/live-contingency-playbook-2631
+cd TradeSim
+python -c "import config; print('v', config.APP_VERSION)"
+python scripts\reset_sync_stats.py
+.\start.bat
 ```
 
-Или двойной клик **start.bat** — он сам подтянет последнюю ветку.
+Должно вывести: `v 67` (или выше).
 
-## 2. Зависимости
+## Почему sync 49% и сбои 167
 
-```powershell
-python -m pip install -r requirements.txt
-```
+Paper grid покупает **$80**, лимит testnet **$25** → каждый sync падал.  
+**v67** обрезает ордер до $25 и сбрасывает старые сбои.
 
-## 3. API ключи Binance TESTNET
-
-1. Зайди на https://testnet.binance.vision/ → Log In → **Generate HMAC_SHA256 Key**
-2. В PowerShell из папки TradeSim:
-
-```powershell
-.\setup-env.bat
-```
-
-(В PowerShell обязательно `.\` перед именем файла — иначе «не распознано».)
-
-Или вручную: `copy .env.example .env` → `notepad .env`
-
-**Авто-настройка Testnet** (исправляет EXCHANGE_TESTNET, sync, режим):
-
-```powershell
-python scripts/apply_testnet_env.py
-```
-
-Или `.\setup-env.bat` — тот же скрипт + откроет блокнот для ключей.
-3. Вставь ключи:
+## .env (testnet)
 
 ```env
-BINANCE_API_KEY=твой_ключ
-BINANCE_API_SECRET=твой_секрет
 EXCHANGE_ENABLED=true
 EXCHANGE_TESTNET=true
-EXCHANGE_SYNC_TO_PAPER=true
 EXCHANGE_SYNC_FROM_PAPER=true
+EXCHANGE_SYNC_TO_PAPER=true
+EXCHANGE_MAX_ORDER_USD=25
 TRADING_MODE_DEFAULT=testnet
+PAPER_LEARN_ENABLED=false
+TRADE_MODE=normal
 ```
 
-⚠️ **Никогда не публикуй ключи в чат/GitHub.** Если засветил — перевыпусти на testnet.
+Или: `.\setup-env.bat`
 
-## 4. Запуск
+## Диагностика
+
+Если после UPDATE всё ещё v65:
 
 ```powershell
-python main.py
+cd C:\Users\de381\DDFlatsBot
+git branch --show-current
+git log -1 --oneline
+cd TradeSim
+python -c "import config; print(config.APP_VERSION)"
 ```
 
-В логах должно быть:
-```
-Binance testnet OK — USDT ...
-```
+Пришли вывод этих трёх команд.
 
-В браузере: http://127.0.0.1:8765 → **Ctrl+Shift+R** → меню **🧪 Testnet**
+## Smoke test
 
-## 5. Проверка ключей
-
-Открой: http://127.0.0.1:8765/api/exchange/verify
-
-`"ok": true` — ключи работают.
-
-## Частые ошибки
-
-| Ошибка | Решение |
-|--------|---------|
-| Старый UI v28/v31 | `git pull` + Ctrl+Shift+R |
-| HTTP 401/403 | Ключ не от testnet или опечатка в Secret |
-| HTTP 451 | Регион блокирует Binance — запускай дома на Windows |
-| Testnet режим не включается | `python scripts/apply_testnet_env.py` или `EXCHANGE_TESTNET=true` |
-| API 400 / ключи | `python scripts/check_binance_keys.py` → перевыпусти ключ на testnet |
-| 401 X-API-Token | `python scripts/show_api_token.py` → вставь внизу UI → 🔐 |
-| Красный «Live API» в readiness | Норма на Testnet — нужен только перед Live |
+После v67: **🧹 Сброс sync** (если есть) → **🧪 Smoke test**  
+Sync должен быть ≥85%. Live — только после зелёного Smoke.

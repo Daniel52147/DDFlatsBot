@@ -4,29 +4,38 @@ echo === TradeSim — запуск (Windows) ===
 cd /d "%~dp0"
 
 set BRANCH=cursor/live-contingency-playbook-2631
+set ROOT=%CD%
+if not exist ".git" (
+  if exist "..\.git" (
+    set ROOT=%~dp0..
+  )
+)
 
 echo.
 echo [1/5] Обновление кода (%BRANCH%)...
-git fetch origin
+cd /d "%ROOT%"
+git fetch origin 2>nul
 git checkout %BRANCH% 2>nul
-if errorlevel 1 (
-  echo Переключаюсь на ветку %BRANCH%...
-  git checkout -B %BRANCH% origin/%BRANCH% 2>nul
-  if errorlevel 1 (
-    echo WARN: не удалось checkout %BRANCH% — пробую pull в текущую ветку
-  )
-)
+if errorlevel 1 git checkout -B %BRANCH% origin/%BRANCH% 2>nul
 git pull origin %BRANCH%
 if errorlevel 1 (
-  echo WARN: git pull %BRANCH% не удался — пробую main
-  git pull origin main 2>nul || git pull
+  echo.
+  echo *** ОШИБКА: не удалось обновить %BRANCH% ***
+  echo Запусти UPDATE.bat — двойной клик в папке TradeSim
+  echo НЕ используй main — там нет TradeSim v67
+  pause
+  exit /b 1
 )
 
+cd /d "%~dp0"
+
 echo.
-echo [2/5] Версия кода...
-python -c "import config; print('  >>> TradeSim v' + str(config.APP_VERSION) + ' <<<')"
+echo [2/5] Версия...
+python -c "import config; v=config.APP_VERSION; print('  >>> TradeSim v'+str(v)+' <<<'); exit(0 if v>=67 else 1)"
 if errorlevel 1 (
-  echo  WARN: не прочитал config.APP_VERSION
+  echo Старая версия! Запусти UPDATE.bat перед start.bat
+  pause
+  exit /b 1
 )
 
 echo.
@@ -34,7 +43,7 @@ echo [3/5] Зависимости...
 python -m pip install -r requirements.txt -q
 
 echo.
-echo [4/5] Файл .env + сброс старых sync-сбоев...
+echo [4/5] .env + sync...
 python scripts\apply_testnet_env.py 2>nul
 if not exist ".env" (
   if exist ".env.example" (
@@ -42,18 +51,12 @@ if not exist ".env" (
     python scripts\apply_testnet_env.py
     echo Создан .env — вставь ключи: notepad .env
   )
-) else (
-  echo .env проверен (testnet-настройки)
 )
 python scripts\reset_sync_stats.py 2>nul
 
 echo.
-echo [5/5] Запуск сервера...
-echo.
-echo   ПК:      http://127.0.0.1:8765
-echo   Телефон: та же Wi-Fi — после /open в Telegram
-echo   Нужно в .env: TRADESIM_BIND_HOST=0.0.0.0 и TRADESIM_API_TOKEN
-echo   Если в шапке НЕ v67+ — Ctrl+C, git pull, снова start.bat
+echo [5/5] Сервер...
+echo   http://127.0.0.1:8765  ^|  Ctrl+Shift+R после старта
 echo.
 set TRADESIM_BIND_HOST=0.0.0.0
 python main.py
