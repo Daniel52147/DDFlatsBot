@@ -1191,11 +1191,12 @@ async def after_paper_trade(session, trade):
             portfolio_value=tot["total_value"],
             portfolio_pnl_pct=tot["pnl_pct"],
         )
-        if result:
+        if result and not result.get("skipped"):
+            # skipped sell/buy (нет базы / USDT) — не пишем в stability (не портят % и не раздувают OK)
             ok = bool(result.get("ok"))
             detail = result.get("error") or result.get("reason") or "ok"
-            if result.get("skipped"):
-                ok = True
+            if result.get("clipped_to_max"):
+                detail = f"{detail} · clipped≤${result.get('max_order_usd', 25)}"
             await logger_db.log_stability_event(
                 "paper_sync",
                 ok,
@@ -1242,6 +1243,26 @@ async def lifespan(app: FastAPI):
     global shadow_lab, feed_hub, auto_tactics, capital_allocator, profit_focus
 
     await logger_db.init()
+    # One-shot: drop poisoned paper_sync fails so Smoke/readiness aren't stuck at ~50%
+    try:
+        stab = await logger_db.stability_summary(hours=168)
+        if (
+            float(stab.get("success_rate_pct", 100)) < 85
+            and int(stab.get("sync_failures", 0)) >= 5
+        ):
+            purged = await logger_db.clear_stability_events(
+                kind="paper_sync", only_failures=True,
+            )
+            if purged:
+                await logger_db.log_stability_event(
+                    "paper_sync",
+                    True,
+                    f"startup v{config.APP_VERSION}: сброшено {purged} устаревших сбоев sync",
+                    "",
+                )
+                logger.info("Cleared %s stale paper_sync failures on startup", purged)
+    except Exception as e:
+        logger.warning("sync fail purge on startup: %s", e)
     state["portfolio_peak"] = _load_portfolio_peak()
     auto_tactics = AutoTacticsEngine()
     capital_allocator = CapitalAllocator()

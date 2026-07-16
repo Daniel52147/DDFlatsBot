@@ -17,6 +17,14 @@ class MockExchange:
     def __init__(self, exchange_base: float):
         self._exchange_base = exchange_base
 
+    def order_limits(self) -> dict:
+        return {"max_order_usd": 100.0, "max_daily_loss_pct": 5.0, "max_position_pct": 0.25}
+
+    async def asset_balance(self, asset: str) -> float:
+        if asset == "USDT":
+            return 10_000.0
+        return float(self._exchange_base)
+
     async def reconcile(self, symbol: str, paper_base: float, paper_quote: float) -> dict:
         return {
             "exchange_base": self._exchange_base,
@@ -186,6 +194,31 @@ class TestPaperToExchange(unittest.IsolatedAsyncioTestCase):
         assert result is not None
         self.assertTrue(result["ok"])
         self.assertTrue(result.get("skipped"))
+
+    async def test_clips_buy_over_max_order(self):
+        """Grid $80 buy must not fail when EXCHANGE_MAX_ORDER_USD=25."""
+        session = MockSession(quote=1000.0, base=0.0, price=100.0)
+        trade = session.engine.buy(100.0, 80.0, "GRID buy")
+        assert trade is not None
+
+        class CapExchange(MockExchange):
+            def order_limits(self):
+                return {"max_order_usd": 25.0, "max_daily_loss_pct": 5.0, "max_position_pct": 0.25}
+
+            async def asset_balance(self, asset: str) -> float:
+                return 1000.0 if asset == "USDT" else 0.0
+
+            async def place_market_order(self, *args, **kwargs):
+                self.last_amount = args[2] if len(args) > 2 else kwargs.get("amount_usd")
+                return {"ok": True, "mode": "testnet", "order_id": 7, "from_paper_sync": True}
+
+        exchange = CapExchange(exchange_base=0.0)
+        with patch.object(config, "EXCHANGE_SYNC_FROM_PAPER", True):
+            result = await sync_trade_to_exchange(session, trade, exchange)
+        assert result is not None
+        self.assertTrue(result["ok"])
+        self.assertTrue(result.get("clipped_to_max"))
+        self.assertEqual(exchange.last_amount, 25.0)
 
 
 if __name__ == "__main__":

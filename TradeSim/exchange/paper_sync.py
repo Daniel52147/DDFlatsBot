@@ -242,6 +242,30 @@ async def sync_trade_to_exchange(
     if amount_usd <= 0:
         return None
 
+    # Paper grid often buys $80 while testnet/live cap is $25 — clip, don't fail spam
+    limits = exchange.order_limits() if hasattr(exchange, "order_limits") else {}
+    max_usd = float(limits.get("max_order_usd") or config.EXCHANGE_MAX_ORDER_USD or 25)
+    clipped = False
+    if amount_usd > max_usd:
+        amount_usd = max_usd
+        clipped = True
+
+    if trade.side == "buy":
+        try:
+            usdt_free = await exchange.asset_balance("USDT")
+        except Exception:
+            usdt_free = max_usd
+        if amount_usd > usdt_free * 0.98:
+            if usdt_free < 5:
+                return {
+                    "ok": True,
+                    "skipped": True,
+                    "side": "buy",
+                    "reason": f"buy skip — на бирже USDT {usdt_free:.2f}",
+                }
+            amount_usd = min(amount_usd, usdt_free * 0.98)
+            clipped = True
+
     book_value = portfolio_value or snap.get("portfolio_value", 0)
     book_pnl = portfolio_pnl_pct if portfolio_pnl_pct is not None else snap.get("pnl_pct", 0)
     result = await exchange.place_market_order(
@@ -267,7 +291,7 @@ async def sync_trade_to_exchange(
             "amount_usd": amount_usd,
         }
 
-    return {
+    out = {
         "ok": True,
         "synced": True,
         "direction": "paper_to_exchange",
@@ -276,6 +300,10 @@ async def sync_trade_to_exchange(
         "order_id": result.get("order_id"),
         "mode": result.get("mode"),
     }
+    if clipped:
+        out["clipped_to_max"] = True
+        out["max_order_usd"] = max_usd
+    return out
 
 
 async def recover_exchange_to_paper(session, exchange, exchange_result: dict[str, Any]) -> dict[str, Any]:
