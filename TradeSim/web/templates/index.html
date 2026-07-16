@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TradeSim v{{ version }} — brain & Live</title>
+  <link rel="stylesheet" href="/static/style.css?v={{ version }}" />
+  <script>
+    (function () {
+      const t = localStorage.getItem("tradesim_theme") || "dark";
+      document.documentElement.setAttribute("data-theme", t);
+    })();
+  </script>
+  <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
+</head>
+<body class="v50">
+  <div id="version-banner" class="version-banner hidden"></div>
+  <div id="alerts-ticker" class="alerts-ticker" aria-live="polite">
+    <span class="alerts-label">📡 Сканер</span>
+    <div id="alerts-scroll" class="alerts-scroll">Загрузка сигналов...</div>
+  </div>
+  <header class="v16-header">
+    <div class="brand">
+      <span class="logo">◆</span>
+      <div>
+        <h1>TradeSim <span class="ver-badge" id="app-version-badge">v{{ version }}</span></h1>
+        <p class="tagline">15 агентов · Telegram /brain · путь к Live</p>
+      </div>
+    </div>
+    <div class="header-stats">
+      <div class="stat">
+        <span class="label">Портфель</span>
+        <span class="value" id="total-value">$10,000</span>
+      </div>
+      <div class="stat">
+        <span class="label">P&L</span>
+        <span class="value" id="total-pnl">0.00%</span>
+      </div>
+      <div class="stat">
+        <span class="label">vs Hold</span>
+        <span class="value" id="vs-hold">0.00%</span>
+      </div>
+      <div class="stat">
+        <span class="label">Fees 7д</span>
+        <span class="value" id="total-fees">$0</span>
+      </div>
+      <div class="trading-mode-switch" id="trading-mode-switch" title="Режим торговли">
+        <button type="button" class="mode-btn active" data-mode="paper">📄 Paper</button>
+        <button type="button" class="mode-btn" data-mode="testnet">🧪 Testnet</button>
+        <button type="button" class="mode-btn" data-mode="live">🏦 Live</button>
+      </div>
+      <div class="stat badge paper" id="exchange-badge" title="Режим торговли">PAPER</div>
+      <button type="button" id="btn-theme-toggle" class="btn ghost small theme-toggle" title="Тема">🌙</button>
+      <button type="button" id="btn-deposit" class="btn small deposit-btn">+ Пополнить</button>
+      <button type="button" id="btn-withdraw" class="btn small ghost withdraw-btn">− Вывести</button>
+      <div class="stat">
+        <span class="label">Статус</span>
+        <span class="value live-dot" id="live-status" title="Статус котировок">● ЦЕНЫ</span>
+      </div>
+    </div>
+  </header>
+
+  <section class="heatmap-bar" id="heatmap-bar" aria-label="Тепловая карта P&L"></section>
+  <nav class="market-tabs" id="market-tabs"></nav>
+  <div class="portfolio-grid" id="portfolio-grid"></div>
+
+  <main class="grid">
+    <section class="card chart-card v16-card">
+      <div class="card-header">
+        <h2 id="chart-title">BTC/USDT — свечи</h2>
+        <div class="chart-legend">
+          <span class="legend sma" id="sma-legend">SMA-20</span>
+          <span class="legend buy-marker">▲ Куплено</span>
+          <span class="legend sell-marker">▼ Продано</span>
+          <span class="legend hold" id="feed-source">live</span>
+        </div>
+      </div>
+      <div id="chart-wrap">
+        <p id="chart-fallback" class="chart-loading">Загрузка графика...</p>
+        <div id="chart"></div>
+      </div>
+      <div class="equity-section">
+        <div class="card-header equity-header">
+          <h3>📈 Кривая капитала</h3>
+          <span class="muted" id="equity-label">48ч · paper $10k · benchmark hold</span>
+        </div>
+        <div id="equity-chart"></div>
+      </div>
+
+      <section class="tables-section">
+        <div class="tables-nav">
+          <button type="button" class="tbl-tab" data-table="strategies">🏆 Стратегии</button>
+          <button type="button" class="tbl-tab" data-table="report">📋 Отчёт 24ч</button>
+          <button type="button" class="tbl-tab" data-table="brain-timeline">🧠 Мозг</button>
+          <button type="button" class="tbl-tab" data-table="agent-chatroom">💬 Агенты</button>
+          <button type="button" class="tbl-tab active" data-table="markets">📊 Рынки</button>
+          <button type="button" class="tbl-tab" data-table="analytics">📈 Аналитика</button>
+          <button type="button" class="tbl-tab" data-table="shadow">🔬 Shadow TOP</button>
+          <button type="button" class="tbl-tab" data-table="backtest">⏱ Бэктест</button>
+          <button type="button" class="tbl-tab" data-table="trades">📋 Сделки</button>
+          <button type="button" class="tbl-tab" data-table="learning">🎓 Обучение</button>
+          <button type="button" class="tbl-tab" data-table="deposits">💵 Депозиты</button>
+          <button type="button" class="tbl-tab" data-table="movements">💳 Кошелёк</button>
+          <button type="button" class="tbl-tab" data-table="honesty">🔍 Статус</button>
+        </div>
+        <div id="table-strategies" class="data-table-wrap hidden"></div>
+        <div id="table-report" class="data-table-wrap hidden"></div>
+        <div id="table-brain-timeline" class="data-table-wrap hidden"></div>
+        <div id="table-agent-chatroom" class="data-table-wrap hidden"></div>
+        <div id="table-markets" class="data-table-wrap active-table"></div>
+        <div id="table-analytics" class="data-table-wrap hidden"></div>
+        <div id="table-shadow" class="data-table-wrap hidden"></div>
+        <div id="table-backtest" class="data-table-wrap hidden">
+          <div class="backtest-controls">
+            <label class="muted">Рынок:</label>
+            <select id="backtest-symbol" class="backtest-select"></select>
+            <button type="button" id="btn-backtest-run" class="btn small">Один прогон</button>
+            <button type="button" id="btn-backtest-compare" class="btn small ghost">Сравнить 5 стратегий</button>
+          </div>
+        </div>
+        <div id="table-trades" class="data-table-wrap hidden"></div>
+        <div id="table-learning" class="data-table-wrap hidden"></div>
+        <div id="table-deposits" class="data-table-wrap hidden"></div>
+        <div id="table-movements" class="data-table-wrap hidden"></div>
+        <div id="table-honesty" class="data-table-wrap hidden"></div>
+      </section>
+    </section>
+
+    <aside class="sidebar">
+      <section class="card brain-card v16-card">
+        <div class="card-header"><h2>🧠 Центральный мозг</h2></div>
+        <p id="brain-verdict" class="brain-verdict">Агенты запускаются...</p>
+        <div class="agents-grid" id="agents-grid">
+          <div class="agent" id="agent-mentor"><span>🎓</span><b>Наставник</b><small>Профи-трейдеры</small></div>
+          <div class="agent" id="agent-news"><span>📰</span><b>Новостник</b><small>Новости рынка</small></div>
+          <div class="agent" id="agent-schemer"><span>🧪</span><b>Исследователь</b><small>Новые схемы</small></div>
+          <div class="agent" id="agent-volatility"><span>⚡</span><b>Волатильность</b><small>DOGE · PEPE</small></div>
+          <div class="agent" id="agent-risk"><span>🛡️</span><b>Риск</b><small>Просадки</small></div>
+          <div class="agent" id="agent-trend"><span>📈</span><b>Тренд</b><small>SMA · направление</small></div>
+          <div class="agent" id="agent-profit"><span>💰</span><b>Коуч прибыли</b><small>Take-profit</small></div>
+          <div class="agent" id="agent-correlation"><span>🔗</span><b>Корреляция</b><small>Связи монет</small></div>
+          <div class="agent" id="agent-analyst"><span>📊</span><b>Аналитик</b><small>Метрики · win rate</small></div>
+          <div class="agent" id="agent-guardian"><span>🛑</span><b>Стоп-охранник</b><small>Stop-loss</small></div>
+          <div class="agent" id="agent-allocator"><span>⚖️</span><b>Аллокатор</b><small>Капитал</small></div>
+          <div class="agent" id="agent-trader-watch"><span>👁️</span><b>Следопыт</b><small>Топ-трейдеры</small></div>
+        </div>
+      </section>
+
+      <section class="card learning-card v16-card">
+        <div class="card-header"><h2>🎓 Обучение</h2></div>
+        <div id="learning-panel" class="learning-panel">Загрузка статистики...</div>
+        <ul id="activity-feed" class="activity-feed"></ul>
+      </section>
+
+      <section class="card v16-card" id="auto-tactics-card">
+        <div class="card-header">
+          <h2>🤖 Авто-тактики</h2>
+          <button type="button" id="btn-auto-tactics-refresh" class="btn ghost small">Обновить</button>
+        </div>
+        <div id="auto-tactics-panel" class="auto-tactics-panel muted">Загрузка...</div>
+      </section>
+
+      <section class="card v16-card" id="scorecard-card">
+        <div class="card-header">
+          <h2>📊 Оценка Paper</h2>
+          <button type="button" id="btn-scorecard-refresh" class="btn ghost small">Обновить</button>
+        </div>
+        <div id="scorecard-panel" class="scorecard-panel muted">Загрузка оценки...</div>
+      </section>
+
+      <section class="card v16-card" id="profit-focus-card">
+        <div class="card-header">
+          <h2>💎 Profit Focus</h2>
+          <button type="button" id="btn-profit-focus-refresh" class="btn ghost small">Обновить</button>
+        </div>
+        <div id="profit-focus-panel" class="profit-focus-panel muted">Загрузка...</div>
+      </section>
+
+      <section class="card v16-card">
+        <div class="card-header">
+          <h2 id="bot-card-title">🤖 Стратегия</h2>
+          <button id="btn-toggle" class="btn small">Пауза</button>
+        </div>
+        <div class="strategy-picker">
+          <label class="muted">Тип стратегии:</label>
+          <select id="strategy-select" class="strategy-select">
+            <option value="dca">📊 DCA + DIP</option>
+            <option value="grid">🔲 Grid сетка</option>
+            <option value="momentum">🚀 Momentum</option>
+            <option value="rsi">📉 RSI</option>
+            <option value="scalper">⚡ Scalper</option>
+          </select>
+          <button type="button" id="btn-strategy-apply" class="btn ghost small">Применить</button>
+          <span class="auto-tactics-badge" id="auto-tactics-badge" title="Авто-выбор тактики">🤖 AUTO</span>
+          <button type="button" id="btn-paper-learn" class="btn small paper-learn-btn" title="Paper: максимум сделок для обучения">📚 Paper учёба</button>
+          <button type="button" id="btn-active-trades" class="btn small" title="Короче паузы — больше сделок на всех рынках">📈 Больше сделок</button>
+          <button type="button" class="btn ghost small preset-btn" data-preset="aggressive">🔥</button>
+          <button type="button" class="btn ghost small preset-btn" data-preset="balanced">⚖️</button>
+          <button type="button" class="btn ghost small preset-btn" data-preset="conservative">🛡️</button>
+        </div>
+        <div id="bot-status" class="bot-status"><p>Загрузка...</p></div>
+        <div class="manual-trade">
+          <span class="muted">Ручная сделка:</span>
+          <div class="manual-row">
+            <select id="order-type-select" class="backtest-select" title="Тип ордера">
+              <option value="market">Market</option>
+              <option value="limit">Limit</option>
+              <option value="stop_limit">Stop-Limit</option>
+            </select>
+          </div>
+          <div class="manual-row limit-fields hidden" id="limit-price-row">
+            <input id="limit-price-input" type="number" step="any" placeholder="Limit цена" class="backtest-select" />
+            <input id="stop-price-input" type="number" step="any" placeholder="Stop цена" class="backtest-select hidden" />
+          </div>
+          <div class="manual-row">
+            <button type="button" class="btn small manual-btn" data-side="buy">Купить $25</button>
+            <button type="button" class="btn ghost small manual-btn" data-side="sell">Продать ~$25</button>
+          </div>
+          <button type="button" id="btn-testnet-order" class="btn ghost small testnet-btn">🏦 Testnet $10</button>
+          <button type="button" id="btn-open-orders" class="btn ghost small">📋 Открытые ордера</button>
+          <button type="button" id="btn-sync-paper" class="btn ghost small testnet-btn">🔗 Sync paper</button>
+        </div>
+      </section>
+
+      <section class="card v16-card" id="exchange-panel">
+        <div class="card-header">
+          <h2>🏦 Биржа · путь к Live</h2>
+          <button type="button" id="btn-week-prep" class="btn small" title="Активная торговля + Testnet одним кликом">🚀 Неделя Testnet</button>
+          <button type="button" id="btn-live-readiness-refresh" class="btn ghost small">Проверить</button>
+          <button type="button" id="btn-exchange-refresh" class="btn ghost small">Баланс</button>
+        </div>
+        <div id="live-readiness-panel" class="live-readiness-panel muted">Загрузка готовности к Live...</div>
+        <div id="live-prep-panel" class="live-prep-panel muted">Загрузка пути к Live...</div>
+        <div class="live-prep-actions" style="display:flex;gap:0.35rem;flex-wrap:wrap;margin:0.5rem 0">
+          <button type="button" id="btn-live-prep-refresh" class="btn ghost small">🎯 Путь к Live</button>
+          <button type="button" id="btn-live-micro-testnet" class="btn small" title="Редкие сделки $10 на Testnet">Micro Testnet</button>
+          <button type="button" id="btn-stability-check" class="btn ghost small">🔌 API стабильность</button>
+          <button type="button" id="btn-reset-sync-stats" class="btn ghost small" title="Сбросить старые сбои paper↔биржа">🧹 Сброс sync</button>
+          <button type="button" id="btn-smoke-test" class="btn small" title="Полная сертификация Testnet">🧪 Smoke test</button>
+          <button type="button" id="btn-sync-paper-all" class="btn ghost small testnet-btn" title="Подогнать paper под биржу">🔗 Sync paper (все)</button>
+        </div>
+        <div id="smoke-test-panel" class="smoke-test-panel muted"></div>
+        <details class="live-playbook-details" id="live-playbook-section">
+          <summary class="live-playbook-summary">🔥 Обвалы и рынок — план А / план Б</summary>
+          <div id="live-playbook-panel" class="live-playbook-panel muted">Загрузка сценариев...</div>
+        </details>
+        <div id="exchange-panel-body" class="exchange-panel-body muted">Загрузка балансов...</div>
+      </section>
+
+      <section class="card v16-card" id="agent-chatroom-panel">
+        <div class="card-header">
+          <h2>💬 Комната агентов</h2>
+          <button type="button" id="btn-chatroom-refresh" class="btn ghost small">Обновить</button>
+        </div>
+        <div id="agent-chatroom-body" class="agent-chatroom muted">Ждём цикл мозга...</div>
+      </section>
+
+      <section class="card v16-card" id="integrations-panel">
+        <div class="card-header">
+          <h2>📡 Интеграции</h2>
+          <button type="button" id="btn-integrations-refresh" class="btn ghost small">Обновить</button>
+        </div>
+        <div id="integrations-panel-body" class="integrations-panel muted">Загрузка...</div>
+      </section>
+
+      <section class="card assistant-card v16-card">
+        <div class="card-header"><h2>💬 Помощник</h2></div>
+        <div id="chat-messages" class="chat-messages">
+          <div class="chat-bubble chat-bot">TradeSim v{{ version }}: <b>Мозг</b> · <b>Live</b> · Telegram /open · Playbook</div>
+        </div>
+        <form id="chat-form" class="chat-form">
+          <input id="chat-input" type="text" placeholder="тренд / grid / momentum / DOGE?" autocomplete="off" />
+          <button type="submit" class="btn small">→</button>
+        </form>
+      </section>
+
+      <section class="card v16-card">
+        <div class="card-header"><h2>📋 Сделки</h2></div>
+        <ul id="trades-list" class="trades-list">
+          <li>Сделки появятся через несколько секунд...</li>
+        </ul>
+      </section>
+    </aside>
+  </main>
+
+  <details class="shadow-lab-panel v16-shadow" id="shadow-lab-panel" open>
+    <summary>🔬 Shadow Lab — <span id="shadow-lab-summary">204 клона</span></summary>
+    <div class="shadow-lab-inner">
+      <p class="muted">12 клонов × 17 рынков. Лучшие параметры переносятся в живой бот.</p>
+      <button type="button" id="btn-shadow-reset" class="btn ghost small">♻️ Сбросить клоны</button>
+      <div id="shadow-lab-grid" class="shadow-lab-grid">Загрузка...</div>
+      <ul id="shadow-promotions" class="shadow-promotions"></ul>
+    </div>
+  </details>
+
+  <footer class="v16-footer">
+    <span id="app-version-footer">TradeSim v{{ version }}</span>
+    <div class="footer-actions">
+      <input id="api-token-input" type="password" placeholder="API-токен" class="token-input" />
+      <button id="btn-save-token" class="btn ghost small">🔐</button>
+      <button id="btn-export" class="btn ghost small">Экспорт</button>
+      <button id="btn-reset" class="btn ghost small">Сброс</button>
+      <button id="btn-reset-full" class="btn ghost small">Полный сброс</button>
+    </div>
+  </footer>
+
+  <div id="orders-modal" class="agent-modal hidden">
+    <div class="agent-modal-inner orders-modal-inner">
+      <button type="button" id="orders-modal-close" class="btn ghost small">✕</button>
+      <h3>📋 Открытые ордера</h3>
+      <p class="muted">Paper limit + биржа (Testnet/Live). Нажми ✕ чтобы отменить.</p>
+      <div id="orders-modal-body" class="orders-modal-body muted">Загрузка...</div>
+    </div>
+  </div>
+
+  <div id="withdraw-modal" class="agent-modal hidden">
+    <div class="agent-modal-inner deposit-modal-inner">
+      <button type="button" id="withdraw-modal-close" class="btn ghost small">✕</button>
+      <h3>💸 Вывести USDT</h3>
+      <p class="muted">Paper — с виртуального счёта. Биржа — реальный вывод (Testnet/Live).</p>
+      <form id="withdraw-form" class="deposit-form">
+        <label>Кошелёк</label>
+        <select id="withdraw-wallet">
+          <option value="paper">📄 Paper (виртуальный)</option>
+          <option value="exchange">🏦 Биржа (Binance)</option>
+        </select>
+        <label>Сумма ($)</label>
+        <input id="withdraw-amount" type="number" min="1" max="100000" value="100" step="1" />
+        <div id="withdraw-paper-fields">
+          <label>Откуда</label>
+          <select id="withdraw-target">
+            <option value="split">Со всех рынков поровну</option>
+            <option value="symbol">С выбранной монеты</option>
+          </select>
+          <label id="withdraw-symbol-label" class="hidden">Монета</label>
+          <select id="withdraw-symbol" class="hidden"></select>
+        </div>
+        <div id="withdraw-exchange-fields" class="hidden">
+          <label>Адрес USDT</label>
+          <input id="withdraw-address" type="text" placeholder="TRC20 / BEP20 адрес" />
+          <label>Сеть</label>
+          <select id="withdraw-network">
+            <option value="TRC20">TRC20</option>
+            <option value="BSC">BSC (BEP20)</option>
+            <option value="ETH">ERC20</option>
+          </select>
+          <label class="muted"><input type="checkbox" id="withdraw-confirm-live" /> Подтверждаю Live вывод</label>
+        </div>
+        <button type="submit" class="btn">Вывести</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="deposit-modal" class="agent-modal hidden">
+    <div class="agent-modal-inner deposit-modal-inner">
+      <button type="button" id="deposit-modal-close" class="btn ghost small">✕</button>
+      <h3>💵 Пополнить paper-счёт</h3>
+      <p class="muted">Виртуальные USDT — сразу доступны для торговли ботов.</p>
+      <form id="deposit-form" class="deposit-form">
+        <label>Сумма ($)</label>
+        <input id="deposit-amount" type="number" min="1" max="100000" value="500" step="1" />
+        <label>Куда</label>
+        <select id="deposit-target">
+          <option value="split">На все 17 рынков поровну</option>
+          <option value="symbol">На выбранную монету</option>
+        </select>
+        <label id="deposit-symbol-label" class="hidden">Монета</label>
+        <select id="deposit-symbol" class="hidden"></select>
+        <button type="submit" class="btn">Пополнить и торговать</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <div id="agent-modal" class="agent-modal hidden">
+    <div class="agent-modal-inner">
+      <button type="button" id="agent-modal-close" class="btn ghost small">✕</button>
+      <div id="agent-modal-body"></div>
+    </div>
+  </div>
+  <script id="initial-data" type="application/json">{{ initial_json | default('{}') | safe }}</script>
+  <div id="js-error" class="js-error" style="display:none"></div>
+  <script src="/static/app.js?v={{ version }}"></script>
+</body>
+</html>
